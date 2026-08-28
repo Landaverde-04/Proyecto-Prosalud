@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Clínica ProSalud">
+  <rect x="4" y="4" width="472" height="202" rx="10" ry="10" fill="#FFFFFF" stroke="#1E251F" stroke-width="2"/>
+  <text x="240" y="46" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="3" fill="#1E251F">CLÍNICA</text>
+  <text x="240" y="118" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="58" font-weight="800">
+    <tspan fill="#0F6E56">PR</tspan><tspan fill="#C0392B">&#9829;</tspan><tspan fill="#0F6E56">SALUD</tspan>
+  </text>
+  <text x="240" y="155" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="2.5" fill="#1E251F">CONSULTA MÉDICA</text>
+  <text x="240" y="180" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="1" fill="#1E251F">ODONTOLOGÍA Y LABORATORIO</text>
+</svg>

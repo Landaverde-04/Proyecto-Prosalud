@@ -1,0 +1,152 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}{{ accion }} usuario - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0 fw-semibold">{{ accion }} usuario</h4>
+    <a href="{% url 'seguridad:lista_usuarios' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-left"></i> Volver
+    </a>
+</div>
+
+<div class="card shadow-sm mx-auto" style="max-width: 640px;">
+    <div class="card-body p-4">
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            {# Nombre y Apellido en dos columnas #}
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.first_name.id_for_label }}" class="form-label">Nombre</label>
+                    <input type="text"
+                           name="{{ form.first_name.html_name }}"
+                           id="{{ form.first_name.id_for_label }}"
+                           class="form-control {% if form.first_name.errors %}is-invalid{% endif %}"
+                           value="{{ form.first_name.value|default:'' }}">
+                    {% for error in form.first_name.errors %}
+                        <div class="invalid-feedback">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.last_name.id_for_label }}" class="form-label">Apellido</label>
+                    <input type="text"
+                           name="{{ form.last_name.html_name }}"
+                           id="{{ form.last_name.id_for_label }}"
+                           class="form-control {% if form.last_name.errors %}is-invalid{% endif %}"
+                           value="{{ form.last_name.value|default:'' }}">
+                    {% for error in form.last_name.errors %}
+                        <div class="invalid-feedback">{{ error }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="{{ form.username.id_for_label }}" class="form-label">Nombre de usuario</label>
+                <input type="text"
+                       name="{{ form.username.html_name }}"
+                       id="{{ form.username.id_for_label }}"
+                       class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                       value="{{ form.username.value|default:'' }}">
+                {% for error in form.username.errors %}
+                    <div class="invalid-feedback">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div class="mb-3">
+                <label for="{{ form.email.id_for_label }}" class="form-label">Correo electrónico</label>
+                <input type="email"
+                       name="{{ form.email.html_name }}"
+                       id="{{ form.email.id_for_label }}"
+                       class="form-control {% if form.email.errors %}is-invalid{% endif %}"
+                       value="{{ form.email.value|default:'' }}">
+                {% for error in form.email.errors %}
+                    <div class="invalid-feedback">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            {# Campos de contraseña solo al crear #}
+            {% if form.password1 %}
+            <div class="mb-3">
+                <label for="{{ form.password1.id_for_label }}" class="form-label">Contraseña</label>
+                <input type="password"
+                       name="{{ form.password1.html_name }}"
+                       id="{{ form.password1.id_for_label }}"
+                       class="form-control {% if form.password1.errors %}is-invalid{% endif %}">
+                {% for error in form.password1.errors %}
+                    <div class="invalid-feedback">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="mb-3">
+                <label for="{{ form.password2.id_for_label }}" class="form-label">Confirmar contraseña</label>
+                <input type="password"
+                       name="{{ form.password2.html_name }}"
+                       id="{{ form.password2.id_for_label }}"
+                       class="form-control {% if form.password2.errors %}is-invalid{% endif %}">
+                {% for error in form.password2.errors %}
+                    <div class="invalid-feedback">{{ error }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {# Roles (checkboxes de grupos) #}
+            <div class="mb-3">
+                <label class="form-label">Roles</label>
+                {% if form.groups.field.queryset.exists %}
+                    <div class="border rounded p-3">
+                        {% for checkbox in form.groups %}
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       name="{{ form.groups.html_name }}"
+                                       value="{{ checkbox.data.value }}"
+                                       id="{{ checkbox.id_for_label }}"
+                                       {% if checkbox.data.selected %}checked{% endif %}>
+                                <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                                    {{ checkbox.choice_label }}
+                                </label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted small mb-0">No hay roles creados aún.</p>
+                {% endif %}
+                {% for error in form.groups.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            {# Estado activo #}
+            <div class="mb-4">
+                <div class="form-check">
+                    <input type="checkbox"
+                           name="{{ form.is_active.html_name }}"
+                           id="{{ form.is_active.id_for_label }}"
+                           class="form-check-input"
+                           {% if form.is_active.value %}checked{% endif %}>
+                    <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                        Usuario activo
+                    </label>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary d-flex align-items-center gap-2">
+                    <i class="bi bi-check-lg"></i> {{ accion }}
+                </button>
+                <a href="{% url 'seguridad:lista_usuarios' %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+{% endblock %}

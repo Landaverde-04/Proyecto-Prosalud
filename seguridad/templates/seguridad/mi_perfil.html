@@ -1,0 +1,97 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}Mi perfil - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="mb-4">
+    <h4 class="mb-0 fw-semibold">Mi perfil</h4>
+</div>
+
+<div class="d-flex justify-content-center">
+<div style="width: 100%; max-width: 900px;">
+
+    <div class="row g-4">
+
+        <div class="col-md-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-header fw-semibold bg-white py-3">
+                    <i class="bi bi-person me-2 text-muted"></i>Información personal
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-borderless mb-0">
+                        <tbody>
+                            <tr class="border-bottom">
+                                <td class="text-muted ps-4" style="width: 40%;">Usuario</td>
+                                <td class="fw-medium">{{ user.username }}</td>
+                            </tr>
+                            <tr class="border-bottom">
+                                <td class="text-muted ps-4">Nombre</td>
+                                <td>{{ user.first_name|default:"—" }}</td>
+                            </tr>
+                            <tr class="border-bottom">
+                                <td class="text-muted ps-4">Apellido</td>
+                                <td>{{ user.last_name|default:"—" }}</td>
+                            </tr>
+                            <tr class="border-bottom">
+                                <td class="text-muted ps-4">Correo</td>
+                                <td>{{ user.email|default:"—" }}</td>
+                            </tr>
+                            <tr class="border-bottom">
+                                <td class="text-muted ps-4">Fecha de registro</td>
+                                <td>{{ user.date_joined|date:"d/m/Y H:i" }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted ps-4">Último acceso</td>
+                                <td>
+                                    {% if user.last_login %}
+                                        {{ user.last_login|date:"d/m/Y H:i" }}
+                                    {% else %}
+                                        <span class="text-muted">Nunca</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-header fw-semibold bg-white py-3">
+                    <i class="bi bi-shield-lock me-2 text-muted"></i>Roles asignados
+                </div>
+                <div class="card-body">
+                    {% with roles=user.groups.all %}
+                        {% if roles %}
+                            <div class="d-flex flex-column gap-2">
+                                {% for rol in roles %}
+                                    <div class="p-2 rounded border">
+                                        <span class="fw-medium small">{{ rol.name }}</span>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="text-center py-3 text-muted">
+                                <i class="bi bi-shield d-block mb-2 fs-4 opacity-25"></i>
+                                <small>Sin roles asignados</small>
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="mt-4">
+        <a href="{% url 'seguridad:cambiar_password' %}" class="btn btn-outline-danger btn-sm d-inline-flex align-items-center gap-2">
+            <i class="bi bi-key"></i> Cambiar contraseña
+        </a>
+    </div>
+
+</div>
+</div>
+
+{% endblock %}

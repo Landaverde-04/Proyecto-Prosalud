@@ -1,0 +1,108 @@
+<aside id="sidebar" class="d-flex flex-column" style="min-width: 240px; max-width: 240px; background-color: var(--sidebar); min-height: 100vh;">
+
+    {# Marca del sistema + botón de colapso #}
+    <div class="px-3 py-3 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+        {% load static %}
+        <a href="{% url 'core:home' %}" class="text-white text-decoration-none d-flex align-items-center gap-2 overflow-hidden">
+            <i class="bi bi-heart-pulse-fill fs-5 flex-shrink-0 sidebar-collapsed-only" style="color: var(--sidebar-item);"></i>
+            <img src="{% static 'core/img/logo_prosalud.svg' %}" alt="Clínica ProSalud" class="sidebar-label" style="max-width: 170px; height: auto;">
+        </a>
+        <button id="sidebar-toggle"
+                class="btn btn-sm d-flex align-items-center justify-content-center flex-shrink-0 ms-1"
+                style="color: rgba(255,255,255,0.45); background: none; border: none; width: 28px; height: 28px; padding: 0;">
+            <i class="bi bi-chevron-left d-none d-md-inline sidebar-chevron"></i>
+            <i class="bi bi-x-lg d-inline d-md-none"></i>
+        </button>
+    </div>
+
+    {# Links de navegacion #}
+    <nav class="flex-grow-1 px-2 py-3">
+        <ul class="nav flex-column gap-1">
+
+            <li class="nav-item">
+                <a href="{% url 'core:home' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.view_name == 'core:home' %}active{% endif %}"
+                   title="Inicio">
+                    <i class="bi bi-speedometer2 flex-shrink-0"></i>
+                    <span class="sidebar-label">Inicio</span>
+                </a>
+            </li>
+
+            {# Seccion Seguridad: solo se muestra si tiene acceso a al menos un item #}
+            {% if perms.seguridad.view_usuario or perms.auth.view_group %}
+            <li class="sidebar-seccion mt-3 mb-1 px-3">
+                <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Seguridad</span>
+            </li>
+
+            {% if perms.seguridad.view_usuario %}
+            <li class="nav-item">
+                <a href="{% url 'seguridad:lista_usuarios' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if '/seguridad/usuarios' in request.path %}active{% endif %}"
+                   title="Usuarios">
+                    <i class="bi bi-people flex-shrink-0"></i>
+                    <span class="sidebar-label">Usuarios</span>
+                </a>
+            </li>
+            {% endif %}
+
+            {% if perms.auth.view_group %}
+            <li class="nav-item">
+                <a href="{% url 'seguridad:lista_roles' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if '/seguridad/roles' in request.path %}active{% endif %}"
+                   title="Roles">
+                    <i class="bi bi-shield-lock flex-shrink-0"></i>
+                    <span class="sidebar-label">Roles</span>
+                </a>
+            </li>
+            {% endif %}
+            {% endif %}
+
+            {# Seccion Inventario #}
+            <li class="sidebar-seccion mt-3 mb-1 px-3">
+                <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Inventario</span>
+            </li>
+
+            <li class="nav-item">
+                <a href="#"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
+                   title="Productos">
+                    <i class="bi bi-box-seam flex-shrink-0"></i>
+                    <span class="sidebar-label">Productos</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a href="#"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
+                   title="Categorías">
+                    <i class="bi bi-tags flex-shrink-0"></i>
+                    <span class="sidebar-label">Categorías</span>
+                </a>
+            </li>
+
+        </ul>
+    </nav>
+
+    {# Usuario y cierre de sesion #}
+    <div class="px-2 py-3" style="border-top: 1px solid rgba(255,255,255,0.08);">
+        {% if user.is_authenticated %}
+            <a href="{% url 'seguridad:mi_perfil' %}"
+               class="sidebar-link d-flex align-items-center gap-2 mb-2 px-3 py-2 rounded"
+               title="{{ user.username }}">
+                <i class="bi bi-person-circle fs-5 flex-shrink-0"></i>
+                <span class="small sidebar-label">{{ user.username }}</span>
+            </a>
+            <form method="post" action="{% url 'seguridad:logout' %}">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-sm w-100 d-flex align-items-center justify-content-center gap-2"
+                        style="background-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.12);"
+                        title="Cerrar sesión">
+                    <i class="bi bi-box-arrow-left flex-shrink-0"></i>
+                    <span class="sidebar-label">Cerrar sesión</span>
+                </button>
+            </form>
+        {% endif %}
+    </div>
+
+</aside>

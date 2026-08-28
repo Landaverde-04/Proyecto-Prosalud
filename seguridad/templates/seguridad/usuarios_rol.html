@@ -1,0 +1,103 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}Usuarios del rol {{ rol.name }} - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Usuarios del rol</h4>
+        <span class="text-muted small">{{ rol.name }}</span>
+    </div>
+    <a href="{% url 'seguridad:lista_roles' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-left"></i> Volver a roles
+    </a>
+</div>
+
+<div class="row g-4">
+
+    {# Usuarios que ya tienen el rol #}
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header d-flex align-items-center gap-2 bg-success-subtle">
+                <i class="bi bi-person-check text-success"></i>
+                <span class="fw-semibold text-success">Con este rol</span>
+                <span class="badge bg-success ms-auto">{{ usuarios_con_rol.count }}</span>
+            </div>
+            {% if usuarios_con_rol %}
+                <ul class="list-group list-group-flush">
+                    {% for usuario in usuarios_con_rol %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-person-circle text-muted"></i>
+                                <div>
+                                    <span class="fw-medium">{{ usuario.username }}</span>
+                                    {% if usuario.get_full_name %}
+                                        <small class="text-muted d-block" style="line-height: 1.2;">{{ usuario.get_full_name }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="quitar">
+                                <input type="hidden" name="usuario_id" value="{{ usuario.pk }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Quitar del rol">
+                                    <i class="bi bi-person-dash"></i>
+                                </button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <div class="card-body text-center text-muted py-4">
+                    <i class="bi bi-people fs-3 d-block mb-2 opacity-25"></i>
+                    <small>Ningún usuario tiene este rol aún.</small>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Usuarios disponibles para agregar #}
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header d-flex align-items-center gap-2 bg-light">
+                <i class="bi bi-person-plus text-muted"></i>
+                <span class="fw-semibold text-muted">Disponibles para agregar</span>
+                <span class="badge bg-secondary ms-auto">{{ usuarios_sin_rol.count }}</span>
+            </div>
+            {% if usuarios_sin_rol %}
+                <ul class="list-group list-group-flush">
+                    {% for usuario in usuarios_sin_rol %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-person-circle text-muted opacity-50"></i>
+                                <div>
+                                    <span class="fw-medium">{{ usuario.username }}</span>
+                                    {% if usuario.get_full_name %}
+                                        <small class="text-muted d-block" style="line-height: 1.2;">{{ usuario.get_full_name }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="agregar">
+                                <input type="hidden" name="usuario_id" value="{{ usuario.pk }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="Agregar al rol">
+                                    <i class="bi bi-person-plus"></i>
+                                </button>
+                            </form>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <div class="card-body text-center text-muted py-4">
+                    <i class="bi bi-check-circle fs-3 d-block mb-2 opacity-25"></i>
+                    <small>Todos los usuarios ya tienen este rol.</small>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

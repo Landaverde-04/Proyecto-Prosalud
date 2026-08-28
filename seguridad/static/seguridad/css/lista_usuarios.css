@@ -1,0 +1,15 @@
+/* Columnas ordenables en la tabla de usuarios */
+.table-dark th.col-sort {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Color sólido para evitar que el fondo claro de la página se transparente */
+.table-dark th.col-sort:hover {
+    background-color: var(--sidebar-line) !important;
+}
+
+.sort-icon {
+    font-size: 0.7rem;
+    vertical-align: middle;
+}

@@ -1,0 +1,31 @@
+# Entorno virtual
+venv/
+
+# Variables de entorno (NUNCA subir al repo)
+.env
+
+# Base de datos SQLite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Django
+*.log
+local_settings.py
+
+# Estaticos recolectados por collectstatic (se regeneran en cada deploy)
+/staticfiles/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Notas y configuracion internas -- no se suben a este repo
+.claude/
+CLAUDE.md
+CLAUDE.*.md
+README.md

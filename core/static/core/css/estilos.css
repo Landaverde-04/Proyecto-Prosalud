@@ -1,0 +1,185 @@
+/* Estilos personalizados del sistema */
+
+/* ============================================================
+   Paleta "Verde salud" -- decidida con la doctora sobre el mockup
+   (Mockup_Historial_Medico.html). Toda vista la hereda via estas
+   variables al extender core/base.html -- no redefinir colores de
+   marca en el CSS de otra app.
+   ============================================================ */
+:root {
+    --accent: #0F6E56;
+    --accent-rgb: 15, 110, 86;
+    --accent-hover: #0D5E49;
+    --accent-active: #0B5341;
+    --accent-soft: #E1F5EE;
+    --accent-border-subtle: #BEE6D9;
+
+    --sidebar: #0A2A22;
+    --sidebar-line: #123527;
+    --sidebar-active: #0F6E56;
+    --sidebar-label: #5DCAA5;
+    --sidebar-item: #9FE1CB;
+
+    --page: #F5F8F5;
+    --line: #E1E6E1;
+    --text: #1E251F;
+    --text-sec: #636B63;
+
+    /* Variables que Bootstrap SI consume dinamicamente en utilidades
+       (.bg-primary, .text-primary, .border-primary, enlaces, foco) */
+    --bs-primary: var(--accent);
+    --bs-primary-rgb: var(--accent-rgb);
+    --bs-primary-bg-subtle: var(--accent-soft);
+    --bs-primary-border-subtle: var(--accent-border-subtle);
+    --bs-link-color: var(--accent);
+    --bs-link-color-rgb: var(--accent-rgb);
+    --bs-link-hover-color: var(--accent-hover);
+    --bs-link-hover-color-rgb: 13, 94, 73;
+    --bs-light: var(--page);
+    --bs-border-color: var(--line);
+    --bs-body-color: var(--text);
+    --bs-secondary-color: var(--text-sec);
+}
+
+/* Los componentes de Bootstrap (botones, tablas) NO leen --bs-primary
+   en vivo -- traen su color ya resuelto en el CSS compilado del CDN.
+   Como no compilamos Sass, se sobreescriben sus variables locales por
+   componente -- es la forma que Bootstrap 5.3 documenta para temas
+   sin build step. */
+.btn-primary {
+    --bs-btn-bg: var(--accent);
+    --bs-btn-border-color: var(--accent);
+    --bs-btn-hover-bg: var(--accent-hover);
+    --bs-btn-hover-border-color: var(--accent-hover);
+    --bs-btn-active-bg: var(--accent-active);
+    --bs-btn-active-border-color: var(--accent-active);
+    --bs-btn-disabled-bg: var(--accent);
+    --bs-btn-disabled-border-color: var(--accent);
+    --bs-btn-focus-shadow-rgb: var(--accent-rgb);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--accent);
+    --bs-btn-border-color: var(--accent);
+    --bs-btn-hover-bg: var(--accent);
+    --bs-btn-hover-border-color: var(--accent);
+    --bs-btn-active-bg: var(--accent-active);
+    --bs-btn-active-border-color: var(--accent-active);
+    --bs-btn-focus-shadow-rgb: var(--accent-rgb);
+}
+
+/* Encabezados de tabla oscuros (listados) -- mismo verde del sidebar,
+   no el gris/negro por defecto de Bootstrap */
+.table-dark {
+    --bs-table-bg: var(--sidebar);
+    --bs-table-border-color: var(--sidebar-line);
+    --bs-table-color: #fff;
+}
+
+/* Links del sidebar */
+.sidebar-link {
+    color: var(--sidebar-item);
+    font-size: 0.9rem;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    text-decoration: none;
+}
+
+.sidebar-link:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.sidebar-link.active {
+    background-color: var(--sidebar-active);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: inset 3px 0 0 #ffffff;
+}
+
+/* Marca del sidebar: logo completo si esta expandido, icono si esta
+   colapsado (el logo horizontal no cabe en los 64px del modo colapsado) */
+.sidebar-collapsed-only {
+    display: none;
+}
+
+#sidebar.sidebar-collapsed .sidebar-collapsed-only {
+    display: inline-flex;
+}
+
+/* ── Toggle de contraseña ── */
+
+/* Ocultar el boton nativo de revelacion del navegador (Edge, IE, Chrome) */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+    display: none;
+}
+
+/* Quitar el icono de validacion de Bootstrap para no solaparse con el toggle */
+input[type="password"].form-control.is-invalid {
+    background-image: none;
+}
+
+/* ── Sidebar responsive ── */
+
+#sidebar {
+    transition: min-width 0.22s ease, max-width 0.22s ease;
+    overflow: hidden;
+}
+
+.sidebar-chevron {
+    transition: transform 0.22s ease;
+}
+
+/* Estado colapsado — escritorio */
+#sidebar.sidebar-collapsed {
+    min-width: 64px !important;
+    max-width: 64px !important;
+}
+
+#sidebar.sidebar-collapsed .sidebar-label,
+#sidebar.sidebar-collapsed .sidebar-seccion {
+    display: none !important;
+}
+
+#sidebar.sidebar-collapsed .sidebar-link {
+    justify-content: center;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+#sidebar.sidebar-collapsed .sidebar-chevron {
+    transform: rotate(180deg);
+}
+
+/* Móvil: sidebar fuera de pantalla por defecto */
+@media (max-width: 767.98px) {
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        z-index: 1045;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease !important;
+        min-width: 240px !important;
+        max-width: 240px !important;
+    }
+
+    #sidebar.sidebar-open {
+        transform: translateX(0);
+    }
+}
+
+/* Backdrop móvil */
+#sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1044;
+    cursor: pointer;
+}
+
+#sidebar-backdrop.show {
+    display: block;
+}

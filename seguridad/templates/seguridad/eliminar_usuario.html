@@ -1,0 +1,35 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}Eliminar usuario - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0 fw-semibold">Eliminar usuario</h4>
+    <a href="{% url 'seguridad:lista_usuarios' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-left"></i> Volver
+    </a>
+</div>
+
+<div class="card shadow-sm border-danger" style="max-width: 480px;">
+    <div class="card-body p-4">
+        <div class="d-flex align-items-start gap-3 mb-4">
+            <i class="bi bi-exclamation-triangle-fill text-danger fs-3 mt-1"></i>
+            <div>
+                <p class="mb-1">¿Estás seguro de que deseas eliminar al usuario <strong>{{ usuario.username }}</strong>?</p>
+                <small class="text-muted">Esta acción no se puede deshacer.</small>
+            </div>
+        </div>
+        <form method="post">
+            {% csrf_token %}
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-danger d-flex align-items-center gap-2">
+                    <i class="bi bi-trash"></i> Sí, eliminar
+                </button>
+                <a href="{% url 'seguridad:lista_usuarios' %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

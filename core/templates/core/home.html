@@ -1,0 +1,11 @@
+{# Esta pagina hereda toda la estructura de base.html (html, head, navbar, footer) #}
+{% extends "core/base.html" %}
+
+{# Sobreescribe el titulo del <title> en el <head> #}
+{% block titulo %}Inicio - Sistema ProSalud{% endblock %}
+
+{# Todo lo que va aqui aparece dentro del <main> de base.html #}
+{% block contenido %}
+<h1>Bienvenido a Sistema ProSalud</h1>
+<p>Gestión de historial médico de Clínica ProSalud.</p>
+{% endblock %}
