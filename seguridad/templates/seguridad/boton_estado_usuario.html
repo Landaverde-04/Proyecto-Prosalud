@@ -1,0 +1,39 @@
+{% comment %}
+Botón Activar / Desactivar usuario.
+
+Los usuarios no se eliminan (regla del proyecto): se desactivan con
+is_active. Este parcial decide solo el texto, el color y el ícono según
+el estado actual.
+
+Contexto requerido:  usuario
+Contexto opcional:   con_texto  -- muestra la etiqueta además del ícono
+
+No se muestra sobre la cuenta propia, para que nadie se deje fuera del
+sistema. El backend valida lo mismo, esto es solo la parte visual.
+{% endcomment %}
+{% if perms.seguridad.change_usuario and usuario != request.user %}
+<button type="button"
+        class="btn btn-sm {% if usuario.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}{% if con_texto %} d-inline-flex align-items-center gap-2{% endif %}"
+        data-confirmar
+        data-url="{% url 'seguridad:cambiar_estado_usuario' usuario.id %}"
+        data-nombre="{{ usuario.username }}"
+        {% if usuario.is_active %}
+        title="Desactivar"
+        data-titulo="Desactivar usuario"
+        data-mensaje="¿Desactivar al usuario "
+        data-boton="Sí, desactivar"
+        data-color="warning"
+        data-icono="bi-person-slash"
+        data-nota="No podrá iniciar sesión, pero su historial se conserva. Puedes reactivarlo cuando quieras."
+        {% else %}
+        title="Activar"
+        data-titulo="Activar usuario"
+        data-mensaje="¿Activar al usuario "
+        data-boton="Sí, activar"
+        data-color="success"
+        data-icono="bi-person-check"
+        data-nota="Volverá a poder iniciar sesión con sus credenciales actuales."
+        {% endif %}>
+    <i class="bi {% if usuario.is_active %}bi-person-slash{% else %}bi-person-check{% endif %}"></i>{% if con_texto %} {% if usuario.is_active %}Desactivar{% else %}Activar{% endif %} usuario{% endif %}
+</button>
+{% endif %}

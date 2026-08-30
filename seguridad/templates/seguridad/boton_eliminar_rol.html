@@ -1,0 +1,26 @@
+{% comment %}
+Botón Eliminar rol.
+
+Los roles sí se pueden eliminar: son configuración del sistema, no datos
+clínicos. Borrar uno solo desasigna a los usuarios que lo tenían, por eso
+el modal avisa cuántos son antes de confirmar.
+
+Contexto requerido:  rol  (con total_usuarios anotado desde la vista)
+{% endcomment %}
+{% if perms.auth.delete_group %}
+<button type="button"
+        class="btn btn-sm btn-outline-danger"
+        data-confirmar
+        data-url="{% url 'seguridad:eliminar_rol' rol.id %}"
+        data-nombre="{{ rol.name }}"
+        data-titulo="Eliminar rol"
+        data-mensaje="¿Estás seguro de que deseas eliminar el rol "
+        data-boton="Sí, eliminar"
+        data-color="danger"
+        data-icono="bi-trash-fill"
+        data-nota="Esta acción no se puede deshacer."
+        {% if rol.total_usuarios %}data-aviso="Este rol tiene {{ rol.total_usuarios }} usuario{{ rol.total_usuarios|pluralize }} asignado{{ rol.total_usuarios|pluralize }}. {{ rol.total_usuarios|pluralize:"Será,Serán" }} desvinculado{{ rol.total_usuarios|pluralize }} del rol."{% endif %}
+        title="Eliminar">
+    <i class="bi bi-trash"></i>
+</button>
+{% endif %}
