@@ -23,9 +23,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     # Apps del proyecto
     'core',
     'seguridad',
+    'pacientes',
 ]
 
 MIDDLEWARE = [
@@ -63,8 +65,12 @@ WSGI_APPLICATION = 'sistema_prosalud.wsgi.application'
 # Base de datos
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': env('DB_NAME'),
+        'USER': env('DB_USER'),
+        'PASSWORD': env('DB_PASSWORD'),
+        'HOST': env('DB_HOST'),
+        'PORT': env('DB_PORT', default='5432'),
     }
 }
 
@@ -119,6 +125,14 @@ AUTH_USER_MODEL = 'seguridad.Usuario'
 LOGIN_URL = '/seguridad/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/seguridad/login/'
+
+# Cierre de sesion por inactividad (pedido explicito de la clinica).
+# SESSION_SAVE_EVERY_REQUEST es la pieza clave: sin ella, SESSION_COOKIE_AGE
+# cuenta desde el login, no desde la ultima actividad. Con ella, cada
+# request empuja el vencimiento hacia adelante -- solo expira si de verdad
+# no hay actividad durante ese tiempo.
+SESSION_COOKIE_AGE = 60 * 30  # 30 minutos de inactividad
+SESSION_SAVE_EVERY_REQUEST = True
 
 # Mapeo de etiquetas de mensajes a clases de Bootstrap
 from django.contrib.messages import constants as messages_const
