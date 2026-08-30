@@ -1,0 +1,208 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Nuevo paciente - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex align-items-center gap-2 mb-1">
+    <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-sm btn-outline-secondary" title="Volver">
+        <i class="bi bi-arrow-left"></i>
+    </a>
+    <h4 class="mb-0 fw-semibold d-flex align-items-center gap-2">
+        Registrar paciente
+        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fw-normal" style="font-size: 0.65rem;">
+            Vista previa
+        </span>
+    </h4>
+</div>
+<p class="text-muted small mb-4">
+    Al guardar, este paciente se agrega a la lista de ejemplo (solo en este navegador).
+</p>
+
+<div class="card shadow-sm" style="max-width: 720px;">
+    <div class="card-body p-4">
+
+        <form id="form-nuevo-paciente" novalidate>
+
+            {# Adulto / menor #}
+            <div class="mb-4">
+                <label class="form-label small text-muted mb-2">Tipo de paciente</label>
+                <div class="btn-group w-100" role="group">
+                    <input type="radio" class="btn-check" name="tipo" id="tipo-adulto" value="adulto" checked>
+                    <label class="btn btn-outline-primary" for="tipo-adulto">
+                        <i class="bi bi-person"></i> Adulto
+                    </label>
+                    <input type="radio" class="btn-check" name="tipo" id="tipo-menor" value="menor">
+                    <label class="btn btn-outline-primary" for="tipo-menor">
+                        <i class="bi bi-person-heart"></i> Menor de edad
+                    </label>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-2">
+                <div class="col-md-6">
+                    <label for="nombres" class="form-label small">Nombres *</label>
+                    <input type="text" class="form-control" id="nombres" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="apellidos" class="form-label small">Apellidos *</label>
+                    <input type="text" class="form-control" id="apellidos" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="fecha-nacimiento" class="form-label small">Fecha de nacimiento *</label>
+                    <input type="date" class="form-control" id="fecha-nacimiento" required>
+                </div>
+                <div class="col-md-6">
+                    <label for="dui-paciente" class="form-label small">DUI <span class="text-muted">(opcional)</span></label>
+                    <input type="text" class="form-control" id="dui-paciente" placeholder="00000000-0">
+                </div>
+                <div class="col-md-6">
+                    <label for="telefono-paciente" class="form-label small">Teléfono <span class="text-muted">(opcional)</span></label>
+                    <input type="text" class="form-control" id="telefono-paciente" placeholder="0000-0000">
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            {# Contacto de referencia -- adulto #}
+            <div id="bloque-contacto">
+                <h6 class="fw-semibold mb-3">Contacto de referencia</h6>
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label for="contacto-nombre" class="form-label small">Nombre *</label>
+                        <input type="text" class="form-control" id="contacto-nombre">
+                    </div>
+                    <div class="col-md-4">
+                        <label for="contacto-parentesco" class="form-label small">Parentesco *</label>
+                        <input type="text" class="form-control" id="contacto-parentesco">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="contacto-telefono" class="form-label small">Teléfono *</label>
+                        <input type="text" class="form-control" id="contacto-telefono" placeholder="0000-0000">
+                    </div>
+                </div>
+            </div>
+
+            {# Responsable -- menor #}
+            <div id="bloque-responsable" class="d-none">
+                <h6 class="fw-semibold mb-3">Datos del responsable</h6>
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label for="responsable-nombre" class="form-label small">Nombre *</label>
+                        <input type="text" class="form-control" id="responsable-nombre">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="responsable-parentesco" class="form-label small">Parentesco *</label>
+                        <input type="text" class="form-control" id="responsable-parentesco">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="responsable-telefono" class="form-label small">Teléfono *</label>
+                        <input type="text" class="form-control" id="responsable-telefono" placeholder="0000-0000">
+                    </div>
+                    <div class="col-md-2">
+                        <label for="responsable-dui" class="form-label small">DUI <span class="text-muted">(opcional)</span></label>
+                        <input type="text" class="form-control" id="responsable-dui" placeholder="00000000-0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary d-flex align-items-center gap-2">
+                    <i class="bi bi-check-lg"></i> Guardar paciente
+                </button>
+            </div>
+
+        </form>
+
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/pacientes-mock.js' %}"></script>
+<script>
+(function () {
+    var radiosTipo = document.querySelectorAll('input[name="tipo"]');
+    var bloqueContacto = document.getElementById('bloque-contacto');
+    var bloqueResponsable = document.getElementById('bloque-responsable');
+    var form = document.getElementById('form-nuevo-paciente');
+
+    function esMenor() {
+        return document.getElementById('tipo-menor').checked;
+    }
+
+    function actualizarBloques() {
+        bloqueContacto.classList.toggle('d-none', esMenor());
+        bloqueResponsable.classList.toggle('d-none', !esMenor());
+    }
+
+    radiosTipo.forEach(function (radio) {
+        radio.addEventListener('change', actualizarBloques);
+    });
+
+    // Si la fecha de nacimiento indica menor de 18, sugerir el toggle
+    // automaticamente (la doctora igual puede corregirlo a mano).
+    document.getElementById('fecha-nacimiento').addEventListener('change', function () {
+        var edad = PacientesDemo.calcularEdad(this.value);
+        if (edad === null) return;
+        document.getElementById(edad < 18 ? 'tipo-menor' : 'tipo-adulto').checked = true;
+        actualizarBloques();
+    });
+
+    form.addEventListener('submit', function (evento) {
+        evento.preventDefault();
+
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+
+        var paciente = {
+            tipo: esMenor() ? 'menor' : 'adulto',
+            nombres: document.getElementById('nombres').value.trim(),
+            apellidos: document.getElementById('apellidos').value.trim(),
+            fechaNacimiento: document.getElementById('fecha-nacimiento').value,
+            dui: document.getElementById('dui-paciente').value.trim(),
+            telefono: document.getElementById('telefono-paciente').value.trim()
+        };
+
+        if (esMenor()) {
+            var responsableNombre = document.getElementById('responsable-nombre').value.trim();
+            var responsableParentesco = document.getElementById('responsable-parentesco').value.trim();
+            var responsableTelefono = document.getElementById('responsable-telefono').value.trim();
+            if (!responsableNombre || !responsableParentesco || !responsableTelefono) {
+                alert('Completa el nombre, parentesco y teléfono del responsable.');
+                return;
+            }
+            paciente.responsable = {
+                nombre: responsableNombre,
+                parentesco: responsableParentesco,
+                telefono: responsableTelefono,
+                dui: document.getElementById('responsable-dui').value.trim()
+            };
+        } else {
+            var contactoNombre = document.getElementById('contacto-nombre').value.trim();
+            var contactoParentesco = document.getElementById('contacto-parentesco').value.trim();
+            var contactoTelefono = document.getElementById('contacto-telefono').value.trim();
+            if (!contactoNombre || !contactoParentesco || !contactoTelefono) {
+                alert('Completa el nombre, parentesco y teléfono del contacto de referencia.');
+                return;
+            }
+            paciente.contacto = {
+                nombre: contactoNombre,
+                parentesco: contactoParentesco,
+                telefono: contactoTelefono
+            };
+        }
+
+        var guardado = PacientesDemo.agregarPaciente(paciente);
+        window.location.href = '/pacientes/' + guardado.id + '/';
+    });
+
+    actualizarBloques();
+})();
+</script>
+{% endblock %}
