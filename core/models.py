@@ -47,6 +47,30 @@ class ModeloBase(models.Model):
         abstract = True
 
 
+class Clinica(ModeloBase):
+    """
+    Vive en core porque seguridad (Usuario), pacientes (Expediente) y
+    consultas (Consulta, via Expediente) necesitan referenciarla por
+    igual -- ponerla en cualquiera de las apps de negocio obligaria a
+    la otra a depender de ella solo por esto.
+
+    Multiclinica desde TEC-01, aunque en la entrega de agosto solo
+    opera ProSalud.
+    """
+
+    nombre = models.CharField(max_length=150)
+    direccion = models.CharField(max_length=255, blank=True)
+    telefono = models.CharField(max_length=20, blank=True)
+    logo = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = 'clínica'
+        verbose_name_plural = 'clínicas'
+
+    def __str__(self):
+        return self.nombre
+
+
 class RegistroAuditoria(models.Model):
     """
     Bitacora de acciones sensibles del sistema.
