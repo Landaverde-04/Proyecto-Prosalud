@@ -1,8 +1,10 @@
 from django.urls import path
-from . import views  # noqa: F401
+from . import views
 
 app_name = 'pacientes'
 
 urlpatterns = [
-    # Sin rutas todavia -- se agregan al construir HU-EXP-01 en adelante.
+    path('', views.lista_pacientes, name='lista_pacientes'),
+    path('nuevo-adulto/', views.registrar_adulto, name='registrar_adulto'),
+    path('buscar-persona/', views.buscar_persona, name='buscar_persona'),
 ]

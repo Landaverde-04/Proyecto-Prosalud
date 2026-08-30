@@ -1,0 +1,10 @@
+/* El boton que abre/cierra la seccion de contacto: el chevron
+   apunta hacia abajo cuando esta cerrada (invita a abrirla) y
+   rota hacia arriba cuando esta abierta. */
+#boton-seccion-contacto .chevron-colapsable {
+    transition: transform 0.2s ease;
+}
+
+#boton-seccion-contacto:not(.collapsed) .chevron-colapsable {
+    transform: rotate(180deg);
+}

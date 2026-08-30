@@ -9,10 +9,11 @@
 <h1>Bienvenido a Sistema ProSalud</h1>
 <p class="text-muted mb-4">Gestión de historial médico de Clínica ProSalud.</p>
 
+{% if perms.pacientes.add_persona %}
 <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.8rem; letter-spacing: 0.03em;">ACCESOS RÁPIDOS</h6>
 <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3" style="max-width: 900px;">
     <div class="col">
-        <a href="#" class="card shadow-sm h-100 text-decoration-none text-body tarjeta-atajo">
+        <a href="{% url 'pacientes:registrar_adulto' %}" class="card shadow-sm h-100 text-decoration-none text-body tarjeta-atajo">
             <div class="card-body p-3 d-flex align-items-center gap-3">
                 <div class="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
                      style="width: 44px; height: 44px; background-color: var(--accent-soft);">
@@ -22,16 +23,7 @@
             </div>
         </a>
     </div>
-    <div class="col">
-        <a href="#" class="card shadow-sm h-100 text-decoration-none text-body tarjeta-atajo">
-            <div class="card-body p-3 d-flex align-items-center gap-3">
-                <div class="d-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
-                     style="width: 44px; height: 44px; background-color: var(--accent-soft);">
-                    <i class="bi bi-people-fill fs-5" style="color: var(--accent);"></i>
-                </div>
-                <div class="small fw-semibold">Ver pacientes</div>
-            </div>
-        </a>
-    </div>
 </div>
+{# La tarjeta "Ver pacientes" vuelve cuando exista HU-EXP-04 #}
+{% endif %}
 {% endblock %}

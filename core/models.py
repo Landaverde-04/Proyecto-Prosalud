@@ -64,6 +64,7 @@ class Clinica(ModeloBase):
     logo = models.CharField(max_length=255, blank=True)
 
     class Meta:
+        db_table = 'Clinica'
         verbose_name = 'clínica'
         verbose_name_plural = 'clínicas'
 
@@ -117,6 +118,7 @@ class RegistroAuditoria(models.Model):
     detalle = models.TextField(blank=True)
 
     class Meta:
+        db_table = 'RegistroAuditoria'
         verbose_name = 'registro de auditoría'
         verbose_name_plural = 'registros de auditoría'
         ordering = ['-fecha']

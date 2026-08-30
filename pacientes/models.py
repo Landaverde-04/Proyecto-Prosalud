@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.db import models
 
 from core.models import Clinica, ModeloBase
@@ -20,10 +22,15 @@ class Persona(ModeloBase):
     # indice parcial en Meta.constraints.
     dui = models.CharField('DUI', max_length=10, blank=True)
     telefono = models.CharField(max_length=20, blank=True)
-    fecha_nacimiento = models.DateField()
+    # Opcional: obligatoria para el paciente (HU-EXP-01/02 la exigen en
+    # el formulario), pero un contacto de referencia solo necesita
+    # nombre, parentesco y telefono -- su fecha de nacimiento no
+    # siempre se conoce ni se pide.
+    fecha_nacimiento = models.DateField(null=True, blank=True)
     sexo = models.CharField(max_length=10, blank=True)
 
     class Meta:
+        db_table = 'Persona'
         verbose_name = 'persona'
         verbose_name_plural = 'personas'
         constraints = [
@@ -36,6 +43,17 @@ class Persona(ModeloBase):
 
     def __str__(self):
         return f'{self.nombres} {self.apellidos}'
+
+    @property
+    def edad(self):
+        """None si no hay fecha de nacimiento (los contactos no siempre la tienen)."""
+        if not self.fecha_nacimiento:
+            return None
+        hoy = date.today()
+        edad = hoy.year - self.fecha_nacimiento.year
+        if (hoy.month, hoy.day) < (self.fecha_nacimiento.month, self.fecha_nacimiento.day):
+            edad -= 1
+        return edad
 
 
 class Contacto(ModeloBase):
@@ -54,6 +72,19 @@ class Contacto(ModeloBase):
         RESPONSABLE = 'responsable', 'Responsable'
         REFERENCIA = 'referencia', 'Contacto de referencia'
 
+    class Parentesco(models.TextChoices):
+        # Sin distinguir femenino/masculino: lo que importa es la
+        # relacion, no el genero de quien la tiene.
+        PADRE_MADRE = 'padre_madre', 'Padre/Madre'
+        ESPOSO = 'esposo', 'Esposo(a)'
+        HIJO = 'hijo', 'Hijo(a)'
+        HERMANO = 'hermano', 'Hermano(a)'
+        ABUELO = 'abuelo', 'Abuelo(a)'
+        TIO = 'tio', 'Tío(a)'
+        AMIGO = 'amigo', 'Amigo(a)'
+        VECINO = 'vecino', 'Vecino(a)'
+        OTRO = 'otro', 'Otro'
+
     paciente = models.ForeignKey(
         Persona, on_delete=models.PROTECT, related_name='contactos',
     )
@@ -61,9 +92,17 @@ class Contacto(ModeloBase):
         Persona, on_delete=models.PROTECT, related_name='es_contacto_de',
     )
     tipo = models.CharField(max_length=15, choices=Tipo.choices)
-    parentesco = models.CharField(max_length=50)
+    # Lista cerrada, no texto libre: "hermana", "hrmana", "Hermana",
+    # "hermanas" son la misma relacion pero cuatro valores distintos si
+    # se escriben a mano. "Otro" + parentesco_otro cubre lo que no
+    # encaja en la lista, sin perder el dato.
+    parentesco = models.CharField(max_length=20, choices=Parentesco.choices)
+    parentesco_otro = models.CharField(
+        'detalle si es "otro"', max_length=100, blank=True,
+    )
 
     class Meta:
+        db_table = 'Contacto'
         verbose_name = 'contacto'
         verbose_name_plural = 'contactos'
         constraints = [
@@ -84,6 +123,13 @@ class Contacto(ModeloBase):
     def __str__(self):
         return f'{self.persona_contacto} ({self.get_tipo_display()} de {self.paciente})'
 
+    @property
+    def parentesco_mostrado(self):
+        """'Otro' no dice nada por si solo -- si hay detalle, se muestra ese."""
+        if self.parentesco == self.Parentesco.OTRO and self.parentesco_otro:
+            return self.parentesco_otro
+        return self.get_parentesco_display()
+
 
 class Expediente(ModeloBase):
     """
@@ -101,6 +147,7 @@ class Expediente(ModeloBase):
     fecha_apertura = models.DateField(auto_now_add=True)
 
     class Meta:
+        db_table = 'Expediente'
         verbose_name = 'expediente'
         verbose_name_plural = 'expedientes'
         constraints = [

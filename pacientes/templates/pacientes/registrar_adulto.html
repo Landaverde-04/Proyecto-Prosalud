@@ -1,0 +1,190 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Registrar paciente - Sistema ProSalud{% endblock %}
+
+{% block estilos_extra %}
+<link rel="stylesheet" href="{% static 'pacientes/css/registrar-adulto.css' %}">
+{% endblock %}
+
+{% block contenido %}
+
+<div class="mb-4">
+    <h4 class="mb-0 fw-semibold">Registrar paciente</h4>
+    <p class="text-muted small mb-0">Paciente adulto con su contacto de referencia.</p>
+</div>
+
+<div class="card shadow-sm mx-auto" style="max-width: 720px;">
+    <div class="card-body p-4">
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post" id="form-registrar-adulto" novalidate
+              data-buscar-persona-url="{% url 'pacientes:buscar_persona' %}">
+            {% csrf_token %}
+            {{ form.contacto_persona_id }}
+
+            <h6 class="fw-semibold mb-3">Datos del paciente</h6>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.nombres.id_for_label }}" class="form-label">
+                        Nombres <span class="text-muted fw-normal">(obligatorio)</span>
+                    </label>
+                    <input type="text" name="{{ form.nombres.html_name }}" id="{{ form.nombres.id_for_label }}"
+                           class="form-control form-control-lg {% if form.nombres.errors %}is-invalid{% endif %}"
+                           value="{{ form.nombres.value|default:'' }}" autofocus>
+                    {% for error in form.nombres.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.apellidos.id_for_label }}" class="form-label">
+                        Apellidos <span class="text-muted fw-normal">(obligatorio)</span>
+                    </label>
+                    <input type="text" name="{{ form.apellidos.html_name }}" id="{{ form.apellidos.id_for_label }}"
+                           class="form-control form-control-lg {% if form.apellidos.errors %}is-invalid{% endif %}"
+                           value="{{ form.apellidos.value|default:'' }}">
+                    {% for error in form.apellidos.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.fecha_nacimiento.id_for_label }}" class="form-label">
+                        Fecha de nacimiento <span class="text-muted fw-normal">(obligatorio)</span>
+                    </label>
+                    <input type="date" name="{{ form.fecha_nacimiento.html_name }}" id="{{ form.fecha_nacimiento.id_for_label }}"
+                           class="form-control form-control-lg {% if form.fecha_nacimiento.errors %}is-invalid{% endif %}"
+                           value="{{ form.fecha_nacimiento.value|default:'' }}">
+                    <div class="form-text" id="edad-calculada"></div>
+                    {% for error in form.fecha_nacimiento.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.telefono.id_for_label }}" class="form-label">
+                        Teléfono <span class="text-muted fw-normal">(obligatorio)</span>
+                    </label>
+                    <input type="text" name="{{ form.telefono.html_name }}" id="{{ form.telefono.id_for_label }}"
+                           class="form-control form-control-lg {% if form.telefono.errors %}is-invalid{% endif %}"
+                           value="{{ form.telefono.value|default:'' }}" placeholder="0000-0000" inputmode="numeric" maxlength="9">
+                    {% for error in form.telefono.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.dui.id_for_label }}" class="form-label text-muted">DUI <span class="fw-normal">(opcional)</span></label>
+                    <input type="text" name="{{ form.dui.html_name }}" id="{{ form.dui.id_for_label }}"
+                           class="form-control {% if form.dui.errors %}is-invalid{% endif %}"
+                           value="{{ form.dui.value|default:'' }}" placeholder="00000000-0" inputmode="numeric" maxlength="10">
+                    {% for error in form.dui.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.sexo.id_for_label }}" class="form-label text-muted">Sexo <span class="fw-normal">(opcional)</span></label>
+                    <select name="{{ form.sexo.html_name }}" id="{{ form.sexo.id_for_label }}"
+                            class="form-select {% if form.sexo.errors %}is-invalid{% endif %}">
+                        {% for valor, etiqueta in form.fields.sexo.choices %}
+                            <option value="{{ valor }}" {% if form.sexo.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
+                    {% for error in form.sexo.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <button type="button"
+                    class="btn btn-link text-decoration-none p-0 d-flex justify-content-between align-items-center w-100 text-dark {% if not contacto_abierto %}collapsed{% endif %}"
+                    id="boton-seccion-contacto"
+                    data-bs-toggle="collapse" data-bs-target="#seccion-contacto"
+                    aria-expanded="{% if contacto_abierto %}true{% else %}false{% endif %}"
+                    aria-controls="seccion-contacto">
+                <span class="fw-semibold">
+                    Contacto de referencia <span class="text-muted fw-normal small">(opcional)</span>
+                </span>
+                <i class="bi bi-chevron-down chevron-colapsable"></i>
+            </button>
+            <p class="text-muted small mb-2 mt-1">
+                Alguien a quien contactar por este paciente. Puedes omitirlo si ahora no lo tienes.
+            </p>
+
+            <div class="collapse {% if contacto_abierto %}show{% endif %}" id="seccion-contacto">
+
+                <div class="mb-3 mt-2">
+                    <label for="buscador-contacto" class="form-label">
+                        <i class="bi bi-search text-muted"></i> ¿Ya está registrado? Busca por nombre, DUI o teléfono
+                    </label>
+                    <input type="text" id="buscador-contacto" class="form-control" placeholder="Escribe el nombre, DUI o teléfono...">
+                    <div id="resultados-contacto" class="list-group mt-1"></div>
+                    <div id="contacto-vinculado" class="alert alert-success d-flex justify-content-between align-items-center py-2 mt-2 d-none">
+                        <span><i class="bi bi-check-circle"></i> <span id="contacto-vinculado-nombre"></span> -- se va a reutilizar, no se crea de nuevo.</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-desvincular-contacto">Cambiar</button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="{{ form.contacto_nombres.id_for_label }}" class="form-label">Nombres</label>
+                        <input type="text" name="{{ form.contacto_nombres.html_name }}" id="{{ form.contacto_nombres.id_for_label }}"
+                               class="form-control {% if form.contacto_nombres.errors %}is-invalid{% endif %}"
+                               value="{{ form.contacto_nombres.value|default:'' }}">
+                        {% for error in form.contacto_nombres.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="{{ form.contacto_apellidos.id_for_label }}" class="form-label">Apellidos</label>
+                        <input type="text" name="{{ form.contacto_apellidos.html_name }}" id="{{ form.contacto_apellidos.id_for_label }}"
+                               class="form-control {% if form.contacto_apellidos.errors %}is-invalid{% endif %}"
+                               value="{{ form.contacto_apellidos.value|default:'' }}">
+                        {% for error in form.contacto_apellidos.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="{{ form.contacto_telefono.id_for_label }}" class="form-label">Teléfono</label>
+                        <input type="text" name="{{ form.contacto_telefono.html_name }}" id="{{ form.contacto_telefono.id_for_label }}"
+                               class="form-control {% if form.contacto_telefono.errors %}is-invalid{% endif %}"
+                               value="{{ form.contacto_telefono.value|default:'' }}" placeholder="0000-0000" inputmode="numeric" maxlength="9">
+                        {% for error in form.contacto_telefono.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="{{ form.contacto_parentesco.id_for_label }}" class="form-label">Parentesco</label>
+                        <select name="{{ form.contacto_parentesco.html_name }}" id="{{ form.contacto_parentesco.id_for_label }}"
+                                class="form-select {% if form.contacto_parentesco.errors %}is-invalid{% endif %}">
+                            {% for valor, etiqueta in form.fields.contacto_parentesco.choices %}
+                                <option value="{{ valor }}" {% if form.contacto_parentesco.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                            {% endfor %}
+                        </select>
+                        {% for error in form.contacto_parentesco.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
+
+                <div class="row" id="fila-parentesco-otro" style="display: none;">
+                    <div class="col-md-6 mb-3">
+                        <label for="{{ form.contacto_parentesco_otro.id_for_label }}" class="form-label">¿Cuál?</label>
+                        <input type="text" name="{{ form.contacto_parentesco_otro.html_name }}" id="{{ form.contacto_parentesco_otro.id_for_label }}"
+                               class="form-control {% if form.contacto_parentesco_otro.errors %}is-invalid{% endif %}"
+                               value="{{ form.contacto_parentesco_otro.value|default:'' }}">
+                        {% for error in form.contacto_parentesco_otro.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="d-grid mt-4">
+                <button type="submit" class="btn btn-primary btn-lg d-flex align-items-center justify-content-center gap-2">
+                    <i class="bi bi-check-lg"></i> Guardar paciente
+                </button>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/registrar-adulto.js' %}"></script>
+{% endblock %}

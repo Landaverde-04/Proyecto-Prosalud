@@ -28,29 +28,34 @@
                 </a>
             </li>
 
-            {# Seccion Pacientes #}
+            {# Seccion Pacientes: solo se muestra si tiene acceso a al menos un item #}
+            {% if perms.pacientes.view_persona or perms.pacientes.add_persona %}
             <li class="sidebar-seccion mt-3 mb-1 px-3">
                 <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Pacientes</span>
             </li>
 
-            {# Enlaces sin ruta todavia -- se conectan al construir HU-EXP-01/02/04 #}
+            {% if perms.pacientes.view_persona %}
             <li class="nav-item">
-                <a href="#"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
+                <a href="{% url 'pacientes:lista_pacientes' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'lista_pacientes' %}active{% endif %}"
                    title="Pacientes">
                     <i class="bi bi-people-fill flex-shrink-0"></i>
                     <span class="sidebar-label">Lista de pacientes</span>
                 </a>
             </li>
+            {% endif %}
 
+            {% if perms.pacientes.add_persona %}
             <li class="nav-item">
-                <a href="#"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
+                <a href="{% url 'pacientes:registrar_adulto' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'registrar_adulto' %}active{% endif %}"
                    title="Nuevo paciente">
                     <i class="bi bi-person-plus flex-shrink-0"></i>
                     <span class="sidebar-label">Nuevo paciente</span>
                 </a>
             </li>
+            {% endif %}
+            {% endif %}
 
             {# Seccion Seguridad: solo se muestra si tiene acceso a al menos un item #}
             {% if perms.seguridad.view_usuario or perms.auth.view_group or perms.core.view_registroauditoria %}
@@ -91,29 +96,6 @@
             </li>
             {% endif %}
             {% endif %}
-
-            {# Seccion Inventario #}
-            <li class="sidebar-seccion mt-3 mb-1 px-3">
-                <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Inventario</span>
-            </li>
-
-            <li class="nav-item">
-                <a href="#"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
-                   title="Productos">
-                    <i class="bi bi-box-seam flex-shrink-0"></i>
-                    <span class="sidebar-label">Productos</span>
-                </a>
-            </li>
-
-            <li class="nav-item">
-                <a href="#"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
-                   title="Categorías">
-                    <i class="bi bi-tags flex-shrink-0"></i>
-                    <span class="sidebar-label">Categorías</span>
-                </a>
-            </li>
 
         </ul>
     </nav>
