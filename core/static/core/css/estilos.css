@@ -76,6 +76,20 @@
     --bs-table-color: #fff;
 }
 
+/* Tablas de listado (Usuarios, Roles, Bitacora): ancho de columna fijo
+   por <colgroup>, en vez de que el contenido mas largo de una celda
+   estire toda la columna. El texto largo (correos, detalle de la
+   bitacora) se envuelve dentro de su columna en vez de ensanchar la
+   tabla. */
+.tabla-ancho-fijo {
+    table-layout: fixed;
+}
+
+.tabla-ancho-fijo td,
+.tabla-ancho-fijo th {
+    overflow-wrap: break-word;
+}
+
 /* Links del sidebar */
 .sidebar-link {
     color: var(--sidebar-item);
