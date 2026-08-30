@@ -1,0 +1,79 @@
+Datos de prueba — comando sembrar_datos
+========================================
+
+Qué es
+------
+Un solo comando de Django para crear datos de prueba en toda la base de
+datos, organizado por secciones (como un "seeder" de Laravel). No hay un
+comando por cada app: agregar una sección nueva es agregar una función
+dentro del mismo archivo, no crear un archivo nuevo en cada app.
+
+Vive en: core/management/commands/sembrar_datos.py
+
+
+Cómo se usa
+-----------
+Sembrar datos (no borra nada, es seguro correrlo varias veces):
+
+    python manage.py sembrar_datos
+
+Vaciar los datos de prueba y volver a sembrarlos de cero:
+
+    python manage.py sembrar_datos --limpiar
+
+
+Secciones y qué tablas toca cada una
+-------------------------------------
+
+1) Seguridad
+   Tablas: auth_group (Roles)
+   Crea los 5 roles del sistema si no existen: Doctora Administradora,
+   Doctor, Enfermera, Laboratorio, Regente.
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección. Son los roles con
+   los que la gente inicia sesión de verdad en el día a día, no datos
+   de ejemplo desechables.
+
+2) Pacientes
+   Tablas: core_clinica, pacientes_persona, pacientes_contacto,
+   pacientes_expediente
+   Crea la clínica "ProSalud" (si no existe) y 5 personas de ejemplo,
+   cada una con su contacto de referencia o responsable y su
+   expediente: 3 adultas y 2 menores de edad.
+
+   --limpiar SÍ borra esta sección (Persona, Contacto, Expediente) y
+   la vuelve a sembrar completa. La Clínica NO se borra — es la
+   clínica real del sistema, no un dato de ejemplo.
+
+3) Consultas
+   Todavía no existe. Se agrega cuando haya un flujo real que probar
+   (a partir de HU-EXP-17, de Samuel) — mismo patrón: una función
+   sembrar_consultas() con su propio limpiar_consultas(), documentando
+   qué tablas toca.
+
+
+Cómo agregar una sección nueva
+-------------------------------
+Dentro de sembrar_datos.py:
+
+1. Escribir una función sembrar_<seccion>(self) con un comentario
+   arriba diciendo qué tablas toca.
+2. Si la sección debe poder vaciarse con --limpiar, escribir también
+   limpiar_<seccion>(self) y llamarla desde handle() solo cuando
+   options['limpiar'] sea True — antes de sembrar, no después.
+3. Llamar a la función de siembra desde handle(), junto a las demás.
+4. Decidir si esa sección es "sembrable" (datos de ejemplo, se puede
+   borrar sin problema) o "protegida" (datos reales del sistema, como
+   los roles) — y dejarlo dicho en el comentario, igual que las dos
+   secciones que ya existen.
+
+
+Por qué está hecho así
+-----------------------
+- Un solo comando en vez de uno por app: menos archivos que mantener,
+  y se ve de un vistazo qué datos de prueba existen en todo el sistema.
+- Separar "sembrable" de "protegido": para que --limpiar nunca borre
+  por accidente cuentas o roles que alguien esté usando de verdad.
+- Idempotente (get_or_create): correrlo dos veces seguidas no duplica
+  nada, así que es seguro dejarlo como parte del setup normal de una
+  máquina nueva.

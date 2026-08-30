@@ -33,9 +33,10 @@
                 <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Pacientes</span>
             </li>
 
+            {# Enlaces sin ruta todavia -- se conectan al construir HU-EXP-01/02/04 #}
             <li class="nav-item">
-                <a href="{% url 'pacientes:lista_pacientes' %}"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'lista_pacientes' %}active{% endif %}"
+                <a href="#"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
                    title="Pacientes">
                     <i class="bi bi-people-fill flex-shrink-0"></i>
                     <span class="sidebar-label">Lista de pacientes</span>
@@ -43,8 +44,8 @@
             </li>
 
             <li class="nav-item">
-                <a href="{% url 'pacientes:nuevo_paciente' %}"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'nuevo_paciente' %}active{% endif %}"
+                <a href="#"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2"
                    title="Nuevo paciente">
                     <i class="bi bi-person-plus flex-shrink-0"></i>
                     <span class="sidebar-label">Nuevo paciente</span>

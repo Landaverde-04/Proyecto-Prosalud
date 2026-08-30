@@ -1,3 +1,4 @@
 from django.contrib import admin
 
-# Sin modelos todavia -- ver pacientes/models.py
+# Sin registros en el admin todavia -- se agregan si hacen falta al
+# construir las vistas reales de HU-EXP-01 en adelante.
