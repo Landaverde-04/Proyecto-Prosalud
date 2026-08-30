@@ -26,11 +26,13 @@
         <div class="flex-grow-1 d-flex flex-column bg-light" style="min-width: 0;">
 
             {# Header visible solo en movil #}
-            <header class="d-flex d-md-none align-items-center px-3 py-2 bg-white border-bottom sticky-top shadow-sm">
-                <button id="sidebar-open-mobile" class="btn btn-sm btn-light me-2 p-1">
+            <header class="d-flex d-md-none align-items-center px-3 py-2 sticky-top shadow-sm"
+                    style="background-color: var(--sidebar); border-bottom: 1px solid rgba(255,255,255,0.08);">
+                <button id="sidebar-open-mobile" class="btn btn-sm me-2 p-1"
+                        style="background: rgba(255,255,255,0.12); border: none; color: #fff;">
                     <i class="bi bi-list fs-5"></i>
                 </button>
-                <span class="fw-semibold text-truncate" style="font-size: 0.9rem;">Sistema ProSalud</span>
+                <span class="fw-semibold text-truncate text-white" style="font-size: 0.9rem;">Sistema ProSalud</span>
             </header>
 
             <main class="flex-grow-1 p-4">
@@ -42,65 +44,33 @@
 
     </div>
 
-    {# Modal: mensajes del sistema (éxito, error, aviso, info) #}
-    {% if messages %}
-    <div class="modal fade" id="modalMensaje" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
-            <div class="modal-content border-0 shadow overflow-hidden">
-                {% for message in messages %}{% if forloop.first %}
-                <div class="modal-header border-0
-                    {% if message.tags == 'success' %}bg-success text-white
-                    {% elif message.tags == 'danger' %}bg-danger text-white
-                    {% elif message.tags == 'warning' %}bg-warning text-dark
-                    {% else %}bg-primary text-white{% endif %}">
-                    <div class="d-flex align-items-center gap-2">
-                        {% if message.tags == 'success' %}
-                            <i class="bi bi-check-circle-fill fs-5"></i><span class="fw-semibold">Operación exitosa</span>
-                        {% elif message.tags == 'danger' %}
-                            <i class="bi bi-x-circle-fill fs-5"></i><span class="fw-semibold">Error</span>
-                        {% elif message.tags == 'warning' %}
-                            <i class="bi bi-exclamation-triangle-fill fs-5"></i><span class="fw-semibold">Advertencia</span>
-                        {% else %}
-                            <i class="bi bi-info-circle-fill fs-5"></i><span class="fw-semibold">Información</span>
-                        {% endif %}
-                    </div>
-                    <button type="button"
-                            class="btn-close {% if message.tags != 'warning' %}btn-close-white{% endif %}"
-                            data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                </div>
-                <div class="modal-body py-3 px-4">
-                    <p class="mb-0">{{ message }}</p>
-                </div>
-                <div class="modal-footer border-0 pt-0 pb-3">
-                    <button type="button" class="btn btn-secondary btn-sm px-4" data-bs-dismiss="modal">Aceptar</button>
-                </div>
-                {% endif %}{% endfor %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
+    {% include "core/modal_mensaje.html" %}
 
-    {# Modal: confirmación de eliminación (compartido por todas las páginas) #}
-    <div class="modal fade" id="modalEliminar" tabindex="-1">
+    {% comment %}
+    Modal de confirmación genérico, compartido por todas las páginas.
+    Se dispara desde cualquier botón con data-confirmar y se configura
+    con sus atributos data-* (ver core/js/main.js).
+    {% endcomment %}
+    <div class="modal fade" id="modalConfirmar" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
             <div class="modal-content border-0 shadow overflow-hidden">
-                <div class="modal-header bg-danger text-white border-0">
+                <div class="modal-header text-white border-0" id="modal-confirmar-encabezado">
                     <div class="d-flex align-items-center gap-2">
-                        <i class="bi bi-trash-fill fs-5"></i>
-                        <span class="fw-semibold" id="modal-eliminar-titulo">Eliminar</span>
+                        <i class="bi fs-5" id="modal-confirmar-icono"></i>
+                        <span class="fw-semibold" id="modal-confirmar-titulo"></span>
                     </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-3 px-4">
-                    <p class="mb-1" id="modal-eliminar-pregunta"></p>
-                    <p class="mb-1 text-warning small" id="modal-eliminar-aviso" style="display: none;"></p>
-                    <small class="text-muted">Esta acción no se puede deshacer.</small>
+                    <p class="mb-1" id="modal-confirmar-pregunta"></p>
+                    <p class="mb-1 text-warning small" id="modal-confirmar-aviso" style="display: none;"></p>
+                    <small class="text-muted" id="modal-confirmar-nota" style="display: none;"></small>
                 </div>
                 <div class="modal-footer border-0 pt-0 pb-3">
-                    <form id="form-modal-eliminar" method="post">
+                    <form id="form-modal-confirmar" method="post">
                         {% csrf_token %}
                         <button type="button" class="btn btn-outline-secondary btn-sm me-1" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-danger btn-sm">Sí, eliminar</button>
+                        <button type="submit" class="btn btn-sm" id="modal-confirmar-boton"></button>
                     </form>
                 </div>
             </div>

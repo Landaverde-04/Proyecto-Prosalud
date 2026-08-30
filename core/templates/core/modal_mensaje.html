@@ -1,0 +1,46 @@
+{% comment %}
+Modal de mensajes del sistema (éxito, error, aviso, información).
+
+Se muestra solo si hay mensajes de Django. Lo abre automáticamente
+core/js/main.js al cargar la página.
+
+Vive en un parcial porque lo usan dos plantillas que no comparten
+herencia: core/base.html (todo el sistema) y seguridad/login.html (que
+no extiende de base.html por ser la pantalla previa al ingreso).
+{% endcomment %}
+{% if messages %}
+<div class="modal fade" id="modalMensaje" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content border-0 shadow overflow-hidden">
+            {% for message in messages %}{% if forloop.first %}
+            <div class="modal-header border-0
+                {% if message.tags == 'success' %}bg-success text-white
+                {% elif message.tags == 'danger' %}bg-danger text-white
+                {% elif message.tags == 'warning' %}bg-warning text-dark
+                {% else %}bg-primary text-white{% endif %}">
+                <div class="d-flex align-items-center gap-2">
+                    {% if message.tags == 'success' %}
+                        <i class="bi bi-check-circle-fill fs-5"></i><span class="fw-semibold">Operación exitosa</span>
+                    {% elif message.tags == 'danger' %}
+                        <i class="bi bi-x-circle-fill fs-5"></i><span class="fw-semibold">Error</span>
+                    {% elif message.tags == 'warning' %}
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i><span class="fw-semibold">Advertencia</span>
+                    {% else %}
+                        <i class="bi bi-info-circle-fill fs-5"></i><span class="fw-semibold">Información</span>
+                    {% endif %}
+                </div>
+                <button type="button"
+                        class="btn-close {% if message.tags != 'warning' %}btn-close-white{% endif %}"
+                        data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body py-3 px-4">
+                <p class="mb-0">{{ message }}</p>
+            </div>
+            <div class="modal-footer border-0 pt-0 pb-3">
+                <button type="button" class="btn btn-secondary btn-sm px-4" data-bs-dismiss="modal">Aceptar</button>
+            </div>
+            {% endif %}{% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
