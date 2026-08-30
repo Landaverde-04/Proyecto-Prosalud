@@ -77,7 +77,7 @@ class Command(BaseCommand):
             'fecha_nacimiento': '1988-03-14', 'sexo': 'F',
             'contacto_tipo': Contacto.Tipo.REFERENCIA,
             'contacto_nombres': 'Carlos', 'contacto_apellidos': 'Hernandez Lopez',
-            'contacto_telefono': '7845-1123', 'contacto_parentesco': 'Esposo',
+            'contacto_telefono': '7845-1123', 'contacto_parentesco': Contacto.Parentesco.ESPOSO,
         },
         {
             'nombres': 'Jose Roberto', 'apellidos': 'Munoz Castro',
@@ -85,7 +85,7 @@ class Command(BaseCommand):
             'fecha_nacimiento': '1975-11-30', 'sexo': 'M',
             'contacto_tipo': Contacto.Tipo.REFERENCIA,
             'contacto_nombres': 'Gloria', 'contacto_apellidos': 'Castro Ramirez',
-            'contacto_telefono': '7233-4456', 'contacto_parentesco': 'Hermana',
+            'contacto_telefono': '7233-4456', 'contacto_parentesco': Contacto.Parentesco.HERMANO,
         },
         {
             'nombres': 'Ana Beatriz', 'apellidos': 'Flores Alvarado',
@@ -93,7 +93,7 @@ class Command(BaseCommand):
             'fecha_nacimiento': '1990-01-22', 'sexo': 'F',
             'contacto_tipo': Contacto.Tipo.REFERENCIA,
             'contacto_nombres': 'Marta', 'contacto_apellidos': 'Alvarado Diaz',
-            'contacto_telefono': '7011-2234', 'contacto_parentesco': 'Madre',
+            'contacto_telefono': '7011-2234', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
         },
         {
             'nombres': 'Santiago', 'apellidos': 'Martinez Lopez',
@@ -101,7 +101,7 @@ class Command(BaseCommand):
             'fecha_nacimiento': '2019-07-02', 'sexo': 'M',
             'contacto_tipo': Contacto.Tipo.RESPONSABLE,
             'contacto_nombres': 'Ana', 'contacto_apellidos': 'Lopez Garcia',
-            'contacto_telefono': '7011-9988', 'contacto_parentesco': 'Madre',
+            'contacto_telefono': '7011-9988', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
         },
         {
             'nombres': 'Sofia Nicole', 'apellidos': 'Escobar Cruz',
@@ -109,7 +109,7 @@ class Command(BaseCommand):
             'fecha_nacimiento': '2015-09-05', 'sexo': 'F',
             'contacto_tipo': Contacto.Tipo.RESPONSABLE,
             'contacto_nombres': 'Patricia', 'contacto_apellidos': 'Cruz Fuentes',
-            'contacto_telefono': '7456-6677', 'contacto_parentesco': 'Madre',
+            'contacto_telefono': '7456-6677', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
         },
     ]
 

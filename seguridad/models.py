@@ -24,8 +24,10 @@ class Usuario(AbstractUser):
     # usuario puede tener acceso a varias.
     clinicas = models.ManyToManyField(
         'core.Clinica', related_name='usuarios', blank=True,
+        db_table='UsuarioClinica',
     )
 
     class Meta:
+        db_table = 'Usuario'
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'

@@ -45,6 +45,7 @@ class Consulta(ModeloBase):
     indicaciones = models.TextField(blank=True)
 
     class Meta:
+        db_table = 'Consulta'
         verbose_name = 'consulta'
         verbose_name_plural = 'consultas'
         ordering = ['-inicio']
@@ -91,6 +92,7 @@ class SignosVitales(ModeloBase):
     imc = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
 
     class Meta:
+        db_table = 'SignosVitales'
         verbose_name = 'signos vitales'
         verbose_name_plural = 'signos vitales'
 
@@ -109,6 +111,7 @@ class Receta(ModeloBase):
     fecha = models.DateField(auto_now_add=True)
 
     class Meta:
+        db_table = 'Receta'
         verbose_name = 'receta'
         verbose_name_plural = 'recetas'
 
@@ -125,6 +128,7 @@ class DetalleReceta(ModeloBase):
     duracion = models.CharField(max_length=50)
 
     class Meta:
+        db_table = 'DetalleReceta'
         verbose_name = 'detalle de receta'
         verbose_name_plural = 'detalles de receta'
 
@@ -151,6 +155,7 @@ class Incapacidad(ModeloBase):
     motivo = models.TextField()
 
     class Meta:
+        db_table = 'Incapacidad'
         verbose_name = 'incapacidad o constancia'
         verbose_name_plural = 'incapacidades y constancias'
 
@@ -169,6 +174,7 @@ class ReferenciaMedica(ModeloBase):
     observaciones = models.TextField(blank=True)
 
     class Meta:
+        db_table = 'ReferenciaMedica'
         verbose_name = 'referencia médica'
         verbose_name_plural = 'referencias médicas'
 
@@ -193,6 +199,7 @@ class ControlPosterior(ModeloBase):
     )
 
     class Meta:
+        db_table = 'ControlPosterior'
         verbose_name = 'control posterior'
         verbose_name_plural = 'controles posteriores'
 
@@ -222,6 +229,7 @@ class Aplicacion(ModeloBase):
     fecha_ejecucion = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        db_table = 'Aplicacion'
         verbose_name = 'aplicación'
         verbose_name_plural = 'aplicaciones'
 
@@ -248,6 +256,7 @@ class OrdenExamen(ModeloBase):
     indicaciones = models.TextField(blank=True)
 
     class Meta:
+        db_table = 'OrdenExamen'
         verbose_name = 'orden de examen'
         verbose_name_plural = 'órdenes de examen'
 
@@ -262,6 +271,7 @@ class DetalleOrdenExamen(ModeloBase):
     tipo_examen = models.CharField(max_length=150)
 
     class Meta:
+        db_table = 'DetalleOrdenExamen'
         verbose_name = 'detalle de orden de examen'
         verbose_name_plural = 'detalles de orden de examen'
 
