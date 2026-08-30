@@ -1,0 +1,16 @@
+{% comment %}
+Tarjeta clicable del panel de accesos rapidos del expediente (estilo
+Dr. SV). Parametros: icono (clase bi-*), titulo, subtitulo.
+{% endcomment %}
+<div class="col">
+    <div class="card shadow-sm h-100 tarjeta-atajo" data-atajo="{{ titulo }}" style="cursor: pointer;">
+        <div class="card-body p-3 text-center">
+            <div class="mx-auto mb-2 d-flex align-items-center justify-content-center rounded-circle"
+                 style="width: 48px; height: 48px; background-color: var(--accent-soft);">
+                <i class="bi {{ icono }} fs-5" style="color: var(--accent);"></i>
+            </div>
+            <div class="fw-semibold small">{{ titulo }}</div>
+            <div class="text-muted" style="font-size: 0.75rem;">{{ subtitulo }}</div>
+        </div>
+    </div>
+</div>

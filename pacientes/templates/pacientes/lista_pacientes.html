@@ -1,0 +1,193 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Pacientes - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-1">
+    <h4 class="mb-0 fw-semibold d-flex align-items-center gap-2">
+        Pacientes
+        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fw-normal" style="font-size: 0.65rem;">
+            Vista previa
+        </span>
+    </h4>
+    <a href="{% url 'pacientes:nuevo_paciente' %}" class="btn btn-primary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-person-plus"></i> Nuevo paciente
+    </a>
+</div>
+<p class="text-muted small mb-3">
+    Datos de ejemplo guardados solo en este navegador, para mostrar cómo se vería el flujo.
+</p>
+
+<div class="mb-3">
+    <div class="input-group" style="max-width: 420px;">
+        <span class="input-group-text bg-white border-end-0">
+            <i class="bi bi-search text-muted small"></i>
+        </span>
+        <input type="text" id="buscador-pacientes"
+               class="form-control border-start-0 ps-1"
+               placeholder="Buscar por nombre o DUI...">
+    </div>
+</div>
+
+<p class="text-muted small mb-2" id="contador-pacientes"></p>
+
+{# Tabla -- desde tablet grande/escritorio #}
+<div class="card shadow-sm d-none d-md-block">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 tabla-ancho-fijo">
+            <colgroup>
+                <col style="width: 28%;">
+                <col style="width: 12%;">
+                <col style="width: 10%;">
+                <col style="width: 16%;">
+                <col style="width: 16%;">
+                <col style="width: 18%;">
+            </colgroup>
+            <thead class="table-dark">
+                <tr>
+                    <th>Nombre completo</th>
+                    <th>Tipo</th>
+                    <th>Edad</th>
+                    <th>DUI</th>
+                    <th>Teléfono</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="cuerpo-tabla-pacientes"></tbody>
+        </table>
+    </div>
+</div>
+
+{# Tarjetas -- movil y tablet chica #}
+<div class="d-md-none vstack gap-2" id="tarjetas-pacientes"></div>
+
+<div class="text-center py-5 text-muted d-none" id="sin-resultados-pacientes">
+    <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
+    <p class="mb-0">No se encontraron pacientes con esa búsqueda.</p>
+</div>
+
+<nav class="mt-3 d-none" id="paginacion-pacientes" aria-label="Paginación">
+    <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item" id="pagina-anterior">
+            <a class="page-link" href="#" aria-label="Anterior"><i class="bi bi-chevron-left"></i></a>
+        </li>
+        <li class="page-item disabled">
+            <span class="page-link" id="texto-pagina"></span>
+        </li>
+        <li class="page-item" id="pagina-siguiente">
+            <a class="page-link" href="#" aria-label="Siguiente"><i class="bi bi-chevron-right"></i></a>
+        </li>
+    </ul>
+</nav>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/pacientes-mock.js' %}"></script>
+<script>
+(function () {
+    // Mismo tamano de pagina que el resto del sistema (core/paginacion.py
+    // -- FILAS_POR_PAGINA), pero resuelto aqui en JS porque el dato es
+    // de ejemplo, no un queryset real.
+    var FILAS_POR_PAGINA = 10;
+
+    var cuerpoTabla = document.getElementById('cuerpo-tabla-pacientes');
+    var tarjetas = document.getElementById('tarjetas-pacientes');
+    var sinResultados = document.getElementById('sin-resultados-pacientes');
+    var contador = document.getElementById('contador-pacientes');
+    var buscador = document.getElementById('buscador-pacientes');
+    var navPaginacion = document.getElementById('paginacion-pacientes');
+    var botonAnterior = document.getElementById('pagina-anterior');
+    var botonSiguiente = document.getElementById('pagina-siguiente');
+    var textoPagina = document.getElementById('texto-pagina');
+
+    var paginaActual = 1;
+
+    function badgeTipo(tipo) {
+        if (tipo === 'menor') {
+            return '<span class="badge bg-info-subtle text-info border border-info-subtle">Menor</span>';
+        }
+        return '<span class="badge bg-success-subtle text-success border border-success-subtle">Adulto</span>';
+    }
+
+    function pintar(filtro) {
+        var todos = PacientesDemo.obtenerPacientes();
+        if (filtro) {
+            var f = filtro.toLowerCase();
+            todos = todos.filter(function (p) {
+                return PacientesDemo.nombreCompleto(p).toLowerCase().indexOf(f) !== -1 ||
+                    (p.dui || '').toLowerCase().indexOf(f) !== -1;
+            });
+        }
+
+        contador.textContent = todos.length + ' paciente' + (todos.length === 1 ? '' : 's') +
+            (filtro ? ' encontrado' + (todos.length === 1 ? '' : 's') : '');
+
+        sinResultados.classList.toggle('d-none', todos.length !== 0);
+
+        var totalPaginas = Math.max(1, Math.ceil(todos.length / FILAS_POR_PAGINA));
+        if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+        var inicio = (paginaActual - 1) * FILAS_POR_PAGINA;
+        var pacientes = todos.slice(inicio, inicio + FILAS_POR_PAGINA);
+
+        navPaginacion.classList.toggle('d-none', totalPaginas <= 1);
+        textoPagina.textContent = 'Página ' + paginaActual + ' de ' + totalPaginas;
+        botonAnterior.classList.toggle('disabled', paginaActual <= 1);
+        botonSiguiente.classList.toggle('disabled', paginaActual >= totalPaginas);
+
+        cuerpoTabla.innerHTML = pacientes.map(function (p) {
+            var edad = PacientesDemo.calcularEdad(p.fechaNacimiento);
+            var url = '/pacientes/' + p.id + '/';
+            return '<tr class="cursor-pointer" onclick="window.location.href=\'' + url + '\'" style="cursor: pointer;">' +
+                '<td class="fw-medium">' + PacientesDemo.nombreCompleto(p) + '</td>' +
+                '<td>' + badgeTipo(p.tipo) + '</td>' +
+                '<td>' + (edad === null ? '—' : edad + ' años') + '</td>' +
+                '<td class="text-muted small">' + (p.dui || '—') + '</td>' +
+                '<td class="text-muted small">' + (p.telefono || '—') + '</td>' +
+                '<td class="text-end">' +
+                '<a href="' + url + '" class="btn btn-sm btn-outline-secondary" title="Ver expediente" onclick="event.stopPropagation();">' +
+                '<i class="bi bi-folder2-open"></i></a></td>' +
+                '</tr>';
+        }).join('');
+
+        tarjetas.innerHTML = pacientes.map(function (p) {
+            var edad = PacientesDemo.calcularEdad(p.fechaNacimiento);
+            var url = '/pacientes/' + p.id + '/';
+            return '<a href="' + url + '" class="card shadow-sm text-decoration-none text-body">' +
+                '<div class="card-body p-3">' +
+                '<div class="d-flex justify-content-between align-items-start gap-2 mb-1">' +
+                '<span class="fw-semibold">' + PacientesDemo.nombreCompleto(p) + '</span>' +
+                badgeTipo(p.tipo) +
+                '</div>' +
+                '<div class="small text-muted">' +
+                (edad === null ? '—' : edad + ' años') + ' · ' + (p.dui || 'Sin DUI') +
+                '</div>' +
+                '</div></a>';
+        }).join('');
+    }
+
+    pintar('');
+
+    buscador.addEventListener('input', function () {
+        paginaActual = 1;
+        pintar(buscador.value.trim());
+    });
+
+    botonAnterior.addEventListener('click', function (evento) {
+        evento.preventDefault();
+        if (botonAnterior.classList.contains('disabled')) return;
+        paginaActual--;
+        pintar(buscador.value.trim());
+    });
+
+    botonSiguiente.addEventListener('click', function (evento) {
+        evento.preventDefault();
+        if (botonSiguiente.classList.contains('disabled')) return;
+        paginaActual++;
+        pintar(buscador.value.trim());
+    });
+})();
+</script>
+{% endblock %}

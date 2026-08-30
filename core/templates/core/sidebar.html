@@ -28,6 +28,29 @@
                 </a>
             </li>
 
+            {# Seccion Pacientes #}
+            <li class="sidebar-seccion mt-3 mb-1 px-3">
+                <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Pacientes</span>
+            </li>
+
+            <li class="nav-item">
+                <a href="{% url 'pacientes:lista_pacientes' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'lista_pacientes' %}active{% endif %}"
+                   title="Pacientes">
+                    <i class="bi bi-people-fill flex-shrink-0"></i>
+                    <span class="sidebar-label">Lista de pacientes</span>
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a href="{% url 'pacientes:nuevo_paciente' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'nuevo_paciente' %}active{% endif %}"
+                   title="Nuevo paciente">
+                    <i class="bi bi-person-plus flex-shrink-0"></i>
+                    <span class="sidebar-label">Nuevo paciente</span>
+                </a>
+            </li>
+
             {# Seccion Seguridad: solo se muestra si tiene acceso a al menos un item #}
             {% if perms.seguridad.view_usuario or perms.auth.view_group or perms.core.view_registroauditoria %}
             <li class="sidebar-seccion mt-3 mb-1 px-3">
