@@ -29,7 +29,7 @@
             </li>
 
             {# Seccion Seguridad: solo se muestra si tiene acceso a al menos un item #}
-            {% if perms.seguridad.view_usuario or perms.auth.view_group %}
+            {% if perms.seguridad.view_usuario or perms.auth.view_group or perms.core.view_registroauditoria %}
             <li class="sidebar-seccion mt-3 mb-1 px-3">
                 <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Seguridad</span>
             </li>
@@ -52,6 +52,17 @@
                    title="Roles">
                     <i class="bi bi-shield-lock flex-shrink-0"></i>
                     <span class="sidebar-label">Roles</span>
+                </a>
+            </li>
+            {% endif %}
+
+            {% if perms.core.view_registroauditoria %}
+            <li class="nav-item">
+                <a href="{% url 'core:bitacora' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if '/bitacora' in request.path %}active{% endif %}"
+                   title="Bitácora">
+                    <i class="bi bi-journal-text flex-shrink-0"></i>
+                    <span class="sidebar-label">Bitácora</span>
                 </a>
             </li>
             {% endif %}
