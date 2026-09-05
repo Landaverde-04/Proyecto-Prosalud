@@ -2,10 +2,69 @@
     var DEMORA_MS = 350;
     var MIN_CARACTERES = 2;
 
-    var form = document.getElementById('form-registrar-adulto');
+    var form = document.getElementById('form-registrar-paciente');
     if (!form) return;
 
     var urlBuscar = form.dataset.buscarPersonaUrl;
+
+    /* ---- Interruptor Adulto/Menor: solo cambia textos en pantalla.
+       La decision real de si es menor la hace el servidor con la fecha
+       de nacimiento (ver RegistrarPacienteForm.clean()) -- este radio
+       nunca se lee en el backend, name="tipo_paciente_ui" no es un
+       campo del formulario de Django. ---- */
+    var radioAdulto = document.getElementById('tipo-adulto');
+    var radioMenor = document.getElementById('tipo-menor');
+    var tituloSeccionContacto = document.getElementById('titulo-seccion-contacto');
+    var etiquetaSeccionContacto = document.getElementById('etiqueta-seccion-contacto');
+    var ayudaSeccionContacto = document.getElementById('ayuda-seccion-contacto');
+    var seccionContactoDiv = document.getElementById('seccion-contacto');
+    var etiquetaTelefonoPaciente = document.getElementById('etiqueta-telefono-paciente');
+    var campoDui = document.getElementById('id_dui');
+
+    function actualizarModoPaciente() {
+        var esMenor = !!(radioMenor && radioMenor.checked);
+
+        if (tituloSeccionContacto) {
+            tituloSeccionContacto.textContent = esMenor ? 'Datos del responsable' : 'Contacto de referencia';
+        }
+        if (etiquetaSeccionContacto) {
+            etiquetaSeccionContacto.textContent = esMenor ? '(obligatorio)' : '(opcional)';
+        }
+        // El telefono del paciente es al reves que el del contacto:
+        // obligatorio para adulto, opcional para menor (ver forms.py).
+        if (etiquetaTelefonoPaciente) {
+            etiquetaTelefonoPaciente.textContent = esMenor ? '(opcional)' : '(obligatorio)';
+        }
+        // Un menor de edad no tiene DUI en El Salvador (se emite hasta
+        // los 18 anios) -- se deshabilita el campo para que no se
+        // pueda escribir uno por error, y se limpia lo que hubiera
+        // quedado escrito de cuando el interruptor estaba en "Adulto".
+        if (campoDui) {
+            campoDui.disabled = esMenor;
+            if (esMenor) campoDui.value = '';
+        }
+        if (ayudaSeccionContacto) {
+            ayudaSeccionContacto.textContent = esMenor
+                ? 'Todo paciente menor de edad necesita al menos un responsable.'
+                : 'Alguien a quien contactar por este paciente. Puedes omitirlo si ahora no lo tienes.';
+        }
+
+        // Si pasa a ser menor, la seccion de contacto se abre sola --
+        // ahi es obligatoria, no tiene sentido dejarla colapsada.
+        // Se usa el API de Bootstrap Collapse (no solo classList) para
+        // que el boton quede sincronizado (aria-expanded, ".collapsed").
+        if (esMenor && seccionContactoDiv && !seccionContactoDiv.classList.contains('show')) {
+            var Collapse = window.bootstrap && window.bootstrap.Collapse;
+            if (Collapse) {
+                Collapse.getOrCreateInstance(seccionContactoDiv, { toggle: false }).show();
+            }
+        }
+    }
+
+    [radioAdulto, radioMenor].forEach(function (radio) {
+        if (radio) radio.addEventListener('change', actualizarModoPaciente);
+    });
+    if (radioAdulto || radioMenor) actualizarModoPaciente();
 
     /* ---- Parentesco "Otro": solo pide el detalle cuando aplica ---- */
     var selectParentesco = document.getElementById('id_contacto_parentesco');
@@ -20,7 +79,9 @@
         actualizarParentescoOtro();
     }
 
-    /* ---- Edad calculada en vivo (HU-EXP-01: "el sistema calcula la edad") ---- */
+    /* ---- Edad calculada en vivo (HU-EXP-01: "el sistema calcula la
+       edad") y, con ella, el interruptor Adulto/Menor se ajusta solo
+       (HU-EXP-02: la fecha de nacimiento sugiere el tipo). ---- */
     var campoFecha = document.getElementById('id_fecha_nacimiento');
     var etiquetaEdad = document.getElementById('edad-calculada');
 
@@ -38,6 +99,13 @@
     function actualizarEdad() {
         var edad = calcularEdad(campoFecha.value);
         etiquetaEdad.textContent = edad === null ? '' : edad + ' años';
+
+        if (edad !== null && (radioAdulto || radioMenor)) {
+            var esMenor = edad < 18;
+            if (radioMenor) radioMenor.checked = esMenor;
+            if (radioAdulto) radioAdulto.checked = !esMenor;
+            actualizarModoPaciente();
+        }
     }
 
     if (campoFecha) {
@@ -74,7 +142,6 @@
         if (campo) conCursorFijo(campo, formatearTelefono);
     });
 
-    var campoDui = document.getElementById('id_dui');
     if (campoDui) conCursorFijo(campoDui, formatearDui);
 
     /* ---- Solo letras en nombres y apellidos (nada de numeros ni
@@ -95,7 +162,7 @@
         });
     });
 
-    /* ---- Buscar y reutilizar un contacto existente ---- */
+    /* ---- Buscar y reutilizar un contacto o responsable existente ---- */
     var buscador = document.getElementById('buscador-contacto');
     var resultados = document.getElementById('resultados-contacto');
     var bannerVinculado = document.getElementById('contacto-vinculado');

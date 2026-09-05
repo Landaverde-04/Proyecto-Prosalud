@@ -4,14 +4,14 @@
 {% block titulo %}Registrar paciente - Sistema ProSalud{% endblock %}
 
 {% block estilos_extra %}
-<link rel="stylesheet" href="{% static 'pacientes/css/registrar-adulto.css' %}">
+<link rel="stylesheet" href="{% static 'pacientes/css/registrar-paciente.css' %}">
 {% endblock %}
 
 {% block contenido %}
 
 <div class="mb-4">
     <h4 class="mb-0 fw-semibold">Registrar paciente</h4>
-    <p class="text-muted small mb-0">Paciente adulto con su contacto de referencia.</p>
+    <p class="text-muted small mb-0">Paciente adulto o menor de edad, con su contacto o responsable.</p>
 </div>
 
 <div class="card shadow-sm mx-auto" style="max-width: 720px;">
@@ -23,10 +23,28 @@
             </div>
         {% endif %}
 
-        <form method="post" id="form-registrar-adulto" novalidate
+        <form method="post" id="form-registrar-paciente" novalidate
               data-buscar-persona-url="{% url 'pacientes:buscar_persona' %}">
             {% csrf_token %}
             {{ form.contacto_persona_id }}
+
+            <div class="mb-4">
+                <label class="form-label d-block">Tipo de paciente</label>
+                <div class="btn-group" role="group" aria-label="Tipo de paciente">
+                    <input type="radio" class="btn-check" name="tipo_paciente_ui" id="tipo-adulto"
+                           autocomplete="off" {% if not es_menor %}checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="tipo-adulto">
+                        <i class="bi bi-person"></i> Adulto
+                    </label>
+
+                    <input type="radio" class="btn-check" name="tipo_paciente_ui" id="tipo-menor"
+                           autocomplete="off" {% if es_menor %}checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="tipo-menor">
+                        <i class="bi bi-person-arms-up"></i> Menor de edad
+                    </label>
+                </div>
+                <div class="form-text">Se ajusta solo según la fecha de nacimiento; puedes cambiarlo aquí si hace falta.</div>
+            </div>
 
             <h6 class="fw-semibold mb-3">Datos del paciente</h6>
 
@@ -64,7 +82,7 @@
                 </div>
                 <div class="col-md-6 mb-3">
                     <label for="{{ form.telefono.id_for_label }}" class="form-label">
-                        Teléfono <span class="text-muted fw-normal">(obligatorio)</span>
+                        Teléfono <span class="text-muted fw-normal" id="etiqueta-telefono-paciente">{% if es_menor %}(opcional){% else %}(obligatorio){% endif %}</span>
                     </label>
                     <input type="text" name="{{ form.telefono.html_name }}" id="{{ form.telefono.id_for_label }}"
                            class="form-control form-control-lg {% if form.telefono.errors %}is-invalid{% endif %}"
@@ -102,12 +120,17 @@
                     aria-expanded="{% if contacto_abierto %}true{% else %}false{% endif %}"
                     aria-controls="seccion-contacto">
                 <span class="fw-semibold">
-                    Contacto de referencia <span class="text-muted fw-normal small">(opcional)</span>
+                    <span id="titulo-seccion-contacto">{% if es_menor %}Datos del responsable{% else %}Contacto de referencia{% endif %}</span>
+                    <span class="text-muted fw-normal small" id="etiqueta-seccion-contacto">{% if es_menor %}(obligatorio){% else %}(opcional){% endif %}</span>
                 </span>
                 <i class="bi bi-chevron-down chevron-colapsable"></i>
             </button>
-            <p class="text-muted small mb-2 mt-1">
-                Alguien a quien contactar por este paciente. Puedes omitirlo si ahora no lo tienes.
+            <p class="text-muted small mb-2 mt-1" id="ayuda-seccion-contacto">
+                {% if es_menor %}
+                    Todo paciente menor de edad necesita al menos un responsable.
+                {% else %}
+                    Alguien a quien contactar por este paciente. Puedes omitirlo si ahora no lo tienes.
+                {% endif %}
             </p>
 
             <div class="collapse {% if contacto_abierto %}show{% endif %}" id="seccion-contacto">
@@ -186,5 +209,5 @@
 {% endblock %}
 
 {% block scripts_extra %}
-<script src="{% static 'pacientes/js/registrar-adulto.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-paciente.js' %}"></script>
 {% endblock %}
