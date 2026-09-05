@@ -47,8 +47,8 @@
 
             {% if perms.pacientes.add_persona %}
             <li class="nav-item">
-                <a href="{% url 'pacientes:registrar_adulto' %}"
-                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'registrar_adulto' %}active{% endif %}"
+                <a href="{% url 'pacientes:registrar_paciente' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'registrar_paciente' %}active{% endif %}"
                    title="Nuevo paciente">
                     <i class="bi bi-person-plus flex-shrink-0"></i>
                     <span class="sidebar-label">Nuevo paciente</span>

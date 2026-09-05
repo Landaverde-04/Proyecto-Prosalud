@@ -5,6 +5,24 @@ from django.db import models
 from core.models import Clinica, ModeloBase
 
 
+def calcular_edad(fecha_nacimiento):
+    """
+    Edad en anios cumplidos a partir de una fecha de nacimiento.
+
+    Vive aqui (no solo como metodo de Persona) porque HU-EXP-02 tambien
+    la necesita en el formulario, antes de que exista un Persona guardado
+    -- se usa para decidir si el paciente que se esta registrando es
+    menor de edad, con la fecha que la enfermera acaba de escribir.
+    """
+    if not fecha_nacimiento:
+        return None
+    hoy = date.today()
+    edad = hoy.year - fecha_nacimiento.year
+    if (hoy.month, hoy.day) < (fecha_nacimiento.month, fecha_nacimiento.day):
+        edad -= 1
+    return edad
+
+
 class Persona(ModeloBase):
     """
     Tabla unica de personas del sistema: un paciente es una Persona, y
@@ -47,13 +65,7 @@ class Persona(ModeloBase):
     @property
     def edad(self):
         """None si no hay fecha de nacimiento (los contactos no siempre la tienen)."""
-        if not self.fecha_nacimiento:
-            return None
-        hoy = date.today()
-        edad = hoy.year - self.fecha_nacimiento.year
-        if (hoy.month, hoy.day) < (self.fecha_nacimiento.month, self.fecha_nacimiento.day):
-            edad -= 1
-        return edad
+        return calcular_edad(self.fecha_nacimiento)
 
 
 class Contacto(ModeloBase):
