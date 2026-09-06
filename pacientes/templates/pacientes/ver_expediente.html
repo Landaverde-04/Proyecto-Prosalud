@@ -1,0 +1,472 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Expediente de {{ persona.nombres }} {{ persona.apellidos }} - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<a href="{% url 'pacientes:lista_pacientes' %}" class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Volver a pacientes
+</a>
+
+{# Cabecera del expediente -- HU-EXP-05 #}
+<div class="card shadow-sm mb-4">
+    <div class="card-body p-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+            <div>
+                <h4 class="fw-semibold mb-1">{{ persona.nombres }} {{ persona.apellidos }}</h4>
+                <div class="text-muted small">
+                    {% if persona.edad is not None %}
+                        {{ persona.edad }} años · Nacimiento: {{ persona.fecha_nacimiento|date:"d/m/Y" }}
+                    {% else %}
+                        Fecha de nacimiento no registrada
+                    {% endif %}
+                </div>
+            </div>
+            <span class="badge fw-normal" style="background-color: var(--accent-soft); color: var(--accent);">
+                {{ expediente.clinica.nombre }}
+            </span>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small">DUI</div>
+                {% if persona.dui %}
+                    <div class="fw-medium">{{ persona.dui }}</div>
+                {% elif responsable %}
+                    <div class="fw-medium">Sin DUI (menor de edad)</div>
+                    <div class="text-muted small mt-1">
+                        Responsable: {{ responsable.nombres }} {{ responsable.apellidos }}
+                        · {{ responsable.telefono|default:"sin teléfono" }}
+                    </div>
+                {% else %}
+                    <div class="fw-medium">Sin DUI registrado</div>
+                {% endif %}
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                <div class="text-muted small">Teléfono</div>
+                <div class="fw-medium">{{ persona.telefono|default:"—" }}</div>
+            </div>
+        </div>
+
+        <hr>
+
+        {# Contactos/responsables -- pendiente desde HU-EXP-02, resuelto aquí (ver HU-EXP-05.md) #}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-semibold small text-muted mb-0">CONTACTOS</h6>
+            <button type="button" class="btn btn-sm btn-outline-primary d-flex align-items-center gap-1"
+                    data-bs-toggle="modal" data-bs-target="#modalAgregarContacto">
+                <i class="bi bi-person-plus"></i> Agregar
+            </button>
+        </div>
+        {% if contactos %}
+        <div class="vstack gap-2 mb-1">
+            {% for contacto in contactos %}
+            <div class="d-flex justify-content-between align-items-center border rounded p-2 px-3">
+                <div>
+                    <span class="fw-medium">{{ contacto.persona_contacto.nombres }} {{ contacto.persona_contacto.apellidos }}</span>
+                    <span class="text-muted small"> · {{ contacto.parentesco_mostrado }} · {{ contacto.persona_contacto.telefono|default:"sin teléfono" }}</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge fw-normal {% if contacto.tipo == 'responsable' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                        {{ contacto.get_tipo_display }}
+                    </span>
+                    {% comment %}
+                    Un solo modal compartido (#modalEditarContacto) para todos los contactos --
+                    este botón solo pasa sus datos por data-*, ver-expediente.js lo llena al hacer clic.
+                    {% endcomment %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Editar"
+                            data-editar-contacto
+                            data-contacto-id="{{ contacto.id }}"
+                            data-url="{% url 'pacientes:editar_contacto' expediente.id contacto.id %}"
+                            data-tipo="{{ contacto.tipo }}"
+                            data-nombres="{{ contacto.persona_contacto.nombres }}"
+                            data-apellidos="{{ contacto.persona_contacto.apellidos }}"
+                            data-telefono="{{ contacto.persona_contacto.telefono }}"
+                            data-parentesco="{{ contacto.parentesco }}"
+                            data-parentesco-otro="{{ contacto.parentesco_otro }}">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    {% comment %}
+                    Reusa el modal de confirmación genérico del sistema (core/base.html) --
+                    "desactivar" no borra nada (regla del proyecto), y no necesita datos
+                    propios más allá de la URL, así que encaja tal cual con ese modal.
+                    {% endcomment %}
+                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Desactivar"
+                            data-confirmar
+                            data-titulo="Desactivar contacto"
+                            data-mensaje="¿Deseas desactivar a "
+                            data-nombre="{{ contacto.persona_contacto.nombres }} {{ contacto.persona_contacto.apellidos }}"
+                            data-boton="Desactivar"
+                            data-color="danger"
+                            data-icono="bi-person-dash"
+                            data-url="{% url 'pacientes:desactivar_contacto' expediente.id contacto.id %}">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-1"><i class="bi bi-info-circle me-1"></i>Sin contactos registrados.</p>
+        {% endif %}
+
+        <hr>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <h6 class="fw-semibold small text-muted mb-2">ANTECEDENTES</h6>
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-info-circle me-1"></i>Aún no se registran antecedentes en el sistema.
+                </p>
+            </div>
+            <div class="col-md-6">
+                <h6 class="fw-semibold small text-muted mb-2">SIGNOS VITALES (ÚLTIMA PRECONSULTA)</h6>
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-info-circle me-1"></i>No hay datos de preconsulta registrados.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% comment %}
+Panel de tarjetas estilo Dr. SV -- HU-EXP-06. Formato tomado de la app
+real Dr. SV (icono centrado arriba, etiqueta centrada abajo, tarjeta
+cuadrada sin borde): dos columnas en movil, tres en escritorio. Las
+seis abren el listado de Samuel (Consulta/Receta/etc.), que no existe
+todavia -- se muestran para reflejar la navegacion prevista, marcadas
+como "Próximamente" en vez de fingir un enlace que daria 404.
+{% endcomment %}
+<h6 class="fw-semibold text-muted mb-3" style="font-size: 0.8rem; letter-spacing: 0.03em;">HISTORIAL DEL PACIENTE</h6>
+<div class="row row-cols-2 row-cols-md-3 g-3">
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-folder2-open fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Historial clínico</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-heart-pulse fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Estudios clínicos</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-clipboard2-pulse fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Recetas</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-file-earmark-medical fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Constancias médicas</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-journal-medical fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Antecedentes</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft); opacity: 0.85;">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-send fs-2 mb-2" style="color: var(--accent);"></i>
+                <div class="fw-semibold small">Referencias médicas</div>
+                <div class="text-muted mt-1" style="font-size: 0.68rem;">Próximamente</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% comment %}
+Modal "Agregar contacto" -- HU-EXP-02/05/06. Misma logica de "buscar o
+crear" que registrar_paciente.html (busca por buscador-contacto.js), en
+un modal en vez de una pantalla aparte, porque aqui se agrega UN
+contacto a un paciente que ya existe, no se registra un paciente nuevo.
+
+Si el envio falla, la vista vuelve a renderizar esta misma pantalla con
+'agregar_contacto_form' ya lleno (con sus errores) y
+'abrir_modal_contacto' en True -- data-abrir-modal se lee en
+ver-expediente.js para reabrir el modal solo, si no los errores
+quedarian escondidos detras de un modal cerrado.
+{% endcomment %}
+<div class="modal fade" id="modalAgregarContacto" tabindex="-1" aria-labelledby="modalAgregarContactoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{% url 'pacientes:agregar_contacto' expediente.id %}" id="form-agregar-contacto"
+            data-buscar-persona-url="{% url 'pacientes:buscar_persona' %}"
+            data-abrir-modal="{% if abrir_modal_contacto %}true{% else %}false{% endif %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalAgregarContactoLabel">Agregar contacto</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+
+            {% if agregar_contacto_form.non_field_errors %}
+            <div class="alert alert-danger py-2">
+                {% for error in agregar_contacto_form.non_field_errors %}{{ error }}{% endfor %}
+            </div>
+            {% endif %}
+
+            {{ agregar_contacto_form.persona_id }}
+
+            {% comment %}
+            "Responsable" solo aplica a menores (HU-EXP-02) -- un adulto
+            nunca ve el desplegable, el campo va oculto y el valor ya
+            queda forzado a "referencia" en AgregarContactoForm.clean().
+            {% endcomment %}
+            {% if agregar_contacto_form.es_menor %}
+            <div class="mb-3">
+                <label for="{{ agregar_contacto_form.tipo.id_for_label }}" class="form-label">Tipo de relación</label>
+                <select name="{{ agregar_contacto_form.tipo.html_name }}" id="{{ agregar_contacto_form.tipo.id_for_label }}"
+                        class="form-select {% if agregar_contacto_form.tipo.errors %}is-invalid{% endif %}">
+                    {% for valor, etiqueta in agregar_contacto_form.fields.tipo.choices %}
+                        <option value="{{ valor }}" {% if agregar_contacto_form.tipo.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                    {% endfor %}
+                </select>
+                {% for error in agregar_contacto_form.tipo.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+            </div>
+            {% else %}
+                {{ agregar_contacto_form.tipo }}
+                <div class="mb-3">
+                    <label class="form-label">Tipo de relación</label>
+                    <div class="form-control-plaintext text-muted py-0">Contacto de referencia</div>
+                </div>
+            {% endif %}
+
+            <div class="mb-3">
+                <label for="buscador-contacto-modal" class="form-label">
+                    <i class="bi bi-search text-muted"></i> ¿Ya está registrado? Busca por nombre, DUI o teléfono
+                </label>
+                <input type="text" id="buscador-contacto-modal" class="form-control" placeholder="Escribe el nombre, DUI o teléfono...">
+                <div id="resultados-contacto-modal" class="list-group mt-1"></div>
+                <div id="contacto-vinculado-modal" class="alert alert-success d-flex justify-content-between align-items-center py-2 mt-2 d-none">
+                    <span><i class="bi bi-check-circle"></i> <span id="contacto-vinculado-modal-nombre"></span> -- se va a reutilizar, no se crea de nuevo.</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-desvincular-contacto-modal">Cambiar</button>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ agregar_contacto_form.nombres.id_for_label }}" class="form-label">Nombres</label>
+                    <input type="text" name="{{ agregar_contacto_form.nombres.html_name }}" id="{{ agregar_contacto_form.nombres.id_for_label }}"
+                           class="form-control {% if agregar_contacto_form.nombres.errors %}is-invalid{% endif %}"
+                           value="{{ agregar_contacto_form.nombres.value|default:'' }}">
+                    {% for error in agregar_contacto_form.nombres.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ agregar_contacto_form.apellidos.id_for_label }}" class="form-label">Apellidos</label>
+                    <input type="text" name="{{ agregar_contacto_form.apellidos.html_name }}" id="{{ agregar_contacto_form.apellidos.id_for_label }}"
+                           class="form-control {% if agregar_contacto_form.apellidos.errors %}is-invalid{% endif %}"
+                           value="{{ agregar_contacto_form.apellidos.value|default:'' }}">
+                    {% for error in agregar_contacto_form.apellidos.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ agregar_contacto_form.telefono.id_for_label }}" class="form-label">Teléfono</label>
+                    <input type="text" name="{{ agregar_contacto_form.telefono.html_name }}" id="{{ agregar_contacto_form.telefono.id_for_label }}"
+                           class="form-control {% if agregar_contacto_form.telefono.errors %}is-invalid{% endif %}"
+                           value="{{ agregar_contacto_form.telefono.value|default:'' }}" placeholder="0000-0000" inputmode="numeric" maxlength="9">
+                    {% for error in agregar_contacto_form.telefono.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="{{ agregar_contacto_form.parentesco.id_for_label }}" class="form-label">Parentesco</label>
+                    <select name="{{ agregar_contacto_form.parentesco.html_name }}" id="{{ agregar_contacto_form.parentesco.id_for_label }}"
+                            class="form-select {% if agregar_contacto_form.parentesco.errors %}is-invalid{% endif %}">
+                        {% for valor, etiqueta in agregar_contacto_form.fields.parentesco.choices %}
+                            <option value="{{ valor }}" {% if agregar_contacto_form.parentesco.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
+                    {% for error in agregar_contacto_form.parentesco.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row" id="fila-parentesco-otro-modal" style="display: none;">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ agregar_contacto_form.parentesco_otro.id_for_label }}" class="form-label">¿Cuál?</label>
+                    <input type="text" name="{{ agregar_contacto_form.parentesco_otro.html_name }}" id="{{ agregar_contacto_form.parentesco_otro.id_for_label }}"
+                           class="form-control {% if agregar_contacto_form.parentesco_otro.errors %}is-invalid{% endif %}"
+                           value="{{ agregar_contacto_form.parentesco_otro.value|default:'' }}">
+                    {% for error in agregar_contacto_form.parentesco_otro.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar contacto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Modal COMPARTIDO "Editar contacto" -- actualización de HU-EXP-05
+(05/09/2026). Un solo modal para todos los contactos de la lista: cada
+botón "Editar" manda sus datos por atributos data-* (ver la fila más
+arriba), y ver-expediente.js los usa para llenar este formulario y fijar
+su `action` antes de mostrarlo -- así no hay que repetir un modal por
+cada contacto.
+
+Si el envío falla, la vista vuelve a renderizar esta pantalla con
+'editar_contacto_form' ya lleno (con sus errores) y 'editar_contacto_id'
+apuntando a CUÁL contacto era -- mismo mecanismo de 'data-abrir-modal'
+que ya usa el modal de "Agregar".
+{% endcomment %}
+<div class="modal fade" id="modalEditarContacto" tabindex="-1" aria-labelledby="modalEditarContactoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="form-editar-contacto"
+            action="{% if editar_contacto_id %}{% url 'pacientes:editar_contacto' expediente.id editar_contacto_id %}{% endif %}"
+            data-abrir-modal="{% if editar_contacto_id %}true{% else %}false{% endif %}"
+            data-contacto-id="{% if editar_contacto_id %}{{ editar_contacto_id }}{% endif %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalEditarContactoLabel">Editar contacto</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+
+            {% if editar_contacto_form.non_field_errors %}
+            <div class="alert alert-danger py-2">
+                {% for error in editar_contacto_form.non_field_errors %}{{ error }}{% endfor %}
+            </div>
+            {% endif %}
+
+            {# "Responsable" solo aplica a menores -- mismo criterio que el modal de Agregar. #}
+            {% if es_menor %}
+            <div class="mb-3">
+                <label for="id_editar_tipo" class="form-label">Tipo de relación</label>
+                <select name="tipo" id="id_editar_tipo"
+                        class="form-select {% if editar_contacto_form.tipo.errors %}is-invalid{% endif %}">
+                    <option value="responsable">Responsable</option>
+                    <option value="referencia">Contacto de referencia</option>
+                </select>
+                {% for error in editar_contacto_form.tipo.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+            </div>
+            {% else %}
+                <input type="hidden" name="tipo" id="id_editar_tipo" value="referencia">
+                <div class="mb-3">
+                    <label class="form-label">Tipo de relación</label>
+                    <div class="form-control-plaintext text-muted py-0">Contacto de referencia</div>
+                </div>
+            {% endif %}
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="id_editar_nombres" class="form-label">Nombres</label>
+                    <input type="text" name="nombres" id="id_editar_nombres"
+                           class="form-control {% if editar_contacto_form.nombres.errors %}is-invalid{% endif %}"
+                           value="{{ editar_contacto_form.nombres.value|default:'' }}">
+                    {% for error in editar_contacto_form.nombres.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="id_editar_apellidos" class="form-label">Apellidos</label>
+                    <input type="text" name="apellidos" id="id_editar_apellidos"
+                           class="form-control {% if editar_contacto_form.apellidos.errors %}is-invalid{% endif %}"
+                           value="{{ editar_contacto_form.apellidos.value|default:'' }}">
+                    {% for error in editar_contacto_form.apellidos.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="id_editar_telefono" class="form-label">Teléfono</label>
+                    <input type="text" name="telefono" id="id_editar_telefono"
+                           class="form-control {% if editar_contacto_form.telefono.errors %}is-invalid{% endif %}"
+                           value="{{ editar_contacto_form.telefono.value|default:'' }}" placeholder="0000-0000" inputmode="numeric" maxlength="9">
+                    {% for error in editar_contacto_form.telefono.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label for="id_editar_parentesco" class="form-label">Parentesco</label>
+                    <select name="parentesco" id="id_editar_parentesco"
+                            class="form-select {% if editar_contacto_form.parentesco.errors %}is-invalid{% endif %}">
+                        {% for valor, etiqueta in agregar_contacto_form.fields.parentesco.choices %}
+                            <option value="{{ valor }}" {% if editar_contacto_form.parentesco.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
+                    {% for error in editar_contacto_form.parentesco.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row" id="fila-parentesco-otro-editar" style="display: none;">
+                <div class="col-md-6 mb-3">
+                    <label for="id_editar_parentesco_otro" class="form-label">¿Cuál?</label>
+                    <input type="text" name="parentesco_otro" id="id_editar_parentesco_otro"
+                           class="form-control {% if editar_contacto_form.parentesco_otro.errors %}is-invalid{% endif %}"
+                           value="{{ editar_contacto_form.parentesco_otro.value|default:'' }}">
+                    {% for error in editar_contacto_form.parentesco_otro.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% comment %}
+Modal de advertencia -- solo aparece si nombres/apellidos/teléfono
+cambiaron respecto a lo que ya tenía la Persona (comparación en
+ver-expediente.js). No es el modal de confirmación genérico del sistema
+(#modalConfirmar): ese hace un POST simple a una URL fija, y aquí hace
+falta enviar el formulario de edición completo -- por eso es un modal
+propio, con el mismo estilo visual.
+{% endcomment %}
+<div class="modal fade" id="modalConfirmarCambioPersona" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
+    <div class="modal-content border-0 shadow overflow-hidden">
+      <div class="modal-header bg-warning border-0">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+            <span class="fw-semibold">Vas a cambiar el nombre o teléfono</span>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body py-3 px-4">
+        <p class="mb-1">
+            Esta persona podría estar registrada como contacto de otros pacientes, o ser paciente
+            ella misma -- el cambio se vería en todos esos lugares, no solo aquí.
+        </p>
+        <p class="mb-0 small text-muted">¿Deseas continuar de todas formas?</p>
+      </div>
+      <div class="modal-footer border-0 pt-0 pb-3">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-cancelar-cambio-persona">Seguir editando</button>
+        <button type="button" class="btn btn-warning btn-sm" id="btn-confirmar-cambio-persona">Sí, guardar los cambios</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/buscador-contacto.js' %}"></script>
+<script src="{% static 'pacientes/js/ver-expediente.js' %}"></script>
+{% endblock %}

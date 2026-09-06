@@ -415,15 +415,23 @@ class RegistrarPacienteTests(PruebaCore):
 
 class ListaPacientesTests(PruebaCore):
     """
-    HU-EXP-04, version parcial: solo el listado (sin buscador todavia).
+    HU-EXP-04: listado con buscador en vivo (mismo patron que Usuarios/
+    Roles/Bitacora). "Seleccionar" (abrir expediente) y el caso
+    cross-clinica quedan pendientes -- ver el docstring de la vista.
     """
 
     def setUp(self):
+        # En la realidad, Enfermera tiene los dos permisos (ver la
+        # lista y registrar pacientes) -- se otorgan ambos aqui para
+        # que la prueba refleje el caso real, no un rol recortado.
         permiso_view = Permission.objects.get(
             content_type__app_label='pacientes', codename='view_persona',
         )
+        permiso_add = Permission.objects.get(
+            content_type__app_label='pacientes', codename='add_persona',
+        )
         self.rol_enfermera = Group.objects.create(name='Enfermera')
-        self.rol_enfermera.permissions.add(permiso_view)
+        self.rol_enfermera.permissions.add(permiso_view, permiso_add)
         self.rol_laboratorio = Group.objects.create(name='Laboratorio')
 
         self.enfermera = Usuario.objects.create_user(username='enfermera', password='clave123')
@@ -458,3 +466,600 @@ class ListaPacientesTests(PruebaCore):
         self.assertIn('Maria', nombres_mostrados)
         self.assertNotIn('Carlos', nombres_mostrados)
         self.assertEqual(respuesta.context['total'], 1)
+
+    def _crear_paciente_con_expediente(self, **datos):
+        paciente = Persona.objects.create(**datos)
+        Expediente.objects.create(persona=paciente, clinica=self.clinica)
+        return paciente
+
+    def test_busca_por_nombre_completo(self):
+        self._crear_paciente_con_expediente(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', fecha_nacimiento='1993-06-15',
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': 'roberto guevara'})
+
+        nombres_mostrados = [p.nombres for p in respuesta.context['pagina'].object_list]
+        self.assertIn('Roberto Antonio', nombres_mostrados)
+
+    def test_busca_por_dui_propio_sin_guion(self):
+        self._crear_paciente_con_expediente(
+            nombres='Roberto Antonio', apellidos='Guevara Peña',
+            fecha_nacimiento='1993-06-15', dui='11122233-4',
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': '111222334'})
+
+        nombres_mostrados = [p.nombres for p in respuesta.context['pagina'].object_list]
+        self.assertIn('Roberto Antonio', nombres_mostrados)
+
+    def test_busca_por_telefono_propio_sin_guion(self):
+        self._crear_paciente_con_expediente(
+            nombres='Roberto Antonio', apellidos='Guevara Peña',
+            fecha_nacimiento='1993-06-15', telefono='7900-3344',
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': '79003344'})
+
+        nombres_mostrados = [p.nombres for p in respuesta.context['pagina'].object_list]
+        self.assertIn('Roberto Antonio', nombres_mostrados)
+
+    def test_busca_por_dui_del_responsable(self):
+        paciente = self._crear_paciente_con_expediente(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento='2015-03-10',
+        )
+        responsable = Persona.objects.create(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', dui='55566677-8',
+        )
+        Contacto.objects.create(
+            paciente=paciente, persona_contacto=responsable,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': '555666778'})
+
+        nombres_mostrados = [p.nombres for p in respuesta.context['pagina'].object_list]
+        self.assertIn('Diego', nombres_mostrados)
+
+    def test_paciente_que_tambien_es_contacto_de_otro_se_indica(self):
+        """Si una Persona es paciente Y ademas es contacto/responsable de
+        otro paciente, aparece una sola vez, con la relacion indicada."""
+        hijo = self._crear_paciente_con_expediente(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento='2015-03-10',
+        )
+        mama = self._crear_paciente_con_expediente(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', fecha_nacimiento='1993-06-15',
+            telefono='7900-3344',
+        )
+        Contacto.objects.create(
+            paciente=hijo, persona_contacto=mama,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': 'roberto antonio guevara'})
+
+        resultados = list(respuesta.context['pagina'].object_list)
+        # Aparece una sola vez, no duplicada por el join con Contacto.
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(resultados[0].tambien_contacto_de, [hijo])
+
+    def test_sin_resultados_ofrece_registrar_nuevo(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url, {'q': 'nadie con este nombre'})
+
+        self.assertContains(respuesta, 'No se encontraron pacientes')
+        self.assertContains(respuesta, 'Registrar paciente nuevo')
+
+    def test_fila_no_es_clicable_sin_permiso_de_ver_expediente(self):
+        """Enfermera ve la lista, pero sus filas no deben ofrecer abrir el expediente."""
+        self._crear_paciente_con_expediente(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', fecha_nacimiento='1993-06-15',
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertNotContains(respuesta, 'pacientes/expediente/')
+
+
+class VerExpedienteTests(PruebaCore):
+    """
+    HU-EXP-05 (cabecera con datos preclinicos) y HU-EXP-06 (panel de
+    tarjetas), una sola vista. Solo quien tiene 'pacientes.view_expediente'
+    entra, y solo si el expediente pertenece a una clinica del usuario.
+    """
+
+    def setUp(self):
+        permiso_view_expediente = Permission.objects.get(
+            content_type__app_label='pacientes', codename='view_expediente',
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(permiso_view_expediente)
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+
+        self.doctor = Usuario.objects.create_user(username='doctor', password='clave123')
+        self.doctor.groups.add(self.rol_doctor)
+        self.doctor.clinicas.add(self.clinica)
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='clave123')
+        self.enfermera.groups.add(self.rol_enfermera)
+
+        self.paciente = Persona.objects.create(
+            nombres='Roberto Antonio', apellidos='Guevara Peña',
+            fecha_nacimiento='1993-06-15', dui='11122233-4', telefono='7900-3344',
+        )
+        self.expediente = Expediente.objects.create(persona=self.paciente, clinica=self.clinica)
+        self.url = reverse('pacientes:ver_expediente', args=[self.expediente.id])
+
+    def test_doctor_puede_ver_expediente_de_su_clinica(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Roberto Antonio Guevara Peña')
+
+    def test_enfermera_sin_permiso_da_403(self):
+        self.client.force_login(self.enfermera)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_doctor_de_otra_clinica_da_403(self):
+        """El expediente existe, pero no en una clinica del usuario -- 403, no 404."""
+        self.doctor.clinicas.set([self.otra_clinica])
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_expediente_inexistente_da_404(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[999999]))
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_cabecera_muestra_dui_cuando_lo_tiene(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, '11122233-4')
+
+    def test_cabecera_muestra_datos_del_responsable_si_no_tiene_dui(self):
+        menor = Persona.objects.create(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento='2015-03-10',
+        )
+        responsable = Persona.objects.create(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', telefono='7900-3344',
+        )
+        Contacto.objects.create(
+            paciente=menor, persona_contacto=responsable,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        expediente_menor = Expediente.objects.create(persona=menor, clinica=self.clinica)
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[expediente_menor.id]))
+
+        self.assertContains(respuesta, 'Sin DUI (menor de edad)')
+        self.assertContains(respuesta, 'Roberto Antonio Guevara Peña')
+
+    def test_cabecera_indica_que_no_hay_datos_de_preconsulta(self):
+        """SignosVitales todavia no existe (HU-EXP-09, despues de agosto) -- siempre "sin datos" por ahora."""
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'No hay datos de preconsulta registrados')
+
+
+class AgregarContactoTests(PruebaCore):
+    """
+    Agregar un responsable/contacto adicional desde el expediente ya
+    abierto -- la decision que quedo pendiente en HU-EXP-02 (05/09/2026)
+    para cuando existiera esta pantalla (HU-EXP-05/06). Mismo permiso
+    que ver_expediente: la accion vive dentro del expediente, no es un
+    punto de entrada aparte.
+    """
+
+    def setUp(self):
+        permiso_view_expediente = Permission.objects.get(
+            content_type__app_label='pacientes', codename='view_expediente',
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(permiso_view_expediente)
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+
+        self.doctor = Usuario.objects.create_user(username='doctor', password='clave123')
+        self.doctor.groups.add(self.rol_doctor)
+        self.doctor.clinicas.add(self.clinica)
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='clave123')
+        self.enfermera.groups.add(self.rol_enfermera)
+
+        self.paciente = Persona.objects.create(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento='2015-03-10',
+        )
+        self.expediente = Expediente.objects.create(persona=self.paciente, clinica=self.clinica)
+        self.url = reverse('pacientes:agregar_contacto', args=[self.expediente.id])
+        self.url_expediente = reverse('pacientes:ver_expediente', args=[self.expediente.id])
+
+        self.datos_base = {
+            'tipo': Contacto.Tipo.RESPONSABLE,
+            'persona_id': '',
+            'nombres': 'Roberto Antonio',
+            'apellidos': 'Guevara Peña',
+            'telefono': '7900-3344',
+            'parentesco': Contacto.Parentesco.PADRE_MADRE,
+            'parentesco_otro': '',
+        }
+
+    def test_agregar_contacto_nuevo_crea_persona_y_contacto(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.post(self.url, self.datos_base)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        contacto = Contacto.objects.get(paciente=self.paciente)
+        self.assertEqual(contacto.persona_contacto.nombres, 'Roberto Antonio')
+        self.assertEqual(contacto.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_reutiliza_persona_existente_por_el_buscador(self):
+        existente = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_base, persona_id=existente.pk, nombres='', apellidos='', telefono='')
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        contacto = Contacto.objects.get(paciente=self.paciente)
+        self.assertEqual(contacto.persona_contacto, existente)
+        # No se creo una Persona nueva -- se reutilizo la existente.
+        self.assertEqual(Persona.objects.filter(nombres='Ana').count(), 1)
+
+    def test_segundo_responsable_no_duplica_la_persona_ni_falla(self):
+        """HU-EXP-02: un paciente puede tener mas de un responsable."""
+        self.client.force_login(self.doctor)
+        self.client.post(self.url, self.datos_base)
+
+        segundo = dict(
+            self.datos_base,
+            nombres='Marta', apellidos='Peña', telefono='7011-2233',
+            parentesco=Contacto.Parentesco.HERMANO,
+        )
+        respuesta = self.client.post(self.url, segundo)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 2)
+
+    def test_no_puede_ser_su_propio_contacto(self):
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_base, persona_id=self.paciente.pk)
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)  # no redirige: no se guardo
+        self.assertContains(respuesta, 'no puede ser su propio contacto')
+        self.assertFalse(Contacto.objects.filter(paciente=self.paciente).exists())
+
+    def test_no_puede_agregar_a_la_misma_persona_dos_veces(self):
+        existente = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        Contacto.objects.create(
+            paciente=self.paciente, persona_contacto=existente,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_base, persona_id=existente.pk, nombres='', apellidos='', telefono='')
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'ya es contacto de este paciente')
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
+
+    def test_campos_incompletos_no_guarda(self):
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_base, telefono='')
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Completa nombre, apellidos, teléfono y parentesco')
+        self.assertFalse(Contacto.objects.filter(paciente=self.paciente).exists())
+
+    def test_duplicado_por_nombre_y_telefono_no_guarda(self):
+        Persona.objects.create(nombres='Roberto Antonio', apellidos='Guevara Peña', telefono='7900-3344')
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(self.url, self.datos_base)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'búscala arriba en vez de crearla de nuevo')
+        self.assertFalse(Contacto.objects.filter(paciente=self.paciente).exists())
+
+    def test_parentesco_otro_requiere_detalle(self):
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_base, parentesco=Contacto.Parentesco.OTRO, parentesco_otro='')
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Especifica cuál es el parentesco')
+        self.assertFalse(Contacto.objects.filter(paciente=self.paciente).exists())
+
+    def test_formulario_invalido_reabre_el_modal(self):
+        """La pantalla se vuelve a renderizar con la señal para reabrir el modal, no en blanco."""
+        self.client.force_login(self.doctor)
+        respuesta = self.client.post(self.url, dict(self.datos_base, telefono=''))
+        self.assertContains(respuesta, 'data-abrir-modal="true"')
+
+    def test_enfermera_sin_permiso_da_403(self):
+        self.client.force_login(self.enfermera)
+        respuesta = self.client.post(self.url, self.datos_base)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_metodo_get_no_permitido(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 405)
+
+    def _crear_expediente_adulto(self):
+        adulto = Persona.objects.create(
+            nombres='Maria Elena', apellidos='Hernandez Perez', fecha_nacimiento='1988-03-14',
+        )
+        expediente = Expediente.objects.create(persona=adulto, clinica=self.clinica)
+        return adulto, expediente
+
+    def test_adulto_no_ve_el_desplegable_de_tipo(self):
+        """HU-EXP-05: 'Responsable' es exclusivo de menores -- un adulto ni ve la eleccion."""
+        _, expediente = self._crear_expediente_adulto()
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[expediente.id]))
+
+        self.assertNotContains(respuesta, '<option value="responsable"')
+        self.assertContains(respuesta, 'Contacto de referencia')
+
+    def test_menor_si_ve_el_desplegable_de_tipo(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url_expediente)
+        self.assertContains(respuesta, '<option value="responsable"')
+
+    def test_agregar_contacto_a_adulto_ignora_tipo_manipulado_y_usa_referencia(self):
+        """
+        Mismo criterio que RegistrarPacienteForm con el interruptor Adulto/
+        Menor: no se confia en lo que mande el POST, se decide con la edad
+        real del paciente. Un tipo=responsable armado a mano para un adulto
+        se guarda igual como REFERENCIA.
+        """
+        adulto, expediente = self._crear_expediente_adulto()
+        url = reverse('pacientes:agregar_contacto', args=[expediente.id])
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_base, tipo=Contacto.Tipo.RESPONSABLE)
+        respuesta = self.client.post(url, datos)
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[expediente.id]))
+        contacto = Contacto.objects.get(paciente=adulto)
+        self.assertEqual(contacto.tipo, Contacto.Tipo.REFERENCIA)
+
+
+class EditarYDesactivarContactoTests(PruebaCore):
+    """
+    Actualizacion de HU-EXP-05 (05/09/2026): editar los datos de un
+    contacto ya existente, y "eliminarlo" -- en realidad desactivarlo
+    (regla del proyecto: nada se elimina), con la guarda de que un menor
+    nunca se quede sin ningun responsable activo.
+    """
+
+    def setUp(self):
+        permiso_view_expediente = Permission.objects.get(
+            content_type__app_label='pacientes', codename='view_expediente',
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(permiso_view_expediente)
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+
+        self.doctor = Usuario.objects.create_user(username='doctor', password='clave123')
+        self.doctor.groups.add(self.rol_doctor)
+        self.doctor.clinicas.add(self.clinica)
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='clave123')
+        self.enfermera.groups.add(self.rol_enfermera)
+
+        self.menor = Persona.objects.create(nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento='2015-03-10')
+        self.expediente_menor = Expediente.objects.create(persona=self.menor, clinica=self.clinica)
+
+        self.responsable = Persona.objects.create(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', telefono='7900-3344',
+        )
+        self.contacto = Contacto.objects.create(
+            paciente=self.menor, persona_contacto=self.responsable,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+
+        self.url_editar = reverse('pacientes:editar_contacto', args=[self.expediente_menor.id, self.contacto.id])
+        self.url_desactivar = reverse('pacientes:desactivar_contacto', args=[self.expediente_menor.id, self.contacto.id])
+        self.url_expediente = reverse('pacientes:ver_expediente', args=[self.expediente_menor.id])
+
+        self.datos_edicion = {
+            'tipo': Contacto.Tipo.RESPONSABLE,
+            'nombres': 'Roberto Antonio',
+            'apellidos': 'Guevara Peña',
+            'telefono': '7900-3344',
+            'parentesco': Contacto.Parentesco.PADRE_MADRE,
+            'parentesco_otro': '',
+        }
+
+    # --- Editar ---
+
+    def test_editar_parentesco_sin_tocar_a_la_persona(self):
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_edicion, parentesco=Contacto.Parentesco.ABUELO)
+
+        respuesta = self.client.post(self.url_editar, datos)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        self.contacto.refresh_from_db()
+        self.assertEqual(self.contacto.parentesco, Contacto.Parentesco.ABUELO)
+
+    def test_editar_nombre_de_la_persona_se_actualiza_en_la_persona(self):
+        """Nombres/apellidos/telefono viven en Persona, no en Contacto -- se edita ahi."""
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_edicion, nombres='Roberto', telefono='7900-9999')
+
+        respuesta = self.client.post(self.url_editar, datos)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        self.responsable.refresh_from_db()
+        self.assertEqual(self.responsable.nombres, 'Roberto')
+        self.assertEqual(self.responsable.telefono, '7900-9999')
+
+    def test_editar_a_adulto_ignora_tipo_manipulado_y_usa_referencia(self):
+        adulto = Persona.objects.create(nombres='Maria', apellidos='Perez', fecha_nacimiento='1990-01-01')
+        expediente_adulto = Expediente.objects.create(persona=adulto, clinica=self.clinica)
+        contacto_adulto = Contacto.objects.create(
+            paciente=adulto, persona_contacto=self.responsable,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.HERMANO,
+        )
+        url = reverse('pacientes:editar_contacto', args=[expediente_adulto.id, contacto_adulto.id])
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(url, dict(self.datos_edicion, tipo=Contacto.Tipo.RESPONSABLE))
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[expediente_adulto.id]))
+        contacto_adulto.refresh_from_db()
+        self.assertEqual(contacto_adulto.tipo, Contacto.Tipo.REFERENCIA)
+
+    def test_editar_no_puede_duplicar_otra_persona_existente(self):
+        Persona.objects.create(nombres='Otra', apellidos='Persona', telefono='7000-0000')
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_edicion, nombres='Otra', apellidos='Persona', telefono='7000-0000')
+        respuesta = self.client.post(self.url_editar, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Ya existe otra persona registrada')
+        self.responsable.refresh_from_db()
+        self.assertEqual(self.responsable.nombres, 'Roberto Antonio')  # no se modifico
+
+    def test_editar_no_falla_al_no_cambiar_nombre_ni_telefono(self):
+        """Guardar sin tocar nombre/telefono (solo el parentesco) no debe chocar con la propia Persona."""
+        self.client.force_login(self.doctor)
+        respuesta = self.client.post(self.url_editar, self.datos_edicion)
+        self.assertRedirects(respuesta, self.url_expediente)
+
+    def test_parentesco_otro_requiere_detalle_al_editar(self):
+        self.client.force_login(self.doctor)
+        datos = dict(self.datos_edicion, parentesco=Contacto.Parentesco.OTRO, parentesco_otro='')
+        respuesta = self.client.post(self.url_editar, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Especifica cuál es el parentesco')
+
+    def test_editar_enfermera_sin_permiso_da_403(self):
+        self.client.force_login(self.enfermera)
+        respuesta = self.client.post(self.url_editar, self.datos_edicion)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_editar_get_no_permitido(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url_editar)
+        self.assertEqual(respuesta.status_code, 405)
+
+    def test_no_se_puede_editar_contacto_de_otro_expediente(self):
+        """IDOR: el contacto pertenece a otro paciente -- 404, no se permite editarlo desde aqui."""
+        otro_paciente = Persona.objects.create(nombres='Otro', apellidos='Paciente', fecha_nacimiento='1985-01-01')
+        otro_expediente = Expediente.objects.create(persona=otro_paciente, clinica=self.clinica)
+        url = reverse('pacientes:editar_contacto', args=[otro_expediente.id, self.contacto.id])
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(url, self.datos_edicion)
+
+        self.assertEqual(respuesta.status_code, 404)
+
+    # --- Desactivar ---
+
+    def test_desactivar_contacto_de_referencia_de_un_adulto(self):
+        adulto = Persona.objects.create(nombres='Maria', apellidos='Perez', fecha_nacimiento='1990-01-01')
+        expediente_adulto = Expediente.objects.create(persona=adulto, clinica=self.clinica)
+        contacto_adulto = Contacto.objects.create(
+            paciente=adulto, persona_contacto=self.responsable,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.HERMANO,
+        )
+        url = reverse('pacientes:desactivar_contacto', args=[expediente_adulto.id, contacto_adulto.id])
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(url)
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[expediente_adulto.id]))
+        contacto_adulto.refresh_from_db()
+        self.assertFalse(contacto_adulto.activo)
+
+    def test_no_se_puede_desactivar_el_unico_responsable_de_un_menor(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(self.url_desactivar)
+
+        # No se usa assertRedirects: internamente sigue la redirección para
+        # verificarla, y esa segunda petición consume el mensaje flash antes
+        # de que el GET explícito de abajo pueda leerlo.
+        self.assertRedirects(respuesta, self.url_expediente, fetch_redirect_response=False)
+        self.contacto.refresh_from_db()
+        self.assertTrue(self.contacto.activo)  # sigue activo, no se desactivo
+        respuesta_pagina = self.client.get(self.url_expediente)
+        self.assertContains(respuesta_pagina, 'es el único responsable')
+
+    def test_si_se_puede_desactivar_un_responsable_si_queda_otro(self):
+        segundo_responsable = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        segundo_contacto = Contacto.objects.create(
+            paciente=self.menor, persona_contacto=segundo_responsable,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(self.url_desactivar)
+
+        self.assertRedirects(respuesta, self.url_expediente)
+        self.contacto.refresh_from_db()
+        self.assertFalse(self.contacto.activo)
+        segundo_contacto.refresh_from_db()
+        self.assertTrue(segundo_contacto.activo)
+
+    def test_desactivado_ya_no_aparece_en_la_lista_de_contactos(self):
+        segundo_responsable = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        Contacto.objects.create(
+            paciente=self.menor, persona_contacto=segundo_responsable,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.client.force_login(self.doctor)
+        self.client.post(self.url_desactivar)
+
+        respuesta = self.client.get(self.url_expediente)
+
+        # No se compara el nombre completo: el propio mensaje de éxito
+        # ("Roberto Antonio ... ya no es contacto") lo menciona a propósito.
+        # Lo que debe desaparecer es la FILA de la lista -- se verifica por
+        # el atributo del botón "Editar", que solo existe para contactos activos.
+        self.assertNotContains(respuesta, 'data-nombres="Roberto Antonio"')
+
+    def test_desactivar_enfermera_sin_permiso_da_403(self):
+        self.client.force_login(self.enfermera)
+        respuesta = self.client.post(self.url_desactivar)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_desactivar_get_no_permitido(self):
+        self.client.force_login(self.doctor)
+        respuesta = self.client.get(self.url_desactivar)
+        self.assertEqual(respuesta.status_code, 405)
+
+    def test_no_se_puede_desactivar_contacto_de_otro_expediente(self):
+        otro_paciente = Persona.objects.create(nombres='Otro', apellidos='Paciente', fecha_nacimiento='1985-01-01')
+        otro_expediente = Expediente.objects.create(persona=otro_paciente, clinica=self.clinica)
+        url = reverse('pacientes:desactivar_contacto', args=[otro_expediente.id, self.contacto.id])
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(url)
+
+        self.assertEqual(respuesta.status_code, 404)

@@ -224,3 +224,190 @@ class RegistrarPacienteForm(forms.Form):
 
         self._validar_parentesco_otro(datos)
         return datos
+
+
+class EditarContactoForm(forms.Form):
+    """
+    Editar un contacto ya existente: la relacion (tipo/parentesco) Y los
+    datos de la Persona (nombres/apellidos/telefono) -- decision de
+    Kevin, 05/09/2026, tras evaluar restringirlo solo a la relacion.
+    Sin buscador aqui: editar no es "elegir otra persona", es corregir
+    los datos de la que ya esta vinculada a este Contacto.
+
+    A diferencia de AgregarContactoForm, `contacto` (no `paciente`) es lo
+    que se recibe en __init__, porque ya existe un Contacto concreto que
+    editar -- de ahi se derivan tanto el paciente (para la regla de
+    "Responsable" solo en menores) como la Persona a actualizar.
+    """
+
+    tipo = forms.ChoiceField(choices=Contacto.Tipo.choices, label='Tipo de relación')
+    nombres = forms.CharField(max_length=100, label='Nombres', validators=[validador_nombre])
+    apellidos = forms.CharField(max_length=100, label='Apellidos', validators=[validador_nombre])
+    telefono = forms.CharField(max_length=20, label='Teléfono', required=False, validators=[validador_telefono])
+    parentesco = forms.ChoiceField(
+        choices=[('', '---------')] + Contacto.Parentesco.choices, label='Parentesco',
+    )
+    parentesco_otro = forms.CharField(
+        max_length=100, label='¿Cuál?', required=False, validators=[validador_nombre],
+    )
+
+    def __init__(self, *args, contacto, **kwargs):
+        self.contacto = contacto
+        # Mismo criterio que AgregarContactoForm: "Responsable" es
+        # exclusivo de menores, decidido por la edad real del paciente.
+        self.es_menor = contacto.paciente.edad is not None and contacto.paciente.edad < 18
+        super().__init__(*args, **kwargs)
+        if not self.es_menor:
+            self.fields['tipo'].widget = forms.HiddenInput()
+            self.fields['tipo'].initial = Contacto.Tipo.REFERENCIA
+
+    def _validar_parentesco_otro(self, datos):
+        if datos.get('parentesco') == Contacto.Parentesco.OTRO and not datos.get('parentesco_otro'):
+            self.add_error('parentesco_otro', 'Especifica cuál es el parentesco.')
+
+    def clean(self):
+        datos = super().clean()
+
+        if not self.es_menor:
+            datos['tipo'] = Contacto.Tipo.REFERENCIA
+
+        # Mismo chequeo de duplicados que al crear, mas el exclude(): sin
+        # el exclude, la propia Persona que se esta editando siempre
+        # "coincidiria consigo misma" y nunca se podria guardar sin
+        # cambiar nombre o telefono.
+        if datos.get('nombres') and datos.get('apellidos'):
+            if Persona.objects.filter(
+                nombres__iexact=datos['nombres'],
+                apellidos__iexact=datos['apellidos'],
+                telefono=datos.get('telefono', ''),
+            ).exclude(pk=self.contacto.persona_contacto_id).exists():
+                raise forms.ValidationError(
+                    f"Ya existe otra persona registrada como \"{datos['nombres']} {datos['apellidos']}\" "
+                    f"con el teléfono {datos.get('telefono', '')}."
+                )
+
+        self._validar_parentesco_otro(datos)
+        return datos
+
+    @property
+    def cambia_datos_persona(self):
+        """
+        True si nombres/apellidos/telefono difieren de los que ya tenia
+        la Persona -- la vista lo usa solo para decidir que texto poner
+        en el mensaje de exito; la confirmacion antes de enviar (porque
+        esta Persona puede ser contacto de otros pacientes, o paciente
+        ella misma) se hace en el navegador, en ver-expediente.js.
+        """
+        persona = self.contacto.persona_contacto
+        datos = self.cleaned_data
+        return (
+            datos.get('nombres', '').strip().lower() != persona.nombres.strip().lower()
+            or datos.get('apellidos', '').strip().lower() != persona.apellidos.strip().lower()
+            or datos.get('telefono', '') != persona.telefono
+        )
+
+
+class AgregarContactoForm(forms.Form):
+    """
+    Agregar un contacto/responsable adicional a un paciente que YA tiene
+    expediente -- la decisión que quedó pendiente desde HU-EXP-02
+    ("un paciente puede tener más de un responsable") para cuando
+    existiera esta pantalla (HU-EXP-05/06).
+
+    Mismos campos y misma lógica de "buscar o crear" que el bloque de
+    contacto de RegistrarPacienteForm -- la diferencia es que aquí el
+    bloque completo SIEMPRE es obligatorio (el único propósito de este
+    formulario es agregar uno; no existe el caso "dejarlo vacío para
+    omitirlo").
+    """
+
+    tipo = forms.ChoiceField(choices=Contacto.Tipo.choices, label='Tipo de relación')
+    persona_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    nombres = forms.CharField(max_length=100, label='Nombres', required=False, validators=[validador_nombre])
+    apellidos = forms.CharField(max_length=100, label='Apellidos', required=False, validators=[validador_nombre])
+    telefono = forms.CharField(max_length=20, label='Teléfono', required=False, validators=[validador_telefono])
+    parentesco = forms.ChoiceField(
+        choices=[('', '---------')] + Contacto.Parentesco.choices, label='Parentesco', required=False,
+    )
+    parentesco_otro = forms.CharField(
+        max_length=100, label='¿Cuál?', required=False, validators=[validador_nombre],
+    )
+
+    def __init__(self, *args, paciente, **kwargs):
+        # El paciente al que se le agrega el contacto -- lo necesita
+        # clean() para el chequeo de "no puede ser su propio contacto" y
+        # para saber contra quién comparar el Contacto ya existente.
+        self.paciente = paciente
+        # "Responsable" es un concepto exclusivo de menores de edad
+        # (HU-EXP-02) -- un adulto solo puede tener contactos de
+        # referencia. Se decide con la edad real del paciente, no con lo
+        # que llegue en el POST (mismo criterio que RegistrarPacienteForm:
+        # nunca confiar en el cliente para una decision de negocio).
+        self.es_menor = paciente.edad is not None and paciente.edad < 18
+        super().__init__(*args, **kwargs)
+        if not self.es_menor:
+            # Se oculta el campo en vez de quitarlo: mas simple que la
+            # plantilla tenga que decidir si lo pinta o no, y clean()
+            # de todas formas fuerza el valor abajo pase lo que pase en
+            # el POST.
+            self.fields['tipo'].widget = forms.HiddenInput()
+            self.fields['tipo'].initial = Contacto.Tipo.REFERENCIA
+
+    def clean_persona_id(self):
+        persona_id = self.cleaned_data.get('persona_id')
+        if persona_id and not Persona.objects.filter(pk=persona_id).exists():
+            raise forms.ValidationError('Esa persona ya no existe -- búscala de nuevo.')
+        return persona_id
+
+    def _validar_parentesco_otro(self, datos):
+        if datos.get('parentesco') == Contacto.Parentesco.OTRO and not datos.get('parentesco_otro'):
+            self.add_error('parentesco_otro', 'Especifica cuál es el parentesco.')
+
+    def clean(self):
+        datos = super().clean()
+
+        if not self.es_menor:
+            # El campo esta oculto para un adulto, pero un POST armado a
+            # mano podria mandar tipo=responsable de todas formas -- se
+            # sobreescribe siempre, no solo cuando el campo se ve.
+            datos['tipo'] = Contacto.Tipo.REFERENCIA
+
+        if datos.get('persona_id'):
+            # Se eligio una persona existente por el buscador: solo
+            # falta el parentesco, y dos chequeos que la base de datos ya
+            # exige como constraint (TEC-01) pero con un mensaje claro en
+            # vez de un error tecnico si tronara la restriccion.
+            if datos['persona_id'] == self.paciente.pk:
+                raise forms.ValidationError('El paciente no puede ser su propio contacto.')
+            if Contacto.objects.filter(paciente=self.paciente, persona_contacto_id=datos['persona_id']).exists():
+                raise forms.ValidationError('Esa persona ya es contacto de este paciente.')
+            if not datos.get('parentesco'):
+                self.add_error('parentesco', 'Falta el parentesco con el paciente.')
+            self._validar_parentesco_otro(datos)
+            return datos
+
+        # No se eligio a nadie del buscador: hay que crear una Persona
+        # nueva, y a diferencia del formulario de registro, aqui el
+        # bloque completo es obligatorio -- no existe "dejarlo vacio".
+        campos = ('nombres', 'apellidos', 'telefono', 'parentesco')
+        faltantes = [campo for campo in campos if not datos.get(campo)]
+        if faltantes:
+            raise forms.ValidationError(
+                'Completa nombre, apellidos, teléfono y parentesco -- o búscalo arriba si ya está registrado.'
+            )
+
+        # Mismo chequeo de duplicados que RegistrarPacienteForm: sin DUI
+        # que lo distinga, nombre + telefono iguales son la unica senal
+        # de que podria ser la misma persona registrada dos veces.
+        if Persona.objects.filter(
+            nombres__iexact=datos['nombres'],
+            apellidos__iexact=datos['apellidos'],
+            telefono=datos['telefono'],
+        ).exists():
+            raise forms.ValidationError(
+                f"Ya existe una persona registrada como \"{datos['nombres']} {datos['apellidos']}\" "
+                f"con el teléfono {datos['telefono']} -- búscala arriba en vez de crearla de nuevo."
+            )
+
+        self._validar_parentesco_otro(datos)
+        return datos
