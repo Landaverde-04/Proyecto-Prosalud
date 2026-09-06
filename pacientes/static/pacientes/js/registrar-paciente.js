@@ -1,7 +1,4 @@
 (function () {
-    var DEMORA_MS = 350;
-    var MIN_CARACTERES = 2;
-
     var form = document.getElementById('form-registrar-paciente');
     if (!form) return;
 
@@ -162,97 +159,22 @@
         });
     });
 
-    /* ---- Buscar y reutilizar un contacto o responsable existente ---- */
-    var buscador = document.getElementById('buscador-contacto');
-    var resultados = document.getElementById('resultados-contacto');
-    var bannerVinculado = document.getElementById('contacto-vinculado');
-    var nombreVinculado = document.getElementById('contacto-vinculado-nombre');
-    var btnDesvincular = document.getElementById('btn-desvincular-contacto');
-
-    var campoId = document.getElementById('id_contacto_persona_id');
-    var campoNombres = document.getElementById('id_contacto_nombres');
-    var campoApellidos = document.getElementById('id_contacto_apellidos');
-    var campoTelefono = document.getElementById('id_contacto_telefono');
-
-    var temporizador = null;
-
-    function limpiarResultados() {
-        resultados.innerHTML = '';
-    }
-
-    function mostrarResultados(lista) {
-        if (lista.length === 0) {
-            resultados.innerHTML = '<div class="list-group-item text-muted small">Sin coincidencias -- llena los datos abajo para registrarlo.</div>';
-            return;
-        }
-        resultados.innerHTML = lista.map(function (persona) {
-            var detalle = [persona.dui, persona.telefono].filter(Boolean).join(' · ');
-            return '<button type="button" class="list-group-item list-group-item-action py-2" data-id="' + persona.id + '">' +
-                '<div class="fw-medium">' + persona.nombres + ' ' + persona.apellidos + '</div>' +
-                (detalle ? '<div class="text-muted small">' + detalle + '</div>' : '') +
-                '</button>';
-        }).join('');
-
-        Array.from(resultados.querySelectorAll('button')).forEach(function (boton) {
-            var persona = lista.find(function (p) { return String(p.id) === boton.dataset.id; });
-            boton.addEventListener('click', function () {
-                vincularContacto(persona);
-            });
-        });
-    }
-
-    function vincularContacto(persona) {
-        campoId.value = persona.id;
-        campoNombres.value = persona.nombres;
-        campoApellidos.value = persona.apellidos;
-        campoTelefono.value = persona.telefono || '';
-
-        [campoNombres, campoApellidos, campoTelefono].forEach(function (campo) {
-            campo.readOnly = true;
-        });
-
-        nombreVinculado.textContent = persona.nombres + ' ' + persona.apellidos;
-        bannerVinculado.classList.remove('d-none');
-        buscador.value = '';
-        limpiarResultados();
-        buscador.classList.add('d-none');
-    }
-
-    function desvincularContacto() {
-        campoId.value = '';
-        campoNombres.value = '';
-        campoApellidos.value = '';
-        campoTelefono.value = '';
-
-        [campoNombres, campoApellidos, campoTelefono].forEach(function (campo) {
-            campo.readOnly = false;
-        });
-
-        bannerVinculado.classList.add('d-none');
-        buscador.classList.remove('d-none');
-        buscador.focus();
-    }
-
-    if (btnDesvincular) {
-        btnDesvincular.addEventListener('click', desvincularContacto);
-    }
-
-    if (buscador && urlBuscar) {
-        buscador.addEventListener('input', function () {
-            clearTimeout(temporizador);
-            var texto = buscador.value.trim();
-            if (texto.length < MIN_CARACTERES) {
-                limpiarResultados();
-                return;
-            }
-            temporizador = setTimeout(function () {
-                fetch(urlBuscar + '?q=' + encodeURIComponent(texto), {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                })
-                    .then(function (resp) { return resp.json(); })
-                    .then(function (datos) { mostrarResultados(datos.resultados); })
-                    .catch(limpiarResultados);
-            }, DEMORA_MS);
+    /* ---- Buscar y reutilizar un contacto o responsable existente ----
+       Logica compartida con el modal de "agregar contacto" del
+       expediente (HU-EXP-05/06) -- ver buscador-contacto.js, que debe
+       cargarse antes que este script. ---- */
+    if (typeof iniciarBuscadorContacto === 'function') {
+        iniciarBuscadorContacto({
+            urlBuscar: urlBuscar,
+            buscador: 'buscador-contacto',
+            resultados: 'resultados-contacto',
+            bannerVinculado: 'contacto-vinculado',
+            nombreVinculado: 'contacto-vinculado-nombre',
+            btnDesvincular: 'btn-desvincular-contacto',
+            campoId: 'id_contacto_persona_id',
+            campoNombres: 'id_contacto_nombres',
+            campoApellidos: 'id_contacto_apellidos',
+            campoTelefono: 'id_contacto_telefono',
         });
     }
 })();

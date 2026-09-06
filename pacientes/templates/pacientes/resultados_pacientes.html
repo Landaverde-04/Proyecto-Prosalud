@@ -1,0 +1,95 @@
+{% comment %}
+Fragmento de resultados de Pacientes: lo que cambia al buscar o
+paginar. Vive aparte para poder devolver solo esto en las peticiones
+AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
+{% endcomment %}
+{% if pagina.object_list %}
+
+<p class="text-muted small mb-2">
+    {{ total }} paciente{{ total|pluralize }}{% if consulta %} encontrado{{ total|pluralize }}{% endif %}
+</p>
+
+{# Tabla -- solo desde tablet grande/escritorio (md+) #}
+<div class="card shadow-sm d-none d-md-block">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0 tabla-ancho-fijo">
+            <colgroup>
+                <col style="width: 34%;">
+                <col style="width: 10%;">
+                <col style="width: 18%;">
+                <col style="width: 16%;">
+                <col style="width: 22%;">
+            </colgroup>
+            <thead class="table-dark">
+                <tr>
+                    <th>Nombre completo</th>
+                    <th>Edad</th>
+                    <th>DUI</th>
+                    <th>Teléfono</th>
+                    <th>También es contacto de</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for persona in pagina %}
+                <tr{% if perms.pacientes.view_expediente and persona.expediente_id %} class="cursor-pointer" onclick="window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
+                    <td class="fw-medium">{{ persona.nombres }} {{ persona.apellidos }}</td>
+                    <td>{% if persona.edad is not None %}{{ persona.edad }} años{% else %}—{% endif %}</td>
+                    <td class="text-muted small">{{ persona.dui|default:"—" }}</td>
+                    <td class="text-muted small">{{ persona.telefono|default:"—" }}</td>
+                    <td class="text-muted small">
+                        {% for paciente_relacionado in persona.tambien_contacto_de %}
+                            {{ paciente_relacionado.nombres }} {{ paciente_relacionado.apellidos }}{% if not forloop.last %}, {% endif %}
+                        {% empty %}
+                            —
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{# Tarjetas -- movil y tablet chica #}
+<div class="d-md-none vstack gap-2">
+    {% for persona in pagina %}
+    <div class="card shadow-sm{% if perms.pacientes.view_expediente and persona.expediente_id %} cursor-pointer{% endif %}"
+         {% if perms.pacientes.view_expediente and persona.expediente_id %}onclick="window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
+        <div class="card-body p-3">
+            <div class="fw-semibold">{{ persona.nombres }} {{ persona.apellidos }}</div>
+            <div class="text-muted small">
+                {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}
+                {{ persona.dui|default:"Sin DUI" }} · {{ persona.telefono|default:"Sin teléfono" }}
+            </div>
+            {% if persona.tambien_contacto_de %}
+            <div class="text-muted small mt-1">
+                <i class="bi bi-info-circle"></i> También es contacto de:
+                {% for paciente_relacionado in persona.tambien_contacto_de %}
+                    {{ paciente_relacionado.nombres }} {{ paciente_relacionado.apellidos }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% include "core/paginacion.html" %}
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
+    {% if consulta %}
+        <p class="mb-3">No se encontraron pacientes con esa búsqueda.</p>
+        <a data-listado-link href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary btn-sm">Ver todos</a>
+        {% if perms.pacientes.add_persona %}
+        <a href="{% url 'pacientes:registrar_paciente' %}" class="btn btn-primary btn-sm">Registrar paciente nuevo</a>
+        {% endif %}
+    {% else %}
+        <p class="mb-3">No hay pacientes registrados todavía.</p>
+        {% if perms.pacientes.add_persona %}
+        <a href="{% url 'pacientes:registrar_paciente' %}" class="btn btn-primary btn-sm">Registrar el primero</a>
+        {% endif %}
+    {% endif %}
+</div>
+{% endif %}

@@ -3,6 +3,9 @@ from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from django import forms
+
+from core.models import Clinica
+
 from .models import Usuario
 
 
@@ -117,12 +120,28 @@ class RolUnicoField(forms.ModelMultipleChoiceField):
         return roles
 
 
+def campo_clinicas():
+    """
+    A diferencia del rol, aqui SI se permite mas de una: la doctora
+    administradora trabaja en las dos clinicas (Medica y Estetica), el
+    resto del personal solo en la suya (TEC-01) -- por eso es un
+    CheckboxSelectMultiple normal, sin el truco de RolUnicoField.
+    """
+    return forms.ModelMultipleChoiceField(
+        queryset=Clinica.objects.order_by('nombre'),
+        required=False,
+        label='Clínicas',
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+
 class UsuarioCrearForm(UserCreationForm):
     groups = RolUnicoField()
+    clinicas = campo_clinicas()
 
     class Meta:
         model = Usuario
-        fields = ('username', 'first_name', 'last_name', 'email', 'is_active', 'groups')
+        fields = ('username', 'first_name', 'last_name', 'email', 'is_active', 'groups', 'clinicas')
         labels = {
             'username': 'Nombre de usuario',
             'first_name': 'Nombre',
@@ -152,10 +171,11 @@ class ResetearPasswordForm(forms.Form):
 
 class UsuarioEditarForm(forms.ModelForm):
     groups = RolUnicoField()
+    clinicas = campo_clinicas()
 
     class Meta:
         model = Usuario
-        fields = ('username', 'first_name', 'last_name', 'email', 'is_active', 'groups')
+        fields = ('username', 'first_name', 'last_name', 'email', 'is_active', 'groups', 'clinicas')
         labels = {
             'username': 'Nombre de usuario',
             'first_name': 'Nombre',

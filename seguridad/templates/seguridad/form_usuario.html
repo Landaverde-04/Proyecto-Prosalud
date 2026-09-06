@@ -113,6 +113,28 @@
                 {% endfor %}
             </div>
 
+            {# Clinicas: a diferencia del rol, aqui si se permite mas de una (TEC-01) #}
+            <div class="mb-3">
+                <label class="form-label">Clínicas</label>
+                {% if form.clinicas.field.queryset.exists %}
+                    {% for opcion in form.clinicas %}
+                        <div class="form-check">
+                            {{ opcion.tag }}
+                            <label class="form-check-label" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>
+                        </div>
+                    {% endfor %}
+                    <div class="form-text">
+                        En qué clínica(s) puede trabajar este usuario. La mayoría del personal solo
+                        necesita una; solo quien atiende en varias (ej. la doctora administradora) marca más de una.
+                    </div>
+                {% else %}
+                    <p class="text-muted small mb-0">No hay clínicas registradas aún.</p>
+                {% endif %}
+                {% for error in form.clinicas.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+            </div>
+
             {# Estado activo #}
             <div class="mb-4">
                 <div class="form-check">

@@ -100,6 +100,14 @@
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1) !important;
 }
 
+/* Filas/tarjetas de listado que abren algo al hacer clic (ej. abrir el
+   expediente desde Pacientes) -- el cursor es la unica pista visual,
+   asi que sin esto Bootstrap deja el cursor por defecto y no se nota
+   que son clicables. */
+.cursor-pointer {
+    cursor: pointer;
+}
+
 /* Links del sidebar */
 .sidebar-link {
     color: var(--sidebar-item);

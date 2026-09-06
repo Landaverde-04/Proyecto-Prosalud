@@ -2,6 +2,8 @@ from django.contrib.auth.models import Group, Permission
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from core.models import Clinica
+
 from .models import Usuario
 
 
@@ -232,3 +234,82 @@ class AvisoSesionVencidaTests(PruebaSeguridad):
     def test_la_marca_de_sesion_no_es_accesible_desde_javascript(self):
         self._iniciar_sesion()
         self.assertTrue(self.client.cookies['prosalud_sesion_previa']['httponly'])
+
+
+class ClinicasUsuarioTests(PruebaSeguridad):
+    """
+    Usuario.clinicas (TEC-01) se agregó a los formularios de crear/editar
+    usuario (05/09/2026) porque no tenía ninguna pantalla que lo asignara
+    -- ver la actualización de TEC-01.md. A diferencia del Rol, aquí sí se
+    permite marcar más de una clínica.
+    """
+
+    def setUp(self):
+        self.rol_admin = Group.objects.create(name='Doctora Administradora')
+        self.rol_admin.permissions.add(
+            Permission.objects.get(codename='view_usuario', content_type__app_label='seguridad'),
+            Permission.objects.get(codename='change_usuario', content_type__app_label='seguridad'),
+            Permission.objects.get(codename='add_usuario', content_type__app_label='seguridad'),
+        )
+        self.admin = Usuario.objects.create_user(username='admin', password='x')
+        self.admin.groups.add(self.rol_admin)
+        self.client.force_login(self.admin)
+
+        self.prosalud = Clinica.objects.create(nombre='ProSalud')
+        self.estetica = Clinica.objects.create(nombre='Estética')
+
+        self.doctora = Usuario.objects.create_user(username='doctora', password='x')
+        self.doctora.groups.add(self.rol_admin)
+
+    def _datos_edicion(self, usuario, **cambios):
+        rol = usuario.groups.first()
+        datos = {
+            'username': usuario.username,
+            'first_name': usuario.first_name,
+            'last_name': usuario.last_name,
+            'email': usuario.email,
+            'is_active': 'on',
+            'groups': str(rol.pk) if rol else '',
+        }
+        datos.update(cambios)
+        return datos
+
+    def test_editar_usuario_asigna_una_clinica(self):
+        respuesta = self.client.post(
+            reverse('seguridad:editar_usuario', args=[self.doctora.pk]),
+            self._datos_edicion(self.doctora, clinicas=[str(self.prosalud.pk)]),
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
+        self.assertEqual(list(self.doctora.clinicas.all()), [self.prosalud])
+
+    def test_editar_usuario_permite_mas_de_una_clinica(self):
+        """A diferencia del Rol, Clinicas SI permite marcar varias (la doctora administradora trabaja en las dos)."""
+        respuesta = self.client.post(
+            reverse('seguridad:editar_usuario', args=[self.doctora.pk]),
+            self._datos_edicion(self.doctora, clinicas=[str(self.prosalud.pk), str(self.estetica.pk)]),
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
+        self.assertEqual(set(self.doctora.clinicas.all()), {self.prosalud, self.estetica})
+
+    def test_editar_usuario_sin_clinicas_no_falla(self):
+        """El campo es opcional -- dejarlo vacio no debe romper el guardado."""
+        respuesta = self.client.post(
+            reverse('seguridad:editar_usuario', args=[self.doctora.pk]),
+            self._datos_edicion(self.doctora),  # sin 'clinicas'
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
+        self.assertEqual(list(self.doctora.clinicas.all()), [])
+
+    def test_crear_usuario_asigna_clinica(self):
+        respuesta = self.client.post(
+            reverse('seguridad:crear_usuario'),
+            {
+                'username': 'nuevodoctor', 'first_name': 'Nuevo', 'last_name': 'Doctor',
+                'email': '', 'is_active': 'on', 'groups': str(self.rol_admin.pk),
+                'clinicas': [str(self.prosalud.pk)],
+                'password1': 'Contrasena-Segura-123', 'password2': 'Contrasena-Segura-123',
+            },
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
+        nuevo = Usuario.objects.get(username='nuevodoctor')
+        self.assertEqual(list(nuevo.clinicas.all()), [self.prosalud])
