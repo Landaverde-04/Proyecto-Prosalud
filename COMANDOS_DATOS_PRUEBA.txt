@@ -25,27 +25,59 @@ Vaciar los datos de prueba y volver a sembrarlos de cero:
 Secciones y qué tablas toca cada una
 -------------------------------------
 
-1) Seguridad
-   Tablas: auth_group (Roles)
+1) Clínicas
+   Tablas: core_clinica
+   Crea "ProSalud" y "Estética" si no existen. Va primero porque
+   Seguridad (Usuario.clinicas) y Pacientes (Expediente.clinica) la
+   necesitan a las dos.
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección. Son las clínicas
+   reales del sistema, no datos de ejemplo.
+
+2) Seguridad
+   Tablas: auth_group (Roles), Usuario (solo los 5 de prueba),
+   UsuarioClinica
    Crea los 5 roles del sistema si no existen: Doctora Administradora,
-   Doctor, Enfermera, Laboratorio, Regente.
+   Doctor, Enfermera, Laboratorio, Regente. Además crea (o corrige, si
+   ya existían) 5 cuentas de prueba, una por rol, cada una con su
+   clínica asignada — para poder probar cualquier pantalla (ej.
+   HU-EXP-05, que exige el permiso view_expediente + pertenecer a la
+   clínica) sin tener que crear una cuenta a mano después de clonar el
+   proyecto:
 
-   IMPORTANTE: --limpiar NUNCA borra esta sección. Son los roles con
-   los que la gente inicia sesión de verdad en el día a día, no datos
-   de ejemplo desechables.
+       usuario              rol                      clínica(s)
+       -------------------  -----------------------  -------------------
+       doctora.admin        Doctora Administradora    ProSalud, Estética
+       doctor.demo          Doctor                     ProSalud
+       enfermera.demo       Enfermera                  ProSalud
+       laboratorio.demo     Laboratorio                ProSalud
+       regente.demo         Regente                    ProSalud
 
-2) Pacientes
-   Tablas: core_clinica, pacientes_persona, pacientes_contacto,
-   pacientes_expediente
-   Crea la clínica "ProSalud" (si no existe) y 5 personas de ejemplo,
-   cada una con su contacto de referencia o responsable y su
-   expediente: 3 adultas y 2 menores de edad.
+   Contraseña de las 5: ProSalud-2026
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección. Son los roles y
+   cuentas con los que la gente inicia sesión de verdad (incluidas las
+   5 de prueba, una vez creadas), no datos de ejemplo desechables. Sí
+   es seguro volver a correr el comando: si alguien le cambió el rol o
+   la clínica a una de estas 5 cuentas a mano, sembrar_datos se los
+   regresa a lo de la tabla de arriba.
+
+   Los permisos de cada rol (qué puede hacer "Doctor", etc.) NO se
+   siembran aquí — se asignan a mano desde Roles → Permisos, la primera
+   vez que se configura el sistema en una máquina nueva.
+
+3) Pacientes
+   Tablas: pacientes_persona, pacientes_contacto, pacientes_expediente
+   Crea 12 personas de ejemplo con expediente en ProSalud (mezcla de
+   adultos y menores, con y sin DUI), cada una con su contacto de
+   referencia o responsable — 12 para que la paginación de HU-EXP-04
+   (10 por página) se vea de verdad, no solo una página que siempre
+   cabe todo.
 
    --limpiar SÍ borra esta sección (Persona, Contacto, Expediente) y
-   la vuelve a sembrar completa. La Clínica NO se borra — es la
-   clínica real del sistema, no un dato de ejemplo.
+   la vuelve a sembrar completa.
 
-3) Consultas
+4) Consultas
    Todavía no existe. Se agrega cuando haya un flujo real que probar
    (a partir de HU-EXP-17, de Samuel) — mismo patrón: una función
    sembrar_consultas() con su propio limpiar_consultas(), documentando

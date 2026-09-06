@@ -2,7 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import CharField, Q, Value
+from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Concat, Replace
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -217,11 +217,6 @@ def lista_pacientes(request):
             nombre_completo=Concat('nombres', Value(' '), 'apellidos', output_field=CharField()),
             dui_sin_guion=Replace('dui', Value('-'), Value('')),
             telefono_sin_guion=Replace('telefono', Value('-'), Value('')),
-            # persona_contacto.dui a traves de la relacion inversa
-            # "contactos" (los Contacto donde ESTA Persona es la
-            # paciente) -- asi se busca por el DUI de quien la
-            # acompaño, no el propio.
-            dui_responsable_sin_guion=Replace('contactos__persona_contacto__dui', Value('-'), Value('')),
         )
         .prefetch_related('es_contacto_de__paciente', 'expedientes')
         .distinct()
@@ -231,9 +226,22 @@ def lista_pacientes(request):
     if consulta:
         condiciones, consulta_sin_guion = _condiciones_busqueda_persona(consulta)
         if consulta_sin_guion:
-            # Extra respecto a buscar_persona: aqui tambien se busca
-            # por el DUI de quien acompaña al paciente.
-            condiciones |= Q(dui_responsable_sin_guion__icontains=consulta_sin_guion)
+            # Extra respecto a buscar_persona: aqui tambien se busca por
+            # el DUI de quien acompaña al paciente. Se usa Exists() (una
+            # subconsulta) en vez de anotar 'contactos__persona_contacto__dui'
+            # directamente: anotar esa relacion inversa hace un JOIN que
+            # multiplica la fila del paciente una vez por cada Contacto
+            # que tenga (HU-EXP-05 permite mas de uno) -- .distinct() no
+            # lo colapsa si el DUI difiere entre esos contactos, y el
+            # paciente terminaba apareciendo repetido en la lista.
+            # Exists() no se une a la consulta principal, asi que no
+            # puede multiplicar filas sin importar cuantos contactos tenga.
+            contacto_con_dui = Contacto.objects.filter(
+                paciente=OuterRef('pk'),
+            ).annotate(
+                dui_sin_guion=Replace('persona_contacto__dui', Value('-'), Value('')),
+            ).filter(dui_sin_guion__icontains=consulta_sin_guion)
+            condiciones |= Q(Exists(contacto_con_dui))
         personas = personas.filter(condiciones)
 
     personas = personas.order_by('apellidos', 'nombres')
