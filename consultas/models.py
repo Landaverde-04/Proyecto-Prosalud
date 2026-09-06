@@ -1,3 +1,6 @@
+from datetime import timedelta
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -153,6 +156,22 @@ class Incapacidad(ModeloBase):
     # Solo aplica cuando tipo es INCAPACIDAD; una constancia no lleva dias.
     dias = models.IntegerField(null=True, blank=True)
     motivo = models.TextField()
+    fecha_inicio = models.DateField(null=True, blank=True)
+    # Identifica una emisión, incluso si se repite el envío del formulario.
+    solicitud_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    # Copia textual al emitir: reimprimir no consulta perfiles modificados.
+    paciente_nombre = models.CharField(max_length=250, blank=True)
+    doctor_jvpm = models.CharField(max_length=50, blank=True)
+    clinica_nombre = models.CharField(max_length=150, blank=True)
+    clinica_direccion = models.CharField(max_length=255, blank=True)
+    clinica_telefono = models.CharField(max_length=20, blank=True)
+    fecha_atencion = models.DateField(null=True, blank=True)
+
+    @property
+    def fecha_fin(self):
+        if self.tipo == self.Tipo.INCAPACIDAD and self.fecha_inicio and self.dias:
+            return self.fecha_inicio + timedelta(days=self.dias - 1)
+        return None
 
     class Meta:
         db_table = 'Incapacidad'
