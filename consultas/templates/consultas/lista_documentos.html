@@ -1,0 +1,16 @@
+{% extends 'core/base.html' %}
+{% block titulo %}Constancias médicas - ProSalud{% endblock %}
+{% block contenido %}
+<a class="text-decoration-none" href="{% url 'pacientes:ver_expediente' expediente.pk %}">← Expediente</a>
+<h1 class="h4 mt-3">Constancias médicas</h1><p class="text-muted">{{ expediente.persona }} · {{ expediente.clinica }}</p>
+{% if perms.consultas.add_incapacidad %}
+<details class="card border-0 shadow-sm mb-4"><summary class="p-3 fw-semibold">Generar desde una consulta</summary><div class="px-3 pb-3">
+<p class="small text-muted">Seleccione la atención a la que corresponde el documento.</p>
+{% for consulta in consultas %}<div class="d-flex justify-content-between align-items-center border-bottom py-2 gap-3"><span>{{ consulta.inicio|date:'d/m/Y H:i' }} · {{ consulta.motivo|truncatechars:90 }}</span><a class="btn btn-outline-primary btn-sm text-nowrap" href="{% url 'consultas:nuevo_documento' consulta.pk %}">Preparar documento</a></div>
+{% empty %}<p class="mb-0">Este expediente todavía no tiene consultas registradas.</p>{% endfor %}
+</div></details>{% endif %}
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Fecha de emisión</th><th>Documento</th><th>Folio</th><th>Profesional</th><th></th></tr></thead><tbody>
+{% for documento in pagina %}<tr><td>{{ documento.fecha|date:'d/m/Y' }}</td><td>Constancia de incapacidad</td><td>{{ documento.folio }}</td><td>{{ documento.doctor_nombre }}</td><td><a href="{% url 'consultas:ver_documento' documento.pk %}">Ver documento</a></td></tr>
+{% empty %}<tr><td colspan="5" class="text-center text-muted py-5">Aún no hay constancias ni incapacidades emitidas.</td></tr>{% endfor %}
+</tbody></table></div></div>{% include 'core/paginacion.html' %}
+{% endblock %}
