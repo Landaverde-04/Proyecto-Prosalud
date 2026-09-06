@@ -525,6 +525,39 @@ class ListaPacientesTests(PruebaCore):
         nombres_mostrados = [p.nombres for p in respuesta.context['pagina'].object_list]
         self.assertIn('Diego', nombres_mostrados)
 
+    def test_paciente_con_dos_contactos_no_aparece_duplicado(self):
+        """
+        Bug real encontrado al sembrar datos con HU-EXP-05 (un paciente
+        puede tener mas de un contacto): anotar 'contactos__persona_
+        contacto__dui' directamente hace un JOIN que multiplica la fila
+        del paciente una vez por cada Contacto -- aparecia dos veces en
+        la lista y en el conteo. Se corrigio con una subconsulta
+        Exists(), que no se une a la consulta principal.
+        """
+        paciente = self._crear_paciente_con_expediente(
+            nombres='Jose Roberto', apellidos='Munoz Castro', fecha_nacimiento='1975-11-30',
+        )
+        contacto_1 = Persona.objects.create(nombres='Gloria', apellidos='Castro', dui='11111111-1')
+        contacto_2 = Persona.objects.create(nombres='Josue', apellidos='Manzano', dui='22222222-2')
+        Contacto.objects.create(
+            paciente=paciente, persona_contacto=contacto_1,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.HERMANO,
+        )
+        Contacto.objects.create(
+            paciente=paciente, persona_contacto=contacto_2,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.VECINO,
+        )
+        self.client.force_login(self.enfermera)
+
+        respuesta_sin_busqueda = self.client.get(self.url)
+        self.assertEqual(respuesta_sin_busqueda.context['total'], 1)
+
+        respuesta_buscando = self.client.get(self.url, {'q': 'jose roberto munoz'})
+        self.assertEqual(len(respuesta_buscando.context['pagina'].object_list), 1)
+
+        respuesta_por_dui = self.client.get(self.url, {'q': '111111111'})
+        self.assertEqual(len(respuesta_por_dui.context['pagina'].object_list), 1)
+
     def test_paciente_que_tambien_es_contacto_de_otro_se_indica(self):
         """Si una Persona es paciente Y ademas es contacto/responsable de
         otro paciente, aparece una sola vez, con la relacion indicada."""

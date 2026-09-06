@@ -40,6 +40,7 @@ class Command(BaseCommand):
         if options['limpiar']:
             self.limpiar_pacientes()
 
+        self.sembrar_clinicas()
         self.sembrar_seguridad()
         self.sembrar_pacientes()
         # Seccion Consultas: no existe todavia -- se agrega aqui cuando
@@ -50,11 +51,59 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Listo.'))
 
     # ------------------------------------------------------------------
-    # Seccion: Seguridad
-    # Tablas: auth_group (Roles).
-    # NUNCA se toca con --limpiar -- son los roles con los que la gente
-    # inicia sesion de verdad, no datos de ejemplo.
+    # Seccion: Clinicas
+    # Tablas: core_clinica.
+    # Va antes de Seguridad y Pacientes porque las dos la necesitan
+    # (Usuario.clinicas y Expediente.clinica). NUNCA se toca con
+    # --limpiar -- son las clinicas reales del sistema, no datos de
+    # ejemplo.
     # ------------------------------------------------------------------
+    def sembrar_clinicas(self):
+        self.stdout.write('Seccion Clinicas (core_clinica)')
+        for nombre in ['ProSalud', 'Estética']:
+            _, creada = Clinica.objects.get_or_create(nombre=nombre)
+            etiqueta = 'creada' if creada else 'ya existia'
+            self.stdout.write(f'  Clinica {etiqueta}: {nombre}')
+
+    # ------------------------------------------------------------------
+    # Seccion: Seguridad
+    # Tablas: auth_group (Roles), Usuario (solo los de prueba), UsuarioClinica.
+    # NUNCA se toca con --limpiar -- son los roles y cuentas con los que
+    # la gente inicia sesion de verdad, no datos de ejemplo.
+    # ------------------------------------------------------------------
+
+    # Un usuario por rol, para poder probar cada pantalla (ej. HU-EXP-05,
+    # que exige el permiso view_expediente + pertenecer a la clinica) sin
+    # tener que crear una cuenta a mano despues de clonar el proyecto.
+    # La doctora administradora pertenece a las dos clinicas (regla de
+    # negocio: TEC-01); el resto del personal solo a ProSalud.
+    USUARIOS_DE_PRUEBA = [
+        {
+            'username': 'doctora.admin', 'first_name': 'Elsa Cecilia', 'last_name': 'Miranda Velasquez',
+            'rol': 'Doctora Administradora', 'clinicas': ['ProSalud', 'Estética'],
+        },
+        {
+            'username': 'doctor.demo', 'first_name': 'Carlos', 'last_name': 'Rivas Aguilar',
+            'rol': 'Doctor', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'enfermera.demo', 'first_name': 'Marta', 'last_name': 'Gonzalez Peña',
+            'rol': 'Enfermera', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'laboratorio.demo', 'first_name': 'Jorge', 'last_name': 'Aguilar Castro',
+            'rol': 'Laboratorio', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'regente.demo', 'first_name': 'Silvia', 'last_name': 'Ramos Flores',
+            'rol': 'Regente', 'clinicas': ['ProSalud'],
+        },
+    ]
+    # Contraseña de las 5 cuentas de arriba -- documentada tambien en
+    # COMANDOS_DATOS_PRUEBA.txt. Son cuentas de prueba locales, no de
+    # produccion, por eso vive en el codigo sin problema.
+    PASSWORD_USUARIOS_PRUEBA = 'ProSalud-2026'
+
     def sembrar_seguridad(self):
         self.stdout.write('Seccion Seguridad (auth_group)')
         roles = ['Doctora Administradora', 'Doctor', 'Enfermera', 'Laboratorio', 'Regente']
@@ -63,12 +112,32 @@ class Command(BaseCommand):
             etiqueta = 'creado' if creado else 'ya existia'
             self.stdout.write(f'  Rol {etiqueta}: {nombre}')
 
+        for datos in self.USUARIOS_DE_PRUEBA:
+            usuario, creado = Usuario.objects.get_or_create(
+                username=datos['username'],
+                defaults={'first_name': datos['first_name'], 'last_name': datos['last_name']},
+            )
+            if creado:
+                usuario.set_password(self.PASSWORD_USUARIOS_PRUEBA)
+                usuario.save()
+            # set() en vez de add(): si se vuelve a correr el comando
+            # despues de que alguien le cambio el rol o la clinica a mano,
+            # esto lo regresa a su estado de prueba esperado -- coherente
+            # con que estas cuentas son "protegidas", no desechables, pero
+            # su configuracion SI debe reflejar siempre este comando.
+            usuario.groups.set([Group.objects.get(name=datos['rol'])])
+            usuario.clinicas.set(Clinica.objects.filter(nombre__in=datos['clinicas']))
+            etiqueta = 'creado' if creado else 'ya existia'
+            self.stdout.write(f'  Usuario {etiqueta}: {datos["username"]} ({datos["rol"]})')
+
     # ------------------------------------------------------------------
     # Seccion: Pacientes
-    # Tablas: core_clinica, pacientes_persona, pacientes_contacto,
-    # pacientes_expediente.
-    # Sembrable: --limpiar borra Persona/Contacto/Expediente (Clinica NO
-    # se borra, es la clinica real del sistema, no un dato de ejemplo).
+    # Tablas: pacientes_persona, pacientes_contacto, pacientes_expediente
+    # (la Clinica que usan ya la sembro sembrar_clinicas()).
+    # Sembrable: --limpiar borra Persona/Contacto/Expediente.
+    # 12 pacientes (mezcla de adultos y menores, con y sin DUI) -- lo
+    # suficiente para ver la paginacion real de HU-EXP-04 (10 por
+    # pagina), no solo un puñado que siempre cabe en una sola pagina.
     # ------------------------------------------------------------------
     PACIENTES_DE_PRUEBA = [
         {
@@ -111,6 +180,62 @@ class Command(BaseCommand):
             'contacto_nombres': 'Patricia', 'contacto_apellidos': 'Cruz Fuentes',
             'contacto_telefono': '7456-6677', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
         },
+        {
+            'nombres': 'Carlos Alberto', 'apellidos': 'Ramirez Cortez',
+            'dui': '02233445-6', 'telefono': '7899-1122',
+            'fecha_nacimiento': '1978-05-20', 'sexo': 'M',
+            'contacto_tipo': Contacto.Tipo.REFERENCIA,
+            'contacto_nombres': 'Blanca', 'contacto_apellidos': 'Ramirez Cortez',
+            'contacto_telefono': '7899-1123', 'contacto_parentesco': Contacto.Parentesco.HERMANO,
+        },
+        {
+            'nombres': 'Blanca Estela', 'apellidos': 'Diaz Molina',
+            'dui': '', 'telefono': '7344-5566',
+            'fecha_nacimiento': '1995-11-08', 'sexo': 'F',
+            'contacto_tipo': Contacto.Tipo.REFERENCIA,
+            'contacto_nombres': 'Marvin', 'contacto_apellidos': 'Diaz Molina',
+            'contacto_telefono': '7344-5567', 'contacto_parentesco': Contacto.Parentesco.ESPOSO,
+        },
+        {
+            'nombres': 'Fernando Jose', 'apellidos': 'Aguilar Reyes',
+            'dui': '03344556-7', 'telefono': '',
+            'fecha_nacimiento': '1960-02-14', 'sexo': 'M',
+            'contacto_tipo': Contacto.Tipo.REFERENCIA,
+            'contacto_nombres': 'Rosa', 'contacto_apellidos': 'Aguilar Reyes',
+            'contacto_telefono': '7566-7788', 'contacto_parentesco': Contacto.Parentesco.HIJO,
+        },
+        {
+            'nombres': 'Camila Renata', 'apellidos': 'Portillo Vasquez',
+            'dui': '', 'telefono': '',
+            'fecha_nacimiento': '2017-08-30', 'sexo': 'F',
+            'contacto_tipo': Contacto.Tipo.RESPONSABLE,
+            'contacto_nombres': 'Elena', 'contacto_apellidos': 'Vasquez Rivas',
+            'contacto_telefono': '7677-8899', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
+        },
+        {
+            'nombres': 'Diego Alejandro', 'apellidos': 'Chavez Fuentes',
+            'dui': '', 'telefono': '',
+            'fecha_nacimiento': '2012-12-01', 'sexo': 'M',
+            'contacto_tipo': Contacto.Tipo.RESPONSABLE,
+            'contacto_nombres': 'Miguel', 'contacto_apellidos': 'Chavez Ortiz',
+            'contacto_telefono': '7788-9900', 'contacto_parentesco': Contacto.Parentesco.PADRE_MADRE,
+        },
+        {
+            'nombres': 'Gloria Patricia', 'apellidos': 'Mejia Sorto',
+            'dui': '04455667-8', 'telefono': '7900-1234',
+            'fecha_nacimiento': '1985-07-19', 'sexo': 'F',
+            'contacto_tipo': Contacto.Tipo.REFERENCIA,
+            'contacto_nombres': 'Walter', 'contacto_apellidos': 'Mejia Sorto',
+            'contacto_telefono': '7900-1235', 'contacto_parentesco': Contacto.Parentesco.HERMANO,
+        },
+        {
+            'nombres': 'Oscar Ivan', 'apellidos': 'Recinos Palma',
+            'dui': '', 'telefono': '7011-3344',
+            'fecha_nacimiento': '2001-03-25', 'sexo': 'M',
+            'contacto_tipo': Contacto.Tipo.REFERENCIA,
+            'contacto_nombres': 'Sandra', 'contacto_apellidos': 'Recinos Palma',
+            'contacto_telefono': '7011-3345', 'contacto_parentesco': Contacto.Parentesco.TIO,
+        },
     ]
 
     def limpiar_pacientes(self):
@@ -122,19 +247,12 @@ class Command(BaseCommand):
         Persona.objects.all().delete()
 
     def sembrar_pacientes(self):
-        self.stdout.write('Seccion Pacientes (core_clinica, pacientes_persona/contacto/expediente)')
+        self.stdout.write('Seccion Pacientes (pacientes_persona/contacto/expediente)')
         usuario_sistema = Usuario.objects.filter(is_superuser=True).order_by('id').first()
 
-        clinica, creada = Clinica.objects.get_or_create(
-            nombre='ProSalud',
-            defaults={
-                'direccion': 'San Salvador',
-                'creado_por': usuario_sistema,
-                'modificado_por': usuario_sistema,
-            },
-        )
-        etiqueta = 'creada' if creada else 'ya existia'
-        self.stdout.write(f'  Clinica {etiqueta}: {clinica.nombre}')
+        # La clinica ya la crea sembrar_clinicas() (corre antes, en
+        # handle()) -- aqui solo se usa.
+        clinica = Clinica.objects.get(nombre='ProSalud')
 
         for datos in self.PACIENTES_DE_PRUEBA:
             persona, creada = Persona.objects.get_or_create(
