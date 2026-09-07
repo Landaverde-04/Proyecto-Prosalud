@@ -35,7 +35,13 @@ class Consulta(ModeloBase):
     # Se llena una sola vez en la vista, nunca se vuelve a actualizar.
     doctor_nombre = models.CharField(max_length=150, blank=True)
 
-    inicio = models.DateTimeField(auto_now_add=True)
+    # La atencion empieza cuando la doctora pulsa "Iniciar consulta", NO
+    # cuando se crea la fila (HU-EXP-17). Por eso no es `auto_now_add`: la
+    # fila puede nacer antes, en la preconsulta de enfermeria (HU-EXP-09),
+    # y ahi `inicio` vacio significa "en la cola, todavia sin atender".
+    # Tampoco seria asignable con `auto_now_add`, y hace falta para
+    # registrar a mano una atencion que ya ocurrio (corte de energia).
+    inicio = models.DateTimeField(null=True, blank=True)
     cierre = models.DateTimeField(null=True, blank=True)
 
     motivo = models.TextField()
@@ -54,11 +60,27 @@ class Consulta(ModeloBase):
         ordering = ['-inicio']
 
     def __str__(self):
-        return f'Consulta de {self.expediente.persona} · {self.inicio:%d/%m/%Y}'
+        fecha = f'{self.inicio:%d/%m/%Y}' if self.inicio else 'sin iniciar'
+        return f'Consulta de {self.expediente.persona} · {fecha}'
 
     @property
     def clinica(self):
         return self.expediente.clinica
+
+    # Los tres estados salen de las dos columnas que ya existen, sin
+    # agregar un campo de estado que habria que mantener en sincronia.
+    @property
+    def en_cola(self):
+        return self.inicio is None and self.cierre is None
+
+    @property
+    def en_atencion(self):
+        """Consulta iniciada y sin finalizar: es el borrador que se preguarda."""
+        return self.inicio is not None and self.cierre is None
+
+    @property
+    def cerrada(self):
+        return self.cierre is not None
 
 
 class SignosVitales(ModeloBase):
@@ -156,21 +178,37 @@ class Incapacidad(ModeloBase):
     # Solo aplica cuando tipo es INCAPACIDAD; una constancia no lleva dias.
     dias = models.IntegerField(null=True, blank=True)
     motivo = models.TextField()
-    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_inicio_incapacidad = models.DateField(null=True, blank=True)
     # Identifica una emisión, incluso si se repite el envío del formulario.
     solicitud_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    # Copia textual al emitir: reimprimir no consulta perfiles modificados.
-    paciente_nombre = models.CharField(max_length=250, blank=True)
-    doctor_jvpm = models.CharField(max_length=50, blank=True)
-    clinica_nombre = models.CharField(max_length=150, blank=True)
-    clinica_direccion = models.CharField(max_length=255, blank=True)
-    clinica_telefono = models.CharField(max_length=20, blank=True)
     fecha_atencion = models.DateField(null=True, blank=True)
 
     @property
+    def profesional_emisor(self):
+        # `creado_por` es quien emitio. Los documentos anteriores a esa regla
+        # no lo tienen, y ahi el medico de la consulta es el equivalente.
+        return self.creado_por if self.creado_por_id else self.consulta.doctor
+
+    @property
+    def nombre_profesional(self):
+        # El nombre SI se congela: puede cambiar (correccion, matrimonio) y un
+        # documento ya emitido no debe cambiar de firmante por eso.
+        if self.doctor_nombre:
+            return self.doctor_nombre
+        doctor = self.profesional_emisor
+        return doctor.get_full_name() or doctor.username
+
+    @property
+    def jvpm_profesional(self):
+        # El JVPM NO se congela: es un identificador permanente del medico, no
+        # un dato que cambie. Copiarlo seria guardar la misma constante en cada
+        # fila; si algun dia se corrige, debe corregirse en todos lados.
+        return self.profesional_emisor.jvpm
+
+    @property
     def fecha_fin(self):
-        if self.tipo == self.Tipo.INCAPACIDAD and self.fecha_inicio and self.dias:
-            return self.fecha_inicio + timedelta(days=self.dias - 1)
+        if self.tipo == self.Tipo.INCAPACIDAD and self.fecha_inicio_incapacidad and self.dias:
+            return self.fecha_inicio_incapacidad + timedelta(days=self.dias - 1)
         return None
 
     class Meta:
@@ -296,3 +334,49 @@ class DetalleOrdenExamen(ModeloBase):
 
     def __str__(self):
         return self.tipo_examen
+
+
+class Antecedente(ModeloBase):
+    """
+    Antecedente del PACIENTE, no de una consulta (HU-EXP-07).
+
+    Cuelga del `Expediente`, asi que es informacion permanente que la
+    doctora consulta y corrige, no algo que se vuelva a preguntar en cada
+    visita: si un dia no se escribieran, esa consulta pareceria decir que
+    el paciente no tiene alergias. Por eso `Consulta.antecedentes` y
+    `Consulta.alergias` dejaron de pedirse en el formulario de atencion.
+
+    Al colgar del expediente queda ademas acotado por clinica: lo
+    registrado en ProSalud no aparece en Estetica.
+
+    Vive en `consultas/` aunque su FK apunte a `pacientes` -- mismo
+    criterio del reparto: Antecedente y Adjunto son de Samuel.
+    """
+
+    class Tipo(models.TextChoices):
+        # Lista cerrada, no texto libre: con texto libre "alergia",
+        # "alergias" y "Alergico" se guardan como tres cosas distintas
+        # (le paso a Contacto.parentesco y hubo que migrarlo despues).
+        # Las claves caben en los 15 caracteres que fija el diagrama.
+        PATOLOGICO = 'PATOLOGICO', 'Patológico'
+        ALERGICO = 'ALERGICO', 'Alérgico'
+        QUIRURGICO = 'QUIRURGICO', 'Quirúrgico'
+        GINECO = 'GINECO', 'Gineco-obstétrico'
+        FAMILIAR = 'FAMILIAR', 'Familiar'
+        HABITOS = 'HABITOS', 'Hábitos'
+        OTRO = 'OTRO', 'Otro'
+
+    expediente = models.ForeignKey(
+        Expediente, on_delete=models.PROTECT, related_name='antecedentes',
+    )
+    tipo = models.CharField(max_length=15, choices=Tipo.choices)
+    detalle = models.TextField()
+
+    class Meta:
+        db_table = 'Antecedente'
+        verbose_name = 'antecedente'
+        verbose_name_plural = 'antecedentes'
+        ordering = ['tipo', '-fecha_creacion']
+
+    def __str__(self):
+        return f'{self.get_tipo_display()}: {self.detalle[:40]}'

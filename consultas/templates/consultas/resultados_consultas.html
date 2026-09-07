@@ -1,0 +1,73 @@
+{% comment %}
+Fragmento de resultados del historial clínico (HU-EXP-18): lo que cambia
+al buscar o paginar. Vive aparte para devolver solo esto en las peticiones
+de listado-vivo.js, sin repetir el buscador ni el encabezado.
+{% endcomment %}
+{% if pagina.object_list %}
+
+<p class="text-muted small mb-2">
+    {{ total }} consulta{{ total|pluralize }}{% if consulta %} encontrada{{ total|pluralize }}{% endif %}
+</p>
+
+<div class="vstack gap-2">
+    {% for atencion in pagina %}
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-3">
+            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                <div class="min-w-0">
+                    <div class="fw-semibold">
+                        {% if atencion.inicio %}{{ atencion.inicio|date:'d/m/Y' }}{% else %}Sin iniciar{% endif %}
+                        <span class="text-muted fw-normal small">
+                            {% if atencion.inicio %}· {{ atencion.inicio|date:'H:i' }}{% endif %}
+                            · {{ atencion.doctor_nombre|default:atencion.doctor.get_full_name|default:atencion.doctor.username }}
+                        </span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        <span class="fw-medium">Motivo:</span> {{ atencion.motivo|default:"—"|truncatechars:120 }}
+                    </div>
+                    {% if atencion.diagnostico %}
+                    <div class="text-muted small">
+                        <span class="fw-medium">Diagnóstico:</span> {{ atencion.diagnostico|truncatechars:120 }}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="text-end">
+                    {% if atencion.cerrada %}
+                        <span class="badge rounded-pill text-bg-success">Finalizada</span>
+                    {% elif atencion.en_atencion %}
+                        <span class="badge rounded-pill text-bg-warning">En atención</span>
+                    {% else %}
+                        <span class="badge rounded-pill text-bg-secondary">En espera</span>
+                    {% endif %}
+                    <div class="mt-2">
+                        {% if atencion.cerrada %}
+                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
+                        {% elif perms.consultas.change_consulta %}
+                            <a href="{% url 'consultas:atender_consulta' atencion.pk %}" class="btn btn-sm btn-primary">Continuar</a>
+                        {% else %}
+                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% include "core/paginacion.html" %}
+
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-folder2-open fs-1 d-block mb-3 opacity-25"></i>
+    {% if consulta %}
+        <p class="mb-3">No se encontraron consultas con esa búsqueda.</p>
+        <a data-listado-link href="{% url 'consultas:historial_consultas' expediente.pk %}" class="btn btn-outline-secondary btn-sm">Ver todas</a>
+    {% else %}
+        <p class="mb-3">Este paciente todavía no tiene consultas registradas.</p>
+        {% if perms.consultas.add_consulta %}
+        <a href="{% url 'consultas:nueva_consulta' expediente.pk %}" class="btn btn-primary btn-sm">Registrar la primera</a>
+        {% endif %}
+    {% endif %}
+</div>
+{% endif %}

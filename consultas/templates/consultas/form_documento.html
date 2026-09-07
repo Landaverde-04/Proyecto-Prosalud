@@ -10,7 +10,7 @@
 <div class="card border-0 shadow-sm mb-4"><div class="card-body">
 <div class="row g-3"><div class="col-md-6"><small class="text-muted">Paciente</small><div class="fw-semibold">{{ consulta.expediente.persona }}</div></div>
 <div class="col-md-6"><small class="text-muted">Atención del</small><div>{{ consulta.inicio|date:'d/m/Y' }} · {{ consulta.expediente.clinica }}</div></div>
-<div class="col-12"><small class="text-muted">Profesional de la consulta</small><div>{{ consulta.doctor_nombre|default:consulta.doctor.get_full_name }}</div></div></div>
+<div class="col-12"><small class="text-muted">Profesional que emitirá el documento</small><div>{{ request.user.get_full_name|default:request.user.username }}</div></div></div>
 </div></div>
 <form method="post" id="form-documento" class="card border-0 shadow-sm" data-hoy="{{ hoy }}">
 {% csrf_token %}<div class="card-body p-4">
@@ -18,7 +18,7 @@
 <div class="mb-3">{{ form.motivo.label_tag }}{{ form.motivo }}{{ form.motivo.errors }}<small class="text-muted">Texto propuesto desde la consulta. Puede ajustarlo para este documento.</small></div>
 <div id="campos-reposo" class="row g-3 mb-3">
 <div class="col-md-6">{{ form.inicio_opcion.label_tag }}{{ form.inicio_opcion }}{{ form.inicio_opcion.errors }}</div>
-<div class="col-md-6">{{ form.fecha_inicio.label_tag }}{{ form.fecha_inicio }}{{ form.fecha_inicio.errors }}</div>
+<div class="col-md-6">{{ form.fecha_inicio_incapacidad.label_tag }}{{ form.fecha_inicio_incapacidad }}{{ form.fecha_inicio_incapacidad.errors }}</div>
 <div class="col-md-4">{{ form.dias.label_tag }}{{ form.dias }}{{ form.dias.errors }}</div>
 <div class="col-md-8 d-flex align-items-center"><output id="resumen-reposo" aria-live="polite" class="periodo-reposo">El inicio cuenta como primer día de reposo.</output></div>
 </div>

@@ -1,0 +1,250 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block titulo %}Atender consulta - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}"
+   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Expediente de {{ consulta.expediente.persona }}
+</a>
+
+{% if consulta.en_cola %}
+{% comment %}
+Fila creada en preconsulta y todavia sin atender: la atencion empieza
+cuando la doctora pulsa el boton, no al abrir el expediente (HU-EXP-17).
+{% endcomment %}
+<div class="card shadow-sm border-0" style="max-width: 560px;">
+    <div class="card-body p-4 text-center">
+        <i class="bi bi-hourglass-split fs-1 d-block mb-3" style="color: var(--accent);"></i>
+        <h5 class="fw-semibold">{{ consulta.expediente.persona }}</h5>
+        <p class="text-muted small">Este paciente está en espera. La atención empieza cuando inicie la consulta.</p>
+        <form method="post" action="{% url 'consultas:iniciar_consulta' consulta.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Iniciar consulta</button>
+        </form>
+    </div>
+</div>
+
+{% else %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <h4 class="fw-semibold mb-1">Consulta — {{ consulta.expediente.persona }}</h4>
+        <div class="text-muted small">
+            {% if consulta.expediente.persona.edad is not None %}{{ consulta.expediente.persona.edad }} años · {% endif %}
+            {{ consulta.inicio|date:'d/m/Y' }} a las {{ consulta.inicio|date:'H:i' }}
+            · {{ consulta.doctor_nombre|default:consulta.doctor.get_full_name }}
+        </div>
+    </div>
+    <span class="badge rounded-pill text-bg-warning align-self-center">En atención</span>
+</div>
+
+{% comment %}
+Antecedentes del paciente (HU-EXP-07): se muestran, no se preguntan. Son
+permanentes y se corrigen desde su propia pantalla, no en cada visita.
+{% endcomment %}
+{% if antecedentes %}
+<div class="alert alert-light border d-flex flex-wrap gap-3 py-2 px-3 small">
+    <span class="fw-semibold text-muted">ANTECEDENTES</span>
+    {% for antecedente in antecedentes %}
+    <span><span class="fw-medium">{{ antecedente.get_tipo_display }}:</span>
+        <span class="text-muted">{{ antecedente.detalle|truncatechars:60 }}</span></span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<form id="form-consulta" data-url-borrador="{% url 'consultas:guardar_borrador' consulta.pk %}">
+    {% csrf_token %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            {% comment %}
+            Distribución tomada del mockup: motivo y diagnóstico arriba en dos
+            columnas, historia a lo ancho, examen físico y tratamiento debajo.
+            {% endcomment %}
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.motivo.id_for_label }}" class="form-label small fw-semibold">
+                        {{ form.motivo.label }} <span class="text-danger">*</span>
+                        <span class="fw-normal text-muted">— necesario para finalizar</span>
+                    </label>
+                    {{ form.motivo }}{{ form.motivo.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.diagnostico.id_for_label }}" class="form-label small fw-semibold">{{ form.diagnostico.label }}</label>
+                    {{ form.diagnostico }}{{ form.diagnostico.errors }}
+                </div>
+                <div class="col-12">
+                    <label for="{{ form.historia_enfermedad_actual.id_for_label }}" class="form-label small fw-semibold">{{ form.historia_enfermedad_actual.label }}</label>
+                    {{ form.historia_enfermedad_actual }}{{ form.historia_enfermedad_actual.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.examen_fisico.id_for_label }}" class="form-label small fw-semibold">{{ form.examen_fisico.label }}</label>
+                    {{ form.examen_fisico }}{{ form.examen_fisico.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.tratamiento.id_for_label }}" class="form-label small fw-semibold">{{ form.tratamiento.label }}</label>
+                    {{ form.tratamiento }}{{ form.tratamiento.errors }}
+                </div>
+                <div class="col-12">
+                    <label for="{{ form.indicaciones.id_for_label }}" class="form-label small fw-semibold">{{ form.indicaciones.label }}</label>
+                    {{ form.indicaciones }}{{ form.indicaciones.errors }}
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+{% comment %}
+Signos vitales: en el mockup se ven dentro de la consulta. Los toma
+enfermería en la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
+{% endcomment %}
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-3">
+        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+            <i class="bi bi-activity me-1"></i>SIGNOS VITALES
+        </h6>
+        {% if signos %}
+        <div class="d-flex flex-wrap gap-4 small">
+            <div><div class="text-muted">P/A</div><div class="fw-medium">{{ signos.presion_arterial|default:"—" }}</div></div>
+            <div><div class="text-muted">FC</div><div class="fw-medium">{{ signos.frecuencia_cardiaca|default:"—" }}</div></div>
+            <div><div class="text-muted">Temp.</div><div class="fw-medium">{{ signos.temperatura|default:"—" }}</div></div>
+            <div><div class="text-muted">Sat O₂</div><div class="fw-medium">{{ signos.saturacion|default:"—" }}</div></div>
+            <div><div class="text-muted">Peso</div><div class="fw-medium">{{ signos.peso|default:"—" }}</div></div>
+            <div><div class="text-muted">Talla</div><div class="fw-medium">{{ signos.talla|default:"—" }}</div></div>
+            <div><div class="text-muted">IMC</div><div class="fw-medium">{{ signos.imc|default:"—" }}</div></div>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">
+            Sin preconsulta registrada. Los toma enfermería antes de la consulta,
+            cuando esté construida esa parte.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+{% comment %}
+"Agregar documento (opcional)" del mockup: los botones despliegan sus campos
+aquí mismo, sin salir de la consulta. Solo la incapacidad está construida;
+las otras cuatro son historias pendientes y se muestran deshabilitadas para
+reflejar la navegación prevista, no para fingir un botón que no hace nada.
+{% endcomment %}
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-3">
+        <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+            AGREGAR DOCUMENTO (OPCIONAL)
+        </h6>
+
+        {% if incapacidades %}
+        <div class="vstack gap-2 mb-3">
+            {% for documento in incapacidades %}
+            <div class="d-flex justify-content-between align-items-center gap-2 small">
+                <div>
+                    <i class="bi bi-file-earmark-medical me-1" style="color: var(--accent);"></i>
+                    Incapacidad · {{ documento.dias }} día{{ documento.dias|pluralize }}
+                    <span class="text-muted">· {{ documento.folio }}</span>
+                </div>
+                <a href="{% url 'consultas:ver_documento' documento.pk %}" class="btn btn-sm btn-outline-secondary">Ver PDF</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="d-flex flex-wrap gap-2">
+            {% if perms.consultas.add_incapacidad %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-incapacidad">
+                <i class="bi bi-file-earmark-medical"></i> Incapacidad
+            </button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-20">
+                <i class="bi bi-clipboard2-pulse"></i> Exámenes
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-21">
+                <i class="bi bi-eyedropper"></i> Aplicación
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-23">
+                <i class="bi bi-send"></i> Referencia
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-24">
+                <i class="bi bi-calendar-check"></i> Control
+            </button>
+        </div>
+
+        {% if perms.consultas.add_incapacidad %}
+        <form method="post" action="{% url 'consultas:agregar_incapacidad' consulta.pk %}"
+              id="panel-incapacidad" class="border rounded p-3 mt-3" hidden>
+            {% csrf_token %}
+            <input type="hidden" name="solicitud_id" value="{{ solicitud_id }}">
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-2">
+                    <label for="{{ form_incapacidad.dias.id_for_label }}" class="form-label small fw-semibold">Días</label>
+                    {{ form_incapacidad.dias }}
+                </div>
+                <div class="col-sm-4">
+                    <label for="{{ form_incapacidad.inicio_opcion.id_for_label }}" class="form-label small fw-semibold">Inicio</label>
+                    {{ form_incapacidad.inicio_opcion }}
+                </div>
+                <div class="col-sm-3">
+                    <label for="{{ form_incapacidad.fecha_inicio_incapacidad.id_for_label }}" class="form-label small fw-semibold">Fecha</label>
+                    {{ form_incapacidad.fecha_inicio_incapacidad }}
+                </div>
+                <div class="col-sm-3">
+                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_incapacidad.motivo.id_for_label }}" class="form-label small fw-semibold">Diagnóstico o motivo del documento</label>
+                    {{ form_incapacidad.motivo }}
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
+        <p class="text-muted mb-0 mt-3" style="font-size: 0.75rem;">
+            Agregar un documento no finaliza la consulta. También se pueden
+            agregar después, desde el detalle de la consulta.
+        </p>
+    </div>
+</div>
+
+{% comment %}
+Receta: en el mockup va aquí, con medicamento/dosis/duración y un botón para
+agregar varios. Es HU-EXP-25, acordada para el final. En el mockup además
+cerraba la consulta -- esa regla se descartó el 05/09/2026.
+{% endcomment %}
+<div class="card shadow-sm border-0 mb-3 opacity-75">
+    <div class="card-body p-3">
+        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+            <i class="bi bi-capsule me-1"></i>RECETA
+        </h6>
+        <p class="text-muted small mb-0">
+            Medicamentos, dosis y duración. Pendiente de construir (HU-EXP-25).
+        </p>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    {% comment %}aria-live: el lector de pantalla anuncia el guardado sin robar el foco{% endcomment %}
+    <output id="estado-borrador" aria-live="polite" class="text-muted small">
+        Lo que escriba se guarda solo.
+    </output>
+    <div class="d-flex gap-2">
+        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary">Salir</a>
+        <button type="button" class="btn btn-primary"
+                data-confirmar
+                data-url="{% url 'consultas:finalizar_consulta' consulta.pk %}"
+                data-titulo="Finalizar consulta"
+                data-mensaje="Se cerrará la consulta de "
+                data-nombre="{{ consulta.expediente.persona }}"
+                data-boton="Sí, finalizar"
+                data-color="success"
+                data-icono="bi-check2-circle"
+                data-nota="Una consulta finalizada queda de solo lectura.">
+            Finalizar consulta
+        </button>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'consultas/js/consulta.js' %}"></script>
+{% endblock %}

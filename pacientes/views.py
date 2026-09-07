@@ -316,6 +316,11 @@ def _contexto_ver_expediente(expediente):
     # paciente), no de cada Contacto por separado.
     es_menor = persona.edad is not None and persona.edad < 18
 
+    # HU-EXP-05 pide que la cabecera muestre los antecedentes del paciente.
+    # Se leen por la relacion inversa (`Antecedente.expediente`, HU-EXP-07),
+    # sin importar el modelo de `consultas` aqui.
+    antecedentes = expediente.antecedentes.filter(activo=True)
+
     # "DUI o datos del responsable" (HU-EXP-05): si no tiene DUI propio
     # (tipico de un menor, aunque tambien puede faltarle a un adulto,
     # ver reglas de negocio), se muestra a su responsable en su lugar.
@@ -337,6 +342,7 @@ def _contexto_ver_expediente(expediente):
         'persona': persona,
         'es_menor': es_menor,
         'responsable': responsable,
+        'antecedentes': antecedentes,
         # Todos los contactos ACTIVOS del paciente (HU-EXP-02: "un
         # paciente puede tener mas de uno") -- a diferencia de
         # 'responsable' arriba, esta lista es la que se administra desde
