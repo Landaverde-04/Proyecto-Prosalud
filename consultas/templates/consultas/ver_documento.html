@@ -5,7 +5,7 @@
 {% block contenido %}
 <a href="{% url 'consultas:lista_documentos' documento.consulta.expediente_id %}" class="text-decoration-none">← Constancias médicas</a>
 <div class="d-flex flex-wrap justify-content-between gap-3 align-items-center my-3">
-<div><h1 class="h4 mb-1">Constancia de incapacidad</h1><p class="text-muted mb-0">{{ documento.paciente_nombre }} · {% if previa_id %}Vista previa sin emitir{% else %}{{ documento.folio }}{% endif %}</p></div>
+<div><h1 class="h4 mb-1">Constancia de incapacidad</h1><p class="text-muted mb-0">{{ documento.consulta.expediente.persona }} · {% if previa_id %}Vista previa sin emitir{% else %}{{ documento.folio }}{% endif %}</p></div>
 <div class="d-flex gap-2 flex-wrap">
 {% if previa_id %}
 <a class="btn btn-outline-secondary" href="{% url 'consultas:nuevo_documento' documento.consulta_id %}?previa={{ previa_id }}">Volver a editar</a>

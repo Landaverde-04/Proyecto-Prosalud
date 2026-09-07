@@ -40,9 +40,10 @@ class Command(BaseCommand):
             inicio = timezone.make_aware(datetime.combine(fecha, time(9, 0)))
             Consulta.objects.filter(pk=consulta.pk).update(inicio=inicio, cierre=inicio+timedelta(minutes=20))
             consulta.refresh_from_db()
-            campos = datos_documento(consulta, {'tipo':'incapacidad', 'dias':2 if indice == 1 else 5, 'fecha_inicio':fecha, 'motivo':
+            campos = datos_documento(consulta, {'tipo':'incapacidad', 'dias':2 if indice == 1 else 5, 'fecha_inicio_incapacidad':fecha, 'motivo':
                 f'DOCUMENTO DE DEMOSTRACIÓN SIN VALIDEZ CLÍNICA. Ejemplo {indice} de atención ficticia para comprobar el expediente y la impresión.'})
             documento = Incapacidad.objects.create(**campos, solicitud_id=solicitud,
+                                                     doctor_nombre=doctor.get_full_name() or doctor.username,
                                                      creado_por=doctor, modificado_por=doctor)
             # Solo los datos de demostración tienen fechas históricas simuladas.
             folio = f'DEMO-{documento.pk:08d}'

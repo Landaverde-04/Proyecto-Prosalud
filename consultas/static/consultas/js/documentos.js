@@ -2,7 +2,7 @@
     const formulario = document.getElementById('form-documento');
     if (formulario) {
         const opcion = formulario.querySelector('#id_inicio_opcion');
-        const fecha = formulario.querySelector('#id_fecha_inicio');
+        const fecha = formulario.querySelector('#id_fecha_inicio_incapacidad');
         const dias = formulario.querySelector('#id_dias');
         const resumen = document.getElementById('resumen-reposo');
         function actualizar() {
