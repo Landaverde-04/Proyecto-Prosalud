@@ -16,10 +16,12 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from core.paginacion import es_ajax, paginar
 from pacientes.models import Expediente
-from .documentos import generar_pdf
-from .forms import (AntecedenteForm, ConsultaClinicaForm, ConsultaManualForm,
-                    DocumentoMedicoForm)
-from .models import Antecedente, Consulta, Incapacidad
+from .documentos import generar_pdf, generar_pdf_referencia
+from .forms import (AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
+                    ConsultaManualForm, ControlPosteriorForm, DocumentoMedicoForm,
+                    ReferenciaMedicaForm, ReprogramarControlForm)
+from .models import (Antecedente, Aplicacion, Consulta, ControlPosterior,
+                     Incapacidad, ReferenciaMedica)
 
 
 def expediente_autorizado(request, expediente_id):
@@ -272,6 +274,12 @@ def atender_consulta(request, consulta_id):
         # Identifica este dibujado del formulario: dos envios del mismo no
         # crean dos documentos.
         'solicitud_id': uuid.uuid4(),
+        'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
+        'form_referencia': ReferenciaMedicaForm(),
+        'controles': consulta.controles.filter(activo=True).order_by('fecha_control'),
+        'form_control': ControlPosteriorForm(),
+        'aplicaciones': consulta.aplicaciones.filter(activo=True).order_by('-pk'),
+        'form_aplicacion': AplicacionForm(),
         'antecedentes': consulta.expediente.antecedentes.filter(activo=True),
         'signos': getattr(consulta, 'signos_vitales', None),
     })
@@ -371,6 +379,9 @@ def ver_consulta(request, consulta_id):
         'consulta': consulta,
         'campos': [(campo.label, getattr(consulta, nombre)) for nombre, campo in etiquetas.items()],
         'incapacidades': consulta.incapacidades.filter(activo=True).order_by('-fecha', '-pk'),
+        'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
+        'controles': consulta.controles.filter(activo=True).order_by('fecha_control'),
+        'aplicaciones': consulta.aplicaciones.filter(activo=True).order_by('-pk'),
     })
 
 
@@ -461,3 +472,228 @@ def agregar_incapacidad(request, consulta_id):
         documento.save(update_fields=['folio'])
     messages.success(request, f'Incapacidad {documento.folio} agregada a la consulta.')
     return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-23 -- referencia medica. Mismo patron que la constancia: se agrega
+# durante la atencion, sin salir de la consulta, y tambien despues.
+# --------------------------------------------------------------------------
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_referenciamedica',
+                      'consultas.add_referenciamedica'), raise_exception=True)
+def agregar_referencia(request, consulta_id):
+    consulta = consulta_autorizada(request, consulta_id)
+    form = ReferenciaMedicaForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Revise los datos de la referencia: %s' %
+                       '; '.join(e for errores in form.errors.values() for e in errores))
+        return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+    referencia = form.save(commit=False)
+    referencia.consulta = consulta
+    # Mismo criterio que la constancia: el nombre se congela al emitir.
+    referencia.doctor_nombre = request.user.get_full_name() or request.user.username
+    referencia.creado_por = referencia.modificado_por = request.user
+    referencia.save()
+    messages.success(request, f'Referencia a {referencia.especialidad} agregada a la consulta.')
+    destino = 'atender_consulta' if not consulta.cerrada else 'ver_consulta'
+    return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
+
+
+def referencia_autorizada(request, referencia_id):
+    referencia = get_object_or_404(
+        ReferenciaMedica.objects.select_related(
+            'creado_por', 'consulta__doctor', 'consulta__expediente__persona',
+            'consulta__expediente__clinica'),
+        pk=referencia_id, activo=True)
+    expediente_autorizado(request, referencia.consulta.expediente_id)
+    return referencia
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_referenciamedica'), raise_exception=True)
+def lista_referencias(request, expediente_id):
+    expediente = expediente_autorizado(request, expediente_id)
+    referencias = ReferenciaMedica.objects.select_related('creado_por', 'consulta__doctor').filter(
+        consulta__expediente=expediente, activo=True).order_by('-fecha', '-pk')
+    return render(request, 'consultas/lista_referencias.html', {
+        'expediente': expediente, 'pagina': paginar(referencias, request),
+    })
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_referenciamedica'), raise_exception=True)
+def ver_referencia(request, referencia_id):
+    return render(request, 'consultas/ver_referencia.html', {
+        'referencia': referencia_autorizada(request, referencia_id),
+    })
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_referenciamedica'), raise_exception=True)
+def pdf_referencia(request, referencia_id):
+    referencia = referencia_autorizada(request, referencia_id)
+    respuesta = HttpResponse(generar_pdf_referencia(referencia), content_type='application/pdf')
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    respuesta['Content-Disposition'] = f'{modo}; filename="referencia-{referencia.pk}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-24 -- control posterior. Se programa desde la consulta y se le da
+# seguimiento desde el expediente: no genera documento ni PDF.
+# --------------------------------------------------------------------------
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_controlposterior',
+                      'consultas.add_controlposterior'), raise_exception=True)
+def agregar_control(request, consulta_id):
+    consulta = consulta_autorizada(request, consulta_id)
+    form = ControlPosteriorForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Revise los datos del control: %s' %
+                       '; '.join(e for errores in form.errors.values() for e in errores))
+    else:
+        control = form.save(commit=False)
+        control.consulta = consulta
+        control.creado_por = control.modificado_por = request.user
+        control.save()
+        messages.success(request, f'Control programado para el {control.fecha_control:%d/%m/%Y}.')
+    destino = 'ver_consulta' if consulta.cerrada else 'atender_consulta'
+    return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
+
+
+def control_autorizado(request, control_id):
+    control = get_object_or_404(
+        ControlPosterior.objects.select_related('consulta__expediente__persona',
+                                               'consulta__expediente__clinica'),
+        pk=control_id, activo=True)
+    expediente_autorizado(request, control.consulta.expediente_id)
+    return control
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_controlposterior'), raise_exception=True)
+def lista_controles(request, expediente_id):
+    """
+    Version simple, como recomendo Kevin: los pendientes primero y arriba,
+    que es lo unico que hay que mirar. Sin pantalla grande ni notificaciones.
+    """
+    expediente = expediente_autorizado(request, expediente_id)
+    controles = ControlPosterior.objects.filter(
+        consulta__expediente=expediente, activo=True).select_related('consulta')
+    return render(request, 'consultas/lista_controles.html', {
+        'expediente': expediente,
+        'pendientes': controles.filter(estado=ControlPosterior.Estado.PENDIENTE).order_by('fecha_control'),
+        'resueltos': controles.exclude(estado=ControlPosterior.Estado.PENDIENTE).order_by('-fecha_control'),
+        'form_reprogramar': ReprogramarControlForm(),
+        'estados': ControlPosterior.Estado.choices,
+    })
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_controlposterior'), raise_exception=True)
+def cambiar_estado_control(request, control_id):
+    control = control_autorizado(request, control_id)
+    estado = request.POST.get('estado')
+    if estado not in ControlPosterior.Estado.values:
+        raise Http404
+    control.estado = estado
+    control.modificado_por = request.user
+    control.save(update_fields=['estado', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'Control marcado como {control.get_estado_display().lower()}.')
+    return redirect('consultas:lista_controles', expediente_id=control.consulta.expediente_id)
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_controlposterior'), raise_exception=True)
+def reprogramar_control(request, control_id):
+    control = control_autorizado(request, control_id)
+    form = ReprogramarControlForm(request.POST, instance=control)
+    if form.is_valid():
+        control = form.save(commit=False)
+        control.modificado_por = request.user
+        # Reprogramar lo devuelve a pendiente: la fecha nueva todavia no ocurrio.
+        control.estado = ControlPosterior.Estado.PENDIENTE
+        control.save()
+        messages.success(request, f'Control reprogramado para el {control.fecha_control:%d/%m/%Y}.')
+    else:
+        messages.error(request, '; '.join(e for errores in form.errors.values() for e in errores))
+    return redirect('consultas:lista_controles', expediente_id=control.consulta.expediente_id)
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-21 -- aplicaciones y servicios. La doctora los indica en la
+# consulta; quien los aplica los marca ejecutados despues.
+# --------------------------------------------------------------------------
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_aplicacion',
+                      'consultas.add_aplicacion'), raise_exception=True)
+def agregar_aplicacion(request, consulta_id):
+    consulta = consulta_autorizada(request, consulta_id)
+    form = AplicacionForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Revise los datos de la aplicación: %s' %
+                       '; '.join(e for errores in form.errors.values() for e in errores))
+    else:
+        aplicacion = form.save(commit=False)
+        aplicacion.consulta = consulta
+        aplicacion.creado_por = aplicacion.modificado_por = request.user
+        aplicacion.save()
+        messages.success(request, f'{aplicacion.get_tipo_display()} indicada en la consulta.')
+    destino = 'ver_consulta' if consulta.cerrada else 'atender_consulta'
+    return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_aplicacion'), raise_exception=True)
+def lista_aplicaciones(request, expediente_id):
+    expediente = expediente_autorizado(request, expediente_id)
+    aplicaciones = Aplicacion.objects.filter(
+        consulta__expediente=expediente, activo=True).select_related('consulta', 'ejecutada_por')
+    return render(request, 'consultas/lista_aplicaciones.html', {
+        'expediente': expediente,
+        'pendientes': aplicaciones.filter(ejecutada=False).order_by('-pk'),
+        'ejecutadas': aplicaciones.filter(ejecutada=True).order_by('-fecha_ejecucion'),
+    })
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_aplicacion'), raise_exception=True)
+def marcar_aplicacion(request, aplicacion_id):
+    """
+    Deja constancia de quien aplico y cuando (criterio de HU-EXP-21). Se
+    registra al usuario de la sesion: es quien lo esta haciendo.
+    """
+    aplicacion = get_object_or_404(
+        Aplicacion.objects.select_related('consulta__expediente'), pk=aplicacion_id, activo=True)
+    expediente_autorizado(request, aplicacion.consulta.expediente_id)
+    if not aplicacion.ejecutada:
+        aplicacion.ejecutada = True
+        aplicacion.ejecutada_por = request.user
+        aplicacion.fecha_ejecucion = timezone.now()
+        aplicacion.modificado_por = request.user
+        aplicacion.save()
+        messages.success(request, f'{aplicacion.get_tipo_display()} marcada como aplicada.')
+    return redirect('consultas:lista_aplicaciones',
+                   expediente_id=aplicacion.consulta.expediente_id)

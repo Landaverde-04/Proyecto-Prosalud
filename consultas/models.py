@@ -8,6 +8,38 @@ from core.models import ModeloBase
 from pacientes.models import Expediente, Persona
 
 
+class DocumentoDeConsulta:
+    """
+    Lo comun a los documentos que cuelgan de una consulta (constancia,
+    referencia, y los que falten): quien los firma.
+
+    No es un modelo, es una clase de apoyo -- no agrega columnas ni
+    migraciones. Cada documento aporta sus propios campos.
+    """
+
+    @property
+    def profesional_emisor(self):
+        # `creado_por` es quien emitio. Los documentos anteriores a esa regla
+        # no lo tienen, y ahi el medico de la consulta es el equivalente.
+        return self.creado_por if self.creado_por_id else self.consulta.doctor
+
+    @property
+    def nombre_profesional(self):
+        # El nombre SI se congela: puede cambiar (correccion, matrimonio) y un
+        # documento ya emitido no debe cambiar de firmante por eso.
+        if self.doctor_nombre:
+            return self.doctor_nombre
+        doctor = self.profesional_emisor
+        return doctor.get_full_name() or doctor.username
+
+    @property
+    def jvpm_profesional(self):
+        # El JVPM NO se congela: es un identificador permanente del medico, no
+        # un dato que cambie. Copiarlo seria guardar la misma constante en cada
+        # fila; si algun dia se corrige, debe corregirse en todos lados.
+        return self.profesional_emisor.jvpm
+
+
 class Consulta(ModeloBase):
     """
     Cuelga de Expediente, no de Persona directamente: asi obtiene su
@@ -161,7 +193,7 @@ class DetalleReceta(ModeloBase):
         return f'{self.medicamento} · {self.receta.folio}'
 
 
-class Incapacidad(ModeloBase):
+class Incapacidad(DocumentoDeConsulta, ModeloBase):
     """Incapacidad o constancia medica -- un mismo modelo con `tipo` (HU-EXP-22)."""
 
     class Tipo(models.TextChoices):
@@ -184,28 +216,6 @@ class Incapacidad(ModeloBase):
     fecha_atencion = models.DateField(null=True, blank=True)
 
     @property
-    def profesional_emisor(self):
-        # `creado_por` es quien emitio. Los documentos anteriores a esa regla
-        # no lo tienen, y ahi el medico de la consulta es el equivalente.
-        return self.creado_por if self.creado_por_id else self.consulta.doctor
-
-    @property
-    def nombre_profesional(self):
-        # El nombre SI se congela: puede cambiar (correccion, matrimonio) y un
-        # documento ya emitido no debe cambiar de firmante por eso.
-        if self.doctor_nombre:
-            return self.doctor_nombre
-        doctor = self.profesional_emisor
-        return doctor.get_full_name() or doctor.username
-
-    @property
-    def jvpm_profesional(self):
-        # El JVPM NO se congela: es un identificador permanente del medico, no
-        # un dato que cambie. Copiarlo seria guardar la misma constante en cada
-        # fila; si algun dia se corrige, debe corregirse en todos lados.
-        return self.profesional_emisor.jvpm
-
-    @property
     def fecha_fin(self):
         if self.tipo == self.Tipo.INCAPACIDAD and self.fecha_inicio_incapacidad and self.dias:
             return self.fecha_inicio_incapacidad + timedelta(days=self.dias - 1)
@@ -220,7 +230,7 @@ class Incapacidad(ModeloBase):
         return f'{self.get_tipo_display()} {self.folio}'
 
 
-class ReferenciaMedica(ModeloBase):
+class ReferenciaMedica(DocumentoDeConsulta, ModeloBase):
     consulta = models.ForeignKey(
         Consulta, on_delete=models.PROTECT, related_name='referencias',
     )
