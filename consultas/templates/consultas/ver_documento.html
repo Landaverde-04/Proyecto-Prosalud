@@ -13,6 +13,7 @@
 {% endif %}
 </div></div>
 {% if previa_id %}<p class="alert alert-info py-2">Revise el contenido. Emitir este documento no finaliza la consulta.</p>{% endif %}
+{% include "consultas/consulta_origen.html" with consulta=documento.consulta %}
 <iframe class="documento-pdf" title="Vista previa del documento médico" src="{% if previa_id %}{% url 'consultas:pdf_previa' previa_id %}{% else %}{% url 'consultas:pdf_documento' documento.pk %}{% endif %}"></iframe>
 <p class="small text-muted mt-2">{% if previa_id %}<a target="_blank" rel="noopener" href="{% url 'consultas:pdf_previa' previa_id %}">Abrir vista previa en otra pestaña</a>{% else %}La vista muestra el mismo PDF que puede descargar e imprimir.{% endif %}</p>
 {% endblock %}
