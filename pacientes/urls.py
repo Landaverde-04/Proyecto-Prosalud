@@ -17,4 +17,8 @@ urlpatterns = [
         'expediente/<int:expediente_id>/contacto/<int:contacto_id>/desactivar/',
         views.desactivar_contacto, name='desactivar_contacto',
     ),
+    path(
+        'expediente/<int:expediente_id>/preconsulta/',
+        views.registrar_preconsulta, name='registrar_preconsulta',
+    ),
 ]

@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, Value
@@ -8,10 +9,12 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from consultas.models import Consulta, SignosVitales
 from core.models import Clinica
 from core.paginacion import es_ajax, paginar
+from seguridad.models import Usuario
 
-from .forms import AgregarContactoForm, EditarContactoForm, RegistrarPacienteForm
+from .forms import AgregarContactoForm, EditarContactoForm, PreconsultaForm, RegistrarPacienteForm
 from .models import Contacto, Expediente, Persona
 
 
@@ -538,3 +541,86 @@ def desactivar_contacto(request, expediente_id, contacto_id):
         messages.success(request, f'{contacto.persona_contacto} ya no es contacto de {paciente}.')
 
     return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
+
+
+def _medicos_disponibles(clinica):
+    """Usuarios de esta clinica con permiso para atender consultas, vía su Rol."""
+    permiso = Permission.objects.get(content_type__app_label='consultas', codename='change_consulta')
+    return (
+        Usuario.objects.filter(is_active=True, clinicas=clinica, groups__permissions=permiso)
+        .distinct()
+        .order_by('first_name', 'last_name')
+    )
+
+
+def _con_conteo_de_cola(medicos):
+    """Materializa el queryset y le agrega 'pacientes_en_cola' a cada medico, solo para la plantilla."""
+    lista = list(medicos)
+    for medico in lista:
+        medico.pacientes_en_cola = Consulta.objects.filter(
+            doctor=medico, inicio__isnull=True, cierre__isnull=True, activo=True,
+        ).count()
+    return lista
+
+
+@login_required
+@permission_required(('consultas.add_signosvitales', 'consultas.add_consulta'), raise_exception=True)
+def registrar_preconsulta(request, expediente_id):
+    """Registra signos vitales y asigna medico en un solo envio; crea la Consulta y su SignosVitales."""
+    expediente = get_object_or_404(
+        Expediente.objects.select_related('persona', 'clinica'), pk=expediente_id,
+    )
+    if not request.user.clinicas.filter(pk=expediente.clinica_id).exists():
+        raise PermissionDenied
+    persona = expediente.persona
+
+    # No se registra una segunda preconsulta si ya hay una consulta sin cerrar.
+    abierta = Consulta.objects.filter(expediente=expediente, cierre__isnull=True, activo=True).first()
+    if abierta:
+        estado = 'en atención' if abierta.en_atencion else 'en la cola'
+        messages.info(request, f'{persona} ya tiene una consulta {estado} -- no se registra otra preconsulta.')
+        return redirect('pacientes:lista_pacientes')
+
+    medicos = _medicos_disponibles(expediente.clinica)
+    form = PreconsultaForm(request.POST or None, medicos=medicos)
+
+    if request.method == 'POST' and form.is_valid():
+        datos = form.cleaned_data
+        medico = datos['medico']
+        with transaction.atomic():
+            consulta = Consulta.objects.create(
+                expediente=expediente,
+                doctor=medico,
+                # Nombre congelado: si el medico edita su perfil despues, esta fila no cambia.
+                doctor_nombre=medico.get_full_name() or medico.username,
+                motivo='',
+                creado_por=request.user,
+                modificado_por=request.user,
+            )
+            SignosVitales.objects.create(
+                consulta=consulta,
+                tomado_por=request.user,
+                peso=datos['peso'],
+                talla=datos['talla'],
+                presion_arterial=datos['presion_arterial'],
+                temperatura=datos['temperatura'],
+                saturacion=datos['saturacion'],
+                frecuencia_cardiaca=datos['frecuencia_cardiaca'],
+                imc=datos['imc'],
+                creado_por=request.user,
+                modificado_por=request.user,
+            )
+        messages.success(
+            request,
+            f'Preconsulta de {persona} registrada -- enviado a la cola de '
+            f'{medico.get_full_name() or medico.username}.',
+        )
+        return redirect('pacientes:lista_pacientes')
+
+    return render(request, 'pacientes/registrar_preconsulta.html', {
+        'expediente': expediente,
+        'persona': persona,
+        'form': form,
+        'medicos': _con_conteo_de_cola(medicos),
+        'es_menor': persona.edad is not None and persona.edad < 18,
+    })

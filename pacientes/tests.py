@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from django.contrib.auth.models import Group, Permission
 from django.urls import reverse
 
+from consultas.models import Consulta, SignosVitales
 from core.models import Clinica
 from core.tests import PruebaCore
 from seguridad.models import Usuario
@@ -1096,3 +1097,262 @@ class EditarYDesactivarContactoTests(PruebaCore):
         respuesta = self.client.post(url)
 
         self.assertEqual(respuesta.status_code, 404)
+
+
+class RegistrarPreconsultaTests(PruebaCore):
+    """Signos vitales, calculo de IMC y asignacion de medico en una sola pantalla."""
+
+    def setUp(self):
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_persona'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_signosvitales'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_consulta'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='change_consulta'),
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_persona'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='x')
+        self.enfermera.groups.add(self.rol_enfermera)
+        self.enfermera.clinicas.add(self.clinica)
+
+        self.medico = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Ana', last_name='Médica',
+        )
+        self.medico.groups.add(self.rol_doctor)
+        self.medico.clinicas.add(self.clinica)
+
+        self.paciente = Persona.objects.create(
+            nombres='Roberto Antonio', apellidos='Guevara Peña', fecha_nacimiento='1993-06-15',
+        )
+        self.expediente = Expediente.objects.create(persona=self.paciente, clinica=self.clinica)
+        self.url = reverse('pacientes:registrar_preconsulta', args=[self.expediente.id])
+
+        self.datos_base = {'peso': '70.5', 'medico': str(self.medico.pk)}
+
+    def test_enfermera_registra_preconsulta_de_un_adulto(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, presion_arterial='120/80')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        consulta = Consulta.objects.get(expediente=self.expediente)
+        self.assertEqual(consulta.doctor, self.medico)
+        self.assertIsNone(consulta.inicio)  # en_cola: sin iniciar todavia
+        self.assertTrue(consulta.en_cola)
+        signos = SignosVitales.objects.get(consulta=consulta)
+        self.assertEqual(str(signos.peso), '70.50')
+        self.assertEqual(signos.presion_arterial, '120/80')
+        self.assertEqual(signos.tomado_por, self.enfermera)
+
+    def test_peso_es_obligatorio(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base)
+        del datos['peso']
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_sin_peso_pero_con_talla_no_truena(self):
+        """Antes tronaba con TypeError al calcular el IMC sin peso."""
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, talla='1.20')
+        del datos['peso']
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_sin_medico_no_crea_consulta_ni_signos_vitales(self):
+        """La consulta nunca se crea sin medico."""
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base)
+        del datos['medico']
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+        self.assertFalse(SignosVitales.objects.exists())
+
+    def test_calcula_imc_automaticamente_con_peso_y_talla(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, talla='1.70')
+
+        self.client.post(self.url, datos)
+
+        signos = SignosVitales.objects.get(consulta__expediente=self.expediente)
+        self.assertEqual(str(signos.imc), '24.4')  # 70.5 / 1.70**2 = 24.39...
+
+    def test_sin_talla_el_imc_queda_vacio_sin_error(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, self.datos_base)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        signos = SignosVitales.objects.get(consulta__expediente=self.expediente)
+        self.assertIsNone(signos.imc)
+
+    def test_no_permite_dos_consultas_abiertas_del_mismo_paciente(self):
+        Consulta.objects.create(expediente=self.expediente, doctor=self.medico, motivo='')
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, self.datos_base)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        self.assertEqual(Consulta.objects.filter(expediente=self.expediente).count(), 1)  # no se creo una segunda
+
+    def test_medicos_disponibles_muestra_cuantos_tiene_en_cola(self):
+        Consulta.objects.create(expediente=self.expediente, doctor=self.medico, motivo='')
+        otro_paciente = Persona.objects.create(nombres='Ana', apellidos='Lopez', fecha_nacimiento='1990-01-01')
+        otro_expediente = Expediente.objects.create(persona=otro_paciente, clinica=self.clinica)
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:registrar_preconsulta', args=[otro_expediente.id]))
+
+        medicos = {m.pk: m for m in respuesta.context['medicos']}
+        self.assertEqual(medicos[self.medico.pk].pacientes_en_cola, 1)
+
+    def test_medico_de_otra_clinica_no_es_valido(self):
+        """El medico se valida contra el queryset de ESTA clinica -- no basta con mandar cualquier id."""
+        medico_ajeno = Usuario.objects.create_user(username='doctor2', password='x')
+        medico_ajeno.groups.add(self.rol_doctor)
+        medico_ajeno.clinicas.add(self.otra_clinica)
+        self.client.force_login(self.enfermera)
+
+        datos = dict(self.datos_base, medico=str(medico_ajeno.pk))
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_doctor_sin_permiso_de_preconsulta_da_403(self):
+        self.client.force_login(self.medico)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_enfermera_de_otra_clinica_da_403(self):
+        self.enfermera.clinicas.set([self.otra_clinica])
+        self.client.force_login(self.enfermera)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_boton_enviar_a_consulta_visible_solo_para_enfermera(self):
+        url_lista = reverse('pacientes:lista_pacientes')
+
+        self.client.force_login(self.enfermera)
+        respuesta_enfermera = self.client.get(url_lista)
+        self.assertContains(respuesta_enfermera, 'Enviar a consulta')
+
+        self.client.force_login(self.medico)
+        respuesta_medico = self.client.get(url_lista)
+        self.assertNotContains(respuesta_medico, 'Enviar a consulta')
+
+    def test_presion_arterial_incompleta_no_es_valida(self):
+        """'120/8' -- le falto un digito a la diastolica, no se acepta a medias."""
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, presion_arterial='120/8')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+        self.assertContains(respuesta, 'Formato inválido')
+
+    def test_presion_sistolica_fuera_de_rango_no_es_valida(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, presion_arterial='300/80')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+        self.assertContains(respuesta, 'sistólica')
+
+    def test_presion_diastolica_fuera_de_rango_no_es_valida(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, presion_arterial='120/10')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+        self.assertContains(respuesta, 'diastólica')
+
+    def test_presion_arterial_valida_en_los_bordes_del_rango_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, presion_arterial='60/30')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        signos = SignosVitales.objects.get(consulta__expediente=self.expediente)
+        self.assertEqual(signos.presion_arterial, '60/30')
+
+    def test_talla_fuera_de_rango_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, talla='5.00')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_talla_valida_en_los_bordes_del_rango_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, talla='2.20')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        signos = SignosVitales.objects.get(consulta__expediente=self.expediente)
+        self.assertEqual(str(signos.talla), '2.20')
+
+    def test_temperatura_fuera_de_rango_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, temperatura='50.0')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_frecuencia_cardiaca_fuera_de_rango_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, frecuencia_cardiaca='300')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_saturacion_fuera_de_rango_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, saturacion='150')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_temperatura_frecuencia_saturacion_validas_se_guardan(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, temperatura='38.5', frecuencia_cardiaca='90', saturacion='97')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        signos = SignosVitales.objects.get(consulta__expediente=self.expediente)
+        self.assertEqual(str(signos.temperatura), '38.5')
+        self.assertEqual(signos.frecuencia_cardiaca, 90)
+        self.assertEqual(signos.saturacion, 97)
