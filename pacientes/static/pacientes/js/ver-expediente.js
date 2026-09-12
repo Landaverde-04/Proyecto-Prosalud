@@ -3,18 +3,10 @@
    criterio que el resto de los .js del proyecto. */
 (function () {
 
-/* ---- Utilidades compartidas por los modales de Agregar y Editar contacto ---- */
-
-function conCursorFijo(campo, formatear) {
-    campo.addEventListener('input', function () {
-        var largoAntes = campo.value.length;
-        var cursorAntes = campo.selectionStart;
-        campo.value = formatear(campo.value);
-        var diferencia = campo.value.length - largoAntes;
-        var nuevaPosicion = Math.max(0, cursorAntes + diferencia);
-        campo.setSelectionRange(nuevaPosicion, nuevaPosicion);
-    });
-}
+/* ---- Utilidades compartidas por los modales de Agregar y Editar contacto ----
+   conCursorFijo() vive en formato-campos.js (compartido con
+   registrar-paciente.js y registrar-preconsulta.js), que debe cargarse
+   antes que este script. */
 
 function formatearTelefono(valor) {
     var digitos = valor.replace(/\D/g, '').slice(0, 8);

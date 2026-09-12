@@ -313,3 +313,60 @@ class ClinicasUsuarioTests(PruebaSeguridad):
         self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
         nuevo = Usuario.objects.get(username='nuevodoctor')
         self.assertEqual(list(nuevo.clinicas.all()), [self.prosalud])
+
+
+class PasswordSinValidadoresTests(PruebaSeguridad):
+    """
+    Decision de Kevin, 10/09/2026: ninguna contrasena se rechaza por
+    corta o comun (AUTH_PASSWORD_VALIDATORS = [] en settings.py). La
+    que pone el administrador es temporal (debe_cambiar_password la
+    obliga a cambiarla), y la que pone cada quien para si misma es su
+    eleccion -- lo unico que existe es un aviso en el navegador
+    (aviso-password.js), nunca un rechazo del servidor.
+    """
+
+    def setUp(self):
+        self.rol_admin = Group.objects.create(name='Doctora Administradora')
+        self.rol_admin.permissions.add(
+            Permission.objects.get(codename='view_usuario', content_type__app_label='seguridad'),
+            Permission.objects.get(codename='change_usuario', content_type__app_label='seguridad'),
+            Permission.objects.get(codename='add_usuario', content_type__app_label='seguridad'),
+        )
+        self.admin = Usuario.objects.create_user(username='admin', password='x')
+        self.admin.groups.add(self.rol_admin)
+        self.client.force_login(self.admin)
+
+    def test_crear_usuario_acepta_contrasena_corta_y_comun(self):
+        respuesta = self.client.post(
+            reverse('seguridad:crear_usuario'),
+            {
+                'username': 'nuevaenfermera', 'first_name': 'Nueva', 'last_name': 'Enfermera',
+                'email': '', 'is_active': 'on', 'groups': str(self.rol_admin.pk),
+                'password1': '1234', 'password2': '1234',
+            },
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:lista_usuarios'))
+        self.assertTrue(Usuario.objects.get(username='nuevaenfermera').check_password('1234'))
+
+    def test_resetear_password_acepta_contrasena_corta(self):
+        usuario = Usuario.objects.create_user(username='alguien', password='x')
+        respuesta = self.client.post(
+            reverse('seguridad:resetear_password', args=[usuario.pk]),
+            {'password1': 'abc', 'password2': 'abc'},
+        )
+        self.assertRedirects(respuesta, reverse('seguridad:detalle_usuario', args=[usuario.pk]))
+        usuario.refresh_from_db()
+        self.assertTrue(usuario.check_password('abc'))
+
+    def test_cambiar_password_propia_acepta_contrasena_corta(self):
+        usuario = Usuario.objects.create_user(username='cualquiera', password='clave-vieja')
+        self.client.force_login(usuario)
+
+        respuesta = self.client.post(
+            reverse('seguridad:cambiar_password'),
+            {'old_password': 'clave-vieja', 'new_password1': '123', 'new_password2': '123'},
+        )
+
+        self.assertRedirects(respuesta, reverse('seguridad:mi_perfil'))
+        usuario.refresh_from_db()
+        self.assertTrue(usuario.check_password('123'))

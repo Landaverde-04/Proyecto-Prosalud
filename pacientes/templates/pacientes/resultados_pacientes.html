@@ -14,11 +14,12 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 tabla-ancho-fijo">
             <colgroup>
-                <col style="width: 34%;">
-                <col style="width: 10%;">
+                <col style="width: 28%;">
+                <col style="width: 8%;">
+                <col style="width: 15%;">
+                <col style="width: 13%;">
                 <col style="width: 18%;">
-                <col style="width: 16%;">
-                <col style="width: 22%;">
+                <col style="width: 18%;">
             </colgroup>
             <thead class="table-dark">
                 <tr>
@@ -27,6 +28,7 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                     <th>DUI</th>
                     <th>Teléfono</th>
                     <th>También es contacto de</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -42,6 +44,14 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                         {% empty %}
                             —
                         {% endfor %}
+                    </td>
+                    <td>
+                        {% if perms.consultas.add_signosvitales and persona.expediente_id %}
+                        <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
+                           class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation()">
+                            <i class="bi bi-heart-pulse"></i> Enviar a consulta
+                        </a>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -68,6 +78,12 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                     {{ paciente_relacionado.nombres }} {{ paciente_relacionado.apellidos }}{% if not forloop.last %}, {% endif %}
                 {% endfor %}
             </div>
+            {% endif %}
+            {% if perms.consultas.add_signosvitales and persona.expediente_id %}
+            <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
+               class="btn btn-sm btn-outline-primary mt-2" onclick="event.stopPropagation()">
+                <i class="bi bi-heart-pulse"></i> Enviar a consulta
+            </a>
             {% endif %}
         </div>
     </div>

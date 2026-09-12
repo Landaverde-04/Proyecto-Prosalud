@@ -1,4 +1,6 @@
+import re
 from datetime import date
+from decimal import Decimal
 
 from django import forms
 from django.core.validators import RegexValidator
@@ -410,4 +412,79 @@ class AgregarContactoForm(forms.Form):
             )
 
         self._validar_parentesco_otro(datos)
+        return datos
+
+
+def calcular_imc(peso, talla):
+    """IMC = peso(kg) / talla(m)^2, redondeado a 1 decimal. None si falta peso o talla."""
+    if peso is None or not talla:
+        return None
+    return round(peso / (talla ** 2), 1)
+
+
+class PreconsultaForm(forms.Form):
+    """Signos vitales de una preconsulta, más el médico que la atenderá."""
+
+    # Rangos de seguridad para atrapar errores de tecleo, no un limite clinico exacto.
+    PRESION_SISTOLICA_MIN, PRESION_SISTOLICA_MAX = 60, 260
+    PRESION_DIASTOLICA_MIN, PRESION_DIASTOLICA_MAX = 30, 150
+    TALLA_MIN, TALLA_MAX = Decimal('0.30'), Decimal('2.20')
+    TEMPERATURA_MIN, TEMPERATURA_MAX = Decimal('30.0'), Decimal('42.0')
+    FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX = 30, 220
+    SATURACION_MIN, SATURACION_MAX = 0, 100
+
+    medico = forms.ModelChoiceField(queryset=None, label='Médico', empty_label=None)
+    peso = forms.DecimalField(label='Peso (kg)', max_digits=5, decimal_places=2, min_value=0)
+    talla = forms.DecimalField(
+        label='Talla (metros)', max_digits=5, decimal_places=2,
+        min_value=TALLA_MIN, max_value=TALLA_MAX, required=False,
+        # TextInput para permitir el formato automatico del punto decimal via JS.
+        widget=forms.TextInput(attrs={'placeholder': '1.20', 'inputmode': 'decimal'}),
+    )
+    presion_arterial = forms.CharField(
+        label='Presión arterial', max_length=10, required=False,
+        widget=forms.TextInput(attrs={'placeholder': '120/80', 'inputmode': 'numeric'}),
+    )
+    temperatura = forms.DecimalField(
+        label='Temperatura (°C)', max_digits=4, decimal_places=1, required=False,
+        min_value=TEMPERATURA_MIN, max_value=TEMPERATURA_MAX,
+    )
+    saturacion = forms.IntegerField(
+        label='Saturación de oxígeno (%)', required=False,
+        min_value=SATURACION_MIN, max_value=SATURACION_MAX,
+    )
+    frecuencia_cardiaca = forms.IntegerField(
+        label='Frecuencia cardíaca (lpm)', required=False,
+        min_value=FRECUENCIA_CARDIACA_MIN, max_value=FRECUENCIA_CARDIACA_MAX,
+    )
+
+    def __init__(self, *args, medicos, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['medico'].queryset = medicos
+        for nombre, campo in self.fields.items():
+            if nombre != 'medico':
+                campo.widget.attrs.setdefault('class', 'form-control')
+
+    def clean_presion_arterial(self):
+        """Valida el formato sistólica/diastólica y sus rangos."""
+        valor = self.cleaned_data.get('presion_arterial')
+        if not valor:
+            return valor
+        coincidencia = re.match(r'^(\d{2,3})/(\d{2,3})$', valor)
+        if not coincidencia:
+            raise forms.ValidationError('Formato inválido -- debe ser sistólica/diastólica, ej. 120/80.')
+        sistolica, diastolica = int(coincidencia.group(1)), int(coincidencia.group(2))
+        if not (self.PRESION_SISTOLICA_MIN <= sistolica <= self.PRESION_SISTOLICA_MAX):
+            raise forms.ValidationError(
+                f'La presión sistólica debe estar entre {self.PRESION_SISTOLICA_MIN} y {self.PRESION_SISTOLICA_MAX}.'
+            )
+        if not (self.PRESION_DIASTOLICA_MIN <= diastolica <= self.PRESION_DIASTOLICA_MAX):
+            raise forms.ValidationError(
+                f'La presión diastólica debe estar entre {self.PRESION_DIASTOLICA_MIN} y {self.PRESION_DIASTOLICA_MAX}.'
+            )
+        return valor
+
+    def clean(self):
+        datos = super().clean()
+        datos['imc'] = calcular_imc(datos.get('peso'), datos.get('talla'))
         return datos

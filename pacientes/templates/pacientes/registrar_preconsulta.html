@@ -1,0 +1,145 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Registrar preconsulta - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<a href="{% url 'pacientes:lista_pacientes' %}" class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Volver a pacientes
+</a>
+
+<h4 class="fw-semibold mb-1">Registrar preconsulta</h4>
+<p class="text-muted small mb-4">
+    Signos vitales y asignación de médico -- al guardar, el paciente entra a la cola del médico elegido.
+</p>
+
+<div class="card shadow-sm border-0 mx-auto" style="max-width: 640px;">
+    <div class="card-body p-4">
+
+        <div class="mb-3 pb-3 border-bottom">
+            <small class="text-muted">Paciente</small>
+            <div class="fw-semibold">{{ persona.nombres }} {{ persona.apellidos }}</div>
+            <div class="text-muted small">
+                {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}{{ expediente.clinica.nombre }}
+            </div>
+        </div>
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <form method="post" novalidate id="form-preconsulta">
+            {% csrf_token %}
+
+            <div class="mb-3">
+                <label for="{{ form.peso.id_for_label }}" class="form-label fw-medium">
+                    Peso (kg) <span class="text-danger">*</span>
+                </label>
+                {{ form.peso }}
+                {% for error in form.peso.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+
+            {% if es_menor %}
+            {# Solo a menores de edad. #}
+            <div class="mb-3">
+                <label for="{{ form.talla.id_for_label }}" class="form-label fw-medium">Talla (metros)</label>
+                {{ form.talla }}
+                <div class="form-text">Ej: 1.20. Se usa para calcular el IMC.</div>
+                {% for error in form.talla.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+            {# IMC en vivo, se recalcula con JS al escribir peso/talla. #}
+            <div class="mb-3">
+                <label class="form-label fw-medium">IMC calculado</label>
+                <div class="form-control-plaintext fw-semibold py-1" id="imc-calculado">—</div>
+                <div class="form-text">Se calcula solo con el peso y la talla que se escriban arriba.</div>
+            </div>
+            {% else %}
+            {# Solo a adultos y adultos mayores. #}
+            <div class="mb-3">
+                <label for="{{ form.presion_arterial.id_for_label }}" class="form-label fw-medium">Presión arterial</label>
+                {{ form.presion_arterial }}
+                <div class="form-text">Ej: 120/80.</div>
+                {% for error in form.presion_arterial.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="row g-3">
+                <div class="col-sm-6">
+                    <label for="{{ form.temperatura.id_for_label }}" class="form-label fw-medium">Temperatura (°C)</label>
+                    {{ form.temperatura }}
+                    <div class="form-text">Opcional -- si el paciente presenta fiebre.</div>
+                    {% for error in form.temperatura.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-sm-6">
+                    <label for="{{ form.frecuencia_cardiaca.id_for_label }}" class="form-label fw-medium">Frecuencia cardíaca (lpm)</label>
+                    {{ form.frecuencia_cardiaca }}
+                    <div class="form-text">Opcional.</div>
+                    {% for error in form.frecuencia_cardiaca.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="mb-4 mt-3">
+                <label for="{{ form.saturacion.id_for_label }}" class="form-label fw-medium">Saturación de oxígeno (%)</label>
+                {{ form.saturacion }}
+                <div class="form-text">Solo en casos de emergencia.</div>
+                {% for error in form.saturacion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            </div>
+
+            <hr>
+
+            <div id="seccion-medico">
+                <label class="form-label fw-medium d-block mb-2">
+                    Médico <span class="text-danger">*</span>
+                </label>
+                {% if medicos %}
+                <div class="row row-cols-1 row-cols-sm-2 g-2 mb-2">
+                    {% for medico in medicos %}
+                    <div class="col">
+                        <label class="card h-100 p-3 mb-0" style="cursor: pointer;">
+                            <div class="d-flex align-items-start gap-2">
+                                <input type="radio" name="medico" value="{{ medico.pk }}" class="form-check-input mt-1"
+                                       {% if form.medico.value|stringformat:"s" == medico.pk|stringformat:"s" %}checked{% endif %}
+                                       required>
+                                <div>
+                                    <div class="fw-medium">{{ medico.get_full_name|default:medico.username }}</div>
+                                    <div class="text-muted small">
+                                        {{ medico.pacientes_en_cola }} paciente{{ medico.pacientes_en_cola|pluralize }} en cola
+                                    </div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small">Ningún usuario de esta clínica tiene permiso para atender consultas todavía.</p>
+                {% endif %}
+                {# Aviso inmediato del navegador -- registrar-preconsulta.js lo muestra y hace scroll aqui. #}
+                <div class="alert alert-danger py-2 d-none" id="aviso-medico-cliente">
+                    Debes elegir un médico antes de continuar.
+                </div>
+                {% if form.medico.errors %}
+                {# Respaldo del lado del servidor -- cubre el caso de JavaScript desactivado. #}
+                <div class="alert alert-danger py-2" id="aviso-medico-servidor">
+                    {{ form.medico.errors|join:" " }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-primary" {% if not medicos %}disabled{% endif %}>
+                    <i class="bi bi-send"></i> Enviar a consulta
+                </button>
+                <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-preconsulta.js' %}"></script>
+{% endblock %}

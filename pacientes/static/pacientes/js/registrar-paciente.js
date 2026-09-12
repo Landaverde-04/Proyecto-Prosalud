@@ -111,19 +111,8 @@
     }
 
     /* ---- Formato automatico: telefono (0000-0000) y DUI (00000000-0) ----
-       Se guarda la posicion del cursor porque insertar el guion sin
-       ajustarla lo manda al final cada vez que se teclea. */
-    function conCursorFijo(campo, formatear) {
-        campo.addEventListener('input', function () {
-            var largoAntes = campo.value.length;
-            var cursorAntes = campo.selectionStart;
-            campo.value = formatear(campo.value);
-            var diferencia = campo.value.length - largoAntes;
-            var nuevaPosicion = Math.max(0, cursorAntes + diferencia);
-            campo.setSelectionRange(nuevaPosicion, nuevaPosicion);
-        });
-    }
-
+       conCursorFijo() vive en formato-campos.js (compartido con
+       registrar-preconsulta.js), que debe cargarse antes que este script. */
     function formatearTelefono(valor) {
         var digitos = valor.replace(/\D/g, '').slice(0, 8);
         return digitos.length > 4 ? digitos.slice(0, 4) + '-' + digitos.slice(4) : digitos;

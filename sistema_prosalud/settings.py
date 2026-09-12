@@ -76,21 +76,16 @@ DATABASES = {
 }
 
 
-# Validacion de contrasenas
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+# Validacion de contrasenas: decision de Kevin (10/09/2026) -- sin
+# validadores. La que pone el administrador al crear un usuario es
+# temporal (Usuario.debe_cambiar_password la obliga a cambiarla en el
+# primer login), asi que exigirle que sea "dificil" no protege nada; y
+# la que pone despues cada quien para si misma es su eleccion -- si es
+# corta o comun, la pantalla lo avisa (JS, sin bloquear), nunca lo
+# rechaza. Antes tenia los 4 validadores por defecto de Django
+# (similitud con el usuario, longitud minima, contrasena comun,
+# solo numeros).
+AUTH_PASSWORD_VALIDATORS = []
 
 
 # Internacionalizacion
