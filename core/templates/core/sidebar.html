@@ -29,7 +29,7 @@
             </li>
 
             {# Seccion Pacientes: solo se muestra si tiene acceso a al menos un item #}
-            {% if perms.pacientes.view_persona or perms.pacientes.add_persona %}
+            {% if perms.pacientes.view_persona or perms.pacientes.add_persona or perms.consultas.view_consulta %}
             <li class="sidebar-seccion mt-3 mb-1 px-3">
                 <span class="text-uppercase fw-semibold" style="font-size: 0.65rem; letter-spacing: 0.08em; color: rgba(255,255,255,0.35);">Pacientes</span>
             </li>
@@ -52,6 +52,17 @@
                    title="Nuevo paciente">
                     <i class="bi bi-person-plus flex-shrink-0"></i>
                     <span class="sidebar-label">Nuevo paciente</span>
+                </a>
+            </li>
+            {% endif %}
+
+            {% if perms.consultas.view_consulta %}
+            <li class="nav-item">
+                <a href="{% url 'pacientes:cola_consultas' %}"
+                   class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'cola_consultas' %}active{% endif %}"
+                   title="Cola de consulta">
+                    <i class="bi bi-list-ol flex-shrink-0"></i>
+                    <span class="sidebar-label">Cola de consulta</span>
                 </a>
             </li>
             {% endif %}

@@ -21,4 +21,5 @@ urlpatterns = [
         'expediente/<int:expediente_id>/preconsulta/',
         views.registrar_preconsulta, name='registrar_preconsulta',
     ),
+    path('cola/', views.cola_consultas, name='cola_consultas'),
 ]

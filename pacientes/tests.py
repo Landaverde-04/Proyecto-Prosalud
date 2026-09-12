@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from django.contrib.auth.models import Group, Permission
 from django.urls import reverse
+from django.utils import timezone
 
 from consultas.models import Consulta, SignosVitales
 from core.models import Clinica
@@ -1356,3 +1357,193 @@ class RegistrarPreconsultaTests(PruebaCore):
         self.assertEqual(str(signos.temperatura), '38.5')
         self.assertEqual(signos.frecuencia_cardiaca, 90)
         self.assertEqual(signos.saturacion, 97)
+
+
+class ColaConsultasTests(PruebaCore):
+    """Cola de espera por medico, ordenada por hora de llegada."""
+
+    def setUp(self):
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_consulta'),
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_expediente'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='x')
+        self.enfermera.groups.add(self.rol_enfermera)
+        self.enfermera.clinicas.add(self.clinica)
+
+        self.medico = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Ana', last_name='Médica',
+        )
+        self.medico.groups.add(self.rol_doctor)
+        self.medico.clinicas.add(self.clinica)
+
+        self.url = reverse('pacientes:cola_consultas')
+
+    def _consulta_en_cola(self, nombre, hora_llegada, medico=None, clinica=None):
+        persona = Persona.objects.create(
+            nombres=nombre, apellidos='Prueba', fecha_nacimiento='1990-01-01',
+        )
+        expediente = Expediente.objects.create(persona=persona, clinica=clinica or self.clinica)
+        return Consulta.objects.create(
+            expediente=expediente, doctor=medico or self.medico, motivo='',
+            hora_llegada=hora_llegada,
+        )
+
+    def test_la_cola_se_ordena_por_hora_de_llegada(self):
+        ahora = timezone.now()
+        self._consulta_en_cola('Segundo', ahora)
+        self._consulta_en_cola('Primero', ahora - timedelta(minutes=30))
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        cola = respuesta.context['colas'][0]['consultas']
+        self.assertEqual(
+            [c.expediente.persona.nombres for c in cola], ['Primero', 'Segundo'],
+        )
+
+    def test_solo_muestra_pacientes_que_siguen_esperando(self):
+        ahora = timezone.now()
+        self._consulta_en_cola('EnEspera', ahora)
+        atendiendose = self._consulta_en_cola('YaEntro', ahora)
+        atendiendose.inicio = ahora
+        atendiendose.save()
+        cerrada = self._consulta_en_cola('YaSalio', ahora)
+        cerrada.inicio, cerrada.cierre = ahora, ahora
+        cerrada.save()
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        cola = respuesta.context['colas'][0]['consultas']
+        self.assertEqual([c.expediente.persona.nombres for c in cola], ['EnEspera'])
+
+    def test_no_muestra_la_cola_de_otra_clinica(self):
+        medico_ajeno = Usuario.objects.create_user(username='doctor2', password='x')
+        medico_ajeno.groups.add(self.rol_doctor)
+        medico_ajeno.clinicas.add(self.otra_clinica)
+        self._consulta_en_cola('DeOtraClinica', timezone.now(),
+                               medico=medico_ajeno, clinica=self.otra_clinica)
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertNotContains(respuesta, 'DeOtraClinica')
+        self.assertEqual(respuesta.context['total_en_cola'], 0)
+
+    def test_cada_medico_aparece_con_su_propia_cola(self):
+        """Vista de enfermeria: un medico sin pacientes tambien aparece, con su cola vacia."""
+        otro_medico = Usuario.objects.create_user(
+            username='doctor3', password='x', first_name='Luis', last_name='Ramos',
+        )
+        otro_medico.groups.add(self.rol_doctor)
+        otro_medico.clinicas.add(self.clinica)
+        self._consulta_en_cola('DeAna', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        colas = {c['medico'].pk: c['consultas'] for c in respuesta.context['colas']}
+        self.assertEqual(len(colas[self.medico.pk]), 1)
+        self.assertEqual(len(colas[otro_medico.pk]), 0)
+
+    def test_el_doctor_ve_el_boton_de_atender_y_la_enfermera_no(self):
+        self._consulta_en_cola('Paciente', timezone.now())
+
+        self.client.force_login(self.medico)
+        respuesta_doctor = self.client.get(self.url)
+        self.assertContains(respuesta_doctor, 'Atender')
+
+        self.client.force_login(self.enfermera)
+        respuesta_enfermera = self.client.get(self.url)
+        self.assertContains(respuesta_enfermera, 'Paciente')  # sí ve la cola
+        self.assertNotContains(respuesta_enfermera, 'Atender')  # pero no el botón
+
+    def test_sin_permiso_de_ver_consultas_da_403(self):
+        sin_permiso = Usuario.objects.create_user(username='regente', password='x')
+        sin_permiso.clinicas.add(self.clinica)
+        self.client.force_login(sin_permiso)
+
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_peticion_ajax_devuelve_solo_el_fragmento(self):
+        self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url, headers={'x-requested-with': 'XMLHttpRequest'})
+
+        self.assertContains(respuesta, 'Paciente')
+        self.assertNotContains(respuesta, '<title>')  # sin la pagina completa
+
+    def test_sin_permiso_de_expediente_no_ve_el_boton_de_atender(self):
+        """iniciar_consulta exige view_expediente ademas de change_consulta."""
+        self._consulta_en_cola('Paciente', timezone.now())
+        rol_parcial = Group.objects.create(name='Solo cambia consultas')
+        rol_parcial.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_consulta'),
+        )
+        usuario = Usuario.objects.create_user(username='parcial', password='x')
+        usuario.groups.add(rol_parcial)
+        usuario.clinicas.add(self.clinica)
+        self.client.force_login(usuario)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, 'Paciente')
+        self.assertNotContains(respuesta, 'Atender')
+
+    def test_el_doctor_solo_ve_su_propia_cola(self):
+        otro_medico = Usuario.objects.create_user(
+            username='doctor3', password='x', first_name='Luis', last_name='Ramos',
+        )
+        otro_medico.groups.add(self.rol_doctor)
+        otro_medico.clinicas.add(self.clinica)
+        self._consulta_en_cola('MiPaciente', timezone.now())
+        self._consulta_en_cola('DelOtro', timezone.now(), medico=otro_medico)
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, 'MiPaciente')
+        self.assertNotContains(respuesta, 'DelOtro')
+        # Ni siquiera aparece la tarjeta del otro medico.
+        self.assertEqual([c['medico'].pk for c in respuesta.context['colas']], [self.medico.pk])
+
+    def test_la_enfermera_ve_las_colas_de_todos(self):
+        otro_medico = Usuario.objects.create_user(username='doctor3', password='x')
+        otro_medico.groups.add(self.rol_doctor)
+        otro_medico.clinicas.add(self.clinica)
+        self._consulta_en_cola('DeAna', timezone.now())
+        self._consulta_en_cola('DelOtro', timezone.now(), medico=otro_medico)
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, 'DeAna')
+        self.assertContains(respuesta, 'DelOtro')
+
+    def test_la_administradora_ve_las_colas_de_todos(self):
+        administradora = Usuario.objects.create_user(username='doctora', password='x')
+        administradora.groups.add(self.rol_doctor)
+        administradora.user_permissions.add(
+            Permission.objects.get(content_type__app_label='auth', codename='change_group'),
+        )
+        administradora.clinicas.add(self.clinica)
+        self._consulta_en_cola('DeAna', timezone.now())
+        self.client.force_login(administradora)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, 'DeAna')
+        self.assertGreater(len(respuesta.context['colas']), 1)

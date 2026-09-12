@@ -1,0 +1,24 @@
+/* Punto que late junto al reloj: señal de que la cola se refresca sola. */
+.punto-vivo {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--accent);
+    animation: latido-cola 2s ease-in-out infinite;
+}
+
+@keyframes latido-cola {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+/* Quien pidió menos movimiento en su sistema no ve el parpadeo. */
+@media (prefers-reduced-motion: reduce) {
+    .punto-vivo { animation: none; }
+}
+
+.icono-encabezado {
+    width: 44px;
+    height: 44px;
+    background-color: var(--accent-soft);
+}

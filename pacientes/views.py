@@ -7,6 +7,7 @@ from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Concat, Replace
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from consultas.models import Consulta, SignosVitales
@@ -552,11 +553,11 @@ def desactivar_contacto(request, expediente_id, contacto_id):
     return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
 
 
-def _medicos_disponibles(clinica):
-    """Usuarios de esta clinica con permiso para atender consultas, vía su Rol."""
+def _medicos_disponibles(clinicas):
+    """Usuarios de esas clinicas con permiso para atender consultas, vía su Rol."""
     permiso = Permission.objects.get(content_type__app_label='consultas', codename='change_consulta')
     return (
-        Usuario.objects.filter(is_active=True, clinicas=clinica, groups__permissions=permiso)
+        Usuario.objects.filter(is_active=True, clinicas__in=clinicas, groups__permissions=permiso)
         .distinct()
         .order_by('first_name', 'last_name')
     )
@@ -590,7 +591,7 @@ def registrar_preconsulta(request, expediente_id):
         messages.info(request, f'{persona} ya tiene una consulta {estado} -- no se registra otra preconsulta.')
         return redirect('pacientes:lista_pacientes')
 
-    medicos = _medicos_disponibles(expediente.clinica)
+    medicos = _medicos_disponibles([expediente.clinica])
     form = PreconsultaForm(request.POST or None, medicos=medicos)
 
     if request.method == 'POST' and form.is_valid():
@@ -603,6 +604,7 @@ def registrar_preconsulta(request, expediente_id):
                 # Nombre congelado: si el medico edita su perfil despues, esta fila no cambia.
                 doctor_nombre=medico.get_full_name() or medico.username,
                 motivo='',
+                hora_llegada=timezone.now(),
                 creado_por=request.user,
                 modificado_por=request.user,
             )
@@ -633,3 +635,64 @@ def registrar_preconsulta(request, expediente_id):
         'medicos': _con_conteo_de_cola(medicos),
         'es_menor': persona.edad is not None and persona.edad < 18,
     })
+
+
+def _solo_su_propia_cola(usuario):
+    """
+    Un medico ve unicamente los pacientes que le asignaron. Enfermeria
+    (que reasigna y retira) y quien administra el sistema ven todas las
+    colas.
+    """
+    return (
+        usuario.has_perm('consultas.change_consulta')
+        and not usuario.has_perm('auth.change_group')
+    )
+
+
+@login_required
+@permission_required('consultas.view_consulta', raise_exception=True)
+def cola_consultas(request):
+    """Cola de espera agrupada por medico, ordenada por hora de llegada."""
+    clinicas = request.user.clinicas.all()
+    solo_la_suya = _solo_su_propia_cola(request.user)
+
+    medicos = (
+        Usuario.objects.filter(pk=request.user.pk) if solo_la_suya
+        else _medicos_disponibles(clinicas)
+    )
+
+    en_cola = (
+        Consulta.objects.filter(
+            inicio__isnull=True, cierre__isnull=True, activo=True,
+            expediente__clinica__in=clinicas,
+        )
+        .select_related('expediente__persona', 'expediente__clinica')
+        # fecha_creacion como desempate: las consultas anteriores a que
+        # existiera hora_llegada la tienen vacia.
+        .order_by('hora_llegada', 'fecha_creacion')
+    )
+    if solo_la_suya:
+        en_cola = en_cola.filter(doctor=request.user)
+
+    por_medico = {}
+    for consulta in en_cola:
+        por_medico.setdefault(consulta.doctor_id, []).append(consulta)
+
+    colas = [
+        {'medico': medico, 'consultas': por_medico.get(medico.pk, [])}
+        for medico in medicos
+    ]
+
+    contexto = {
+        'colas': colas,
+        'total_en_cola': len(en_cola),
+        'solo_la_suya': solo_la_suya,
+        # Los dos permisos que exige iniciar_consulta: si se pidiera solo
+        # uno, el boton se veria pero el clic daria 403. La enfermera
+        # entra a la misma pantalla, unicamente a mirar.
+        'puede_atender': request.user.has_perms(
+            ['pacientes.view_expediente', 'consultas.change_consulta'],
+        ),
+    }
+    plantilla = 'pacientes/resultados_cola.html' if es_ajax(request) else 'pacientes/cola_consultas.html'
+    return render(request, plantilla, contexto)
