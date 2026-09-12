@@ -39,6 +39,21 @@ def consulta_autorizada(request, consulta_id):
     return consulta
 
 
+def consulta_propia(request, consulta_id):
+    """
+    Consulta que este usuario puede atender. Leerla la puede cualquiera
+    de la clinica (consulta_autorizada); escribir en ella solo su propio
+    doctor, o quien administra el sistema. Sin esto, un doctor podria
+    escribir en la consulta de otro y emitir documentos que salen
+    firmados con el nombre del otro. Pasar un paciente a otro medico se
+    hace reasignando, no entrando a su consulta.
+    """
+    consulta = consulta_autorizada(request, consulta_id)
+    if consulta.doctor_id != request.user.pk and not request.user.has_perm('auth.change_group'):
+        raise PermissionDenied
+    return consulta
+
+
 def datos_documento(consulta, datos):
     return dict(consulta=consulta, tipo=datos['tipo'], motivo=datos['motivo'],
                 dias=datos.get('dias'), fecha_inicio_incapacidad=datos.get('fecha_inicio_incapacidad'),
@@ -194,7 +209,7 @@ def pdf_documento(request, documento_id):
 
 def consulta_editable(request, consulta_id):
     """Consulta que todavia se puede escribir. Cerrada = solo lectura."""
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         raise Http404('La consulta ya fue finalizada.')
     return consulta
@@ -259,7 +274,7 @@ def iniciar_consulta(request, consulta_id):
 @permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
 def atender_consulta(request, consulta_id):
     """Pantalla de atencion: los ocho campos, con preguardado automatico."""
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     return render(request, 'consultas/atender_consulta.html', {
@@ -295,7 +310,7 @@ def guardar_borrador(request, consulta_id):
     ventana por error. Se guarda en el servidor, sobre la misma fila --
     no en el navegador, porque cambiar de maquina perderia el texto.
     """
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
     form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
@@ -317,7 +332,7 @@ def finalizar_consulta(request, consulta_id):
     receta -- cerrar por receta se presta a error humano (acuerdo del
     05/09/2026, deja obsoleta la regla anterior).
     """
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     # Finaliza sobre lo ya preguardado: el modal de confirmacion manda su

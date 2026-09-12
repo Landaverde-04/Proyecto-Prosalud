@@ -453,3 +453,87 @@ class AntecedenteTests(PruebaCore):
         self.assertNotIn('alergias', campos)
         self.assertEqual(list(campos), ['motivo', 'historia_enfermedad_actual', 'examen_fisico',
                                         'diagnostico', 'tratamiento', 'indicaciones'])
+
+
+class ConsultaSoloDeSuDoctorTests(PruebaCore):
+    """Un doctor no puede escribir en la consulta de otro; la administradora sí."""
+
+    def setUp(self):
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        permisos_medico = Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta'],
+        )
+
+        self.doctor1 = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Uno', last_name='Medico',
+            debe_cambiar_password=False,
+        )
+        self.doctor2 = Usuario.objects.create_user(
+            username='doctor2', password='x', first_name='Dos', last_name='Medico',
+            debe_cambiar_password=False,
+        )
+        self.administradora = Usuario.objects.create_user(
+            username='doctora', password='x', first_name='Elsa', last_name='Miranda',
+            debe_cambiar_password=False,
+        )
+        for usuario in (self.doctor1, self.doctor2, self.administradora):
+            usuario.user_permissions.add(*permisos_medico)
+            usuario.clinicas.add(self.clinica)
+        # "Administradora" se define por poder editar roles, igual que en seguridad.
+        self.administradora.user_permissions.add(
+            Permission.objects.get(content_type__app_label='auth', codename='change_group'),
+        )
+
+        persona = Persona.objects.create(nombres='Paciente', apellidos='De Uno')
+        self.expediente = Expediente.objects.create(persona=persona, clinica=self.clinica)
+        self.consulta = Consulta.objects.create(
+            expediente=self.expediente, doctor=self.doctor1, motivo='Atención de prueba',
+        )
+
+    def test_su_propio_doctor_si_puede_atender(self):
+        self.client.force_login(self.doctor1)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_otro_doctor_no_puede_abrir_la_consulta(self):
+        self.client.force_login(self.doctor2)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_otro_doctor_no_puede_iniciarla_desde_la_cola(self):
+        self.client.force_login(self.doctor2)
+        respuesta = self.client.post(reverse('consultas:iniciar_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+        self.consulta.refresh_from_db()
+        self.assertIsNone(self.consulta.inicio)
+
+    def test_otro_doctor_no_puede_escribir_ni_finalizar(self):
+        self.client.force_login(self.doctor2)
+
+        borrador = self.client.post(
+            reverse('consultas:guardar_borrador', args=[self.consulta.pk]), {'motivo': 'Texto ajeno'},
+        )
+        self.assertEqual(borrador.status_code, 403)
+
+        finalizar = self.client.post(reverse('consultas:finalizar_consulta', args=[self.consulta.pk]))
+        self.assertEqual(finalizar.status_code, 403)
+
+        self.consulta.refresh_from_db()
+        self.assertEqual(self.consulta.motivo, 'Atención de prueba')
+        self.assertIsNone(self.consulta.cierre)
+
+    def test_la_administradora_si_puede_sobre_cualquier_consulta(self):
+        self.client.force_login(self.administradora)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_otro_doctor_si_puede_leer_el_historial(self):
+        """Leer no se restringe: el expediente es de la clinica, no del medico."""
+        self.consulta.inicio = timezone.now()
+        self.consulta.cierre = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.doctor2)
+
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 200)
