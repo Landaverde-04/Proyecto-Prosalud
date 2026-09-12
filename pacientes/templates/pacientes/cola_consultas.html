@@ -1,0 +1,50 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Cola de consulta - Sistema ProSalud{% endblock %}
+
+{% block estilos_extra %}
+<link rel="stylesheet" href="{% static 'pacientes/css/cola-consultas.css' %}">
+{% endblock %}
+
+{% block contenido %}
+
+{# La vista del medico es una sola columna: se centra y se le pone tope de ancho. #}
+<div {% if solo_la_suya %}class="mx-auto" style="max-width: 720px;"{% endif %}>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4 pb-3 border-bottom">
+        <div class="d-flex align-items-center gap-3">
+            <div class="icono-encabezado d-flex align-items-center justify-content-center rounded-3 flex-shrink-0">
+                <i class="bi bi-list-ol fs-5" style="color: var(--accent);"></i>
+            </div>
+            <div>
+                <h4 class="fw-semibold mb-0">Cola de consulta</h4>
+                <p class="text-muted small mb-0">
+                    {% if total_en_cola %}
+                        {{ total_en_cola }} paciente{{ total_en_cola|pluralize }} en espera ·
+                        {% if solo_la_suya %}por hora de llegada{% else %}repartidos por médico{% endif %}
+                    {% else %}
+                        Nadie en espera por ahora
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        <span class="badge rounded-pill d-inline-flex align-items-center gap-2 fw-normal px-3 py-2"
+              style="background-color: var(--accent-soft); color: var(--text-sec);"
+              title="Esta pantalla se actualiza sola">
+            <span class="punto-vivo"></span>
+            En vivo · <span id="cola-actualizada">--:--</span>
+        </span>
+    </div>
+
+    <div data-cola-resultados>
+        {% include "pacientes/resultados_cola.html" %}
+    </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/cola-consultas.js' %}"></script>
+{% endblock %}

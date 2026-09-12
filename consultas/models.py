@@ -46,10 +46,9 @@ class Consulta(ModeloBase):
     clinica del expediente al que pertenece, sin guardarla por separado
     (TEC-01) -- ver la propiedad `clinica` mas abajo.
 
-    Los campos de la Cola de Consulta (es_emergencia, hora_llegada,
-    motivo_prioridad, nota_retiro) NO estan todavia: la Cola es
-    HU-EXP-12 a HU-EXP-16, agendada despues de la entrega de agosto.
-    Se agregan con esas historias, via una migracion nueva.
+    De los campos de la Cola de Consulta que trae el diagrama, por ahora
+    solo esta `hora_llegada`; es_emergencia, motivo_prioridad y
+    nota_retiro se agregan cuando se construyan sus historias.
     """
 
     expediente = models.ForeignKey(
@@ -75,6 +74,10 @@ class Consulta(ModeloBase):
     # registrar a mano una atencion que ya ocurrio (corte de energia).
     inicio = models.DateTimeField(null=True, blank=True)
     cierre = models.DateTimeField(null=True, blank=True)
+
+    # Momento en que el paciente entro a la cola. Vacio en las consultas
+    # que la doctora crea directamente, que nunca pasaron por la cola.
+    hora_llegada = models.DateTimeField(null=True, blank=True)
 
     motivo = models.TextField()
     historia_enfermedad_actual = models.TextField(blank=True)

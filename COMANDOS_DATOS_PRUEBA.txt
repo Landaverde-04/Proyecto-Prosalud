@@ -17,9 +17,19 @@ Sembrar datos (no borra nada, es seguro correrlo varias veces):
 
     python manage.py sembrar_datos
 
-Vaciar los datos de prueba y volver a sembrarlos de cero:
+Vaciar los datos de prueba y volver a sembrarlos de cero (borra
+consultas, signos vitales, documentos y pacientes; NO toca cuentas):
 
     python manage.py sembrar_datos --limpiar
+
+Además de lo anterior, borrar también las cuentas de prueba y volver a
+crearlas desde cero:
+
+    python manage.py sembrar_datos --limpiar-usuarios
+
+    OJO: este último borra TODAS las cuentas menos los superusuarios.
+    Está en un flag aparte justamente para que --limpiar, que se corre
+    seguido, nunca te deje sin cuentas por accidente.
 
 
 Secciones y qué tablas toca cada una
@@ -45,22 +55,27 @@ Secciones y qué tablas toca cada una
    clínica) sin tener que crear una cuenta a mano después de clonar el
    proyecto:
 
-       usuario              rol                      clínica(s)
-       -------------------  -----------------------  -------------------
-       doctora.admin        Doctora Administradora    ProSalud, Estética
-       doctor.demo          Doctor                     ProSalud
-       enfermera.demo       Enfermera                  ProSalud
-       laboratorio.demo     Laboratorio                ProSalud
-       regente.demo         Regente                    ProSalud
+       usuario         rol                      clínica(s)
+       --------------  -----------------------  -------------------
+       doctora         Doctora Administradora    ProSalud, Estética
+       doctor1         Doctor                     ProSalud
+       doctor2         Doctor                     ProSalud
+       doctor3         Doctor                     ProSalud
+       enfermera1      Enfermera                  ProSalud
+       enfermera2      Enfermera                  ProSalud
+       laboratorio1    Laboratorio                ProSalud
+       regente1        Regente                    ProSalud
 
-   Contraseña de las 5: ProSalud-2026
+   Contraseña de las 8: admin
 
-   IMPORTANTE: --limpiar NUNCA borra esta sección. Son los roles y
-   cuentas con los que la gente inicia sesión de verdad (incluidas las
-   5 de prueba, una vez creadas), no datos de ejemplo desechables. Sí
-   es seguro volver a correr el comando: si alguien le cambió el rol o
-   la clínica a una de estas 5 cuentas a mano, sembrar_datos se los
-   regresa a lo de la tabla de arriba.
+   Son 3 doctores y 2 enfermeras a propósito: es el personal real de la
+   clínica, y hace falta más de un médico para probar la cola de
+   consulta (asignar, comparar colas, reasignar).
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección; para eso está
+   --limpiar-usuarios. Sí es seguro volver a correr el comando normal:
+   si alguien le cambió el rol, la clínica o la contraseña a una de
+   estas cuentas, sembrar_datos se los regresa a lo de la tabla.
 
    Los permisos de cada rol (qué puede hacer "Doctor", etc.) NO se
    siembran aquí — se asignan a mano desde Roles → Permisos, la primera

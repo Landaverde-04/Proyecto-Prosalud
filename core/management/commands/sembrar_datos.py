@@ -3,7 +3,11 @@ from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from core.models import Clinica
+from consultas.models import (
+    Antecedente, Aplicacion, Consulta, ControlPosterior, DetalleOrdenExamen,
+    DetalleReceta, Incapacidad, OrdenExamen, Receta, ReferenciaMedica, SignosVitales,
+)
+from core.models import Clinica, RegistroAuditoria
 from pacientes.models import Contacto, Expediente, Persona
 
 Usuario = get_user_model()
@@ -18,12 +22,15 @@ class Command(BaseCommand):
     funcion aqui, no un archivo en cada app.
 
     Uso:
-        python manage.py sembrar_datos              # siembra todo
-        python manage.py sembrar_datos --limpiar     # borra lo sembrable y vuelve a sembrar
+        python manage.py sembrar_datos                     # siembra todo
+        python manage.py sembrar_datos --limpiar           # borra consultas y pacientes, y vuelve a sembrar
+        python manage.py sembrar_datos --limpiar-usuarios  # ademas borra las cuentas de prueba
 
-    --limpiar NO borra la seccion Seguridad: los roles ya se usan para
-    iniciar sesion de verdad, no son datos de ejemplo desechables. Solo
-    la seccion Pacientes se vacia y se vuelve a sembrar.
+    --limpiar NO borra la seccion Seguridad: los roles y las cuentas ya
+    se usan para iniciar sesion de verdad. Para eso esta el flag aparte
+    --limpiar-usuarios, que ademas implica --limpiar (las consultas
+    referencian al doctor con PROTECT, hay que borrarlas primero).
+    Los superusuarios nunca se borran: son la cuenta de rescate.
     """
 
     help = 'Siembra datos de prueba por secciones. Usa --limpiar para vaciar y volver a sembrar lo sembrable.'
@@ -34,21 +41,69 @@ class Command(BaseCommand):
             action='store_true',
             help='Antes de sembrar, borra los datos de las secciones marcadas como sembrables (ver docstring).',
         )
+        parser.add_argument(
+            '--limpiar-usuarios',
+            action='store_true',
+            help='Ademas de --limpiar, borra las cuentas de prueba (nunca los superusuarios).',
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
-        if options['limpiar']:
+        limpiar_usuarios = options['limpiar_usuarios']
+        if options['limpiar'] or limpiar_usuarios:
+            self.limpiar_consultas()
             self.limpiar_pacientes()
+        if limpiar_usuarios:
+            self.limpiar_usuarios()
 
         self.sembrar_clinicas()
         self.sembrar_seguridad()
         self.sembrar_pacientes()
-        # Seccion Consultas: no existe todavia -- se agrega aqui cuando
-        # haya un flujo real que probar (HU-EXP-17 en adelante). Mismo
-        # patron: una funcion sembrar_consultas() con su propio
-        # limpiar_consultas(), documentando sus tablas.
 
         self.stdout.write(self.style.SUCCESS('Listo.'))
+
+    # ------------------------------------------------------------------
+    # Seccion: Consultas
+    # Tablas: Consulta, SignosVitales, Antecedente y los documentos que
+    # cuelgan de una consulta (Receta, Incapacidad, ReferenciaMedica,
+    # ControlPosterior, Aplicacion, OrdenExamen y sus detalles).
+    # No se siembra: las consultas nacen usando el sistema. Solo se
+    # limpia, porque Consulta y Antecedente referencian al Expediente
+    # con PROTECT y sin borrarlas no se puede vaciar Pacientes.
+    # ------------------------------------------------------------------
+    def limpiar_consultas(self):
+        self.stdout.write('Limpiando seccion Consultas...')
+        # De las hojas hacia la raiz: todo referencia con PROTECT, asi
+        # que el orden no es opcional.
+        for modelo in (
+            DetalleReceta, DetalleOrdenExamen,
+            Receta, Incapacidad, ReferenciaMedica, ControlPosterior, Aplicacion, OrdenExamen,
+            SignosVitales, Consulta, Antecedente,
+        ):
+            borrados, _ = modelo.objects.all().delete()
+            if borrados:
+                self.stdout.write(f'  {modelo.__name__}: {borrados} borrados')
+
+    # ------------------------------------------------------------------
+    # Seccion: Usuarios de prueba (solo limpieza, la siembra la hace
+    # sembrar_seguridad). Aparte de --limpiar a proposito: borrar cuentas
+    # no debe ser un efecto secundario de refrescar los datos de ejemplo.
+    # ------------------------------------------------------------------
+    def limpiar_usuarios(self):
+        self.stdout.write('Limpiando usuarios de prueba...')
+        borrables = Usuario.objects.filter(is_superuser=False)
+        # La bitacora referencia al usuario con PROTECT y no se borra
+        # sola: se quitan sus entradas antes que la cuenta.
+        RegistroAuditoria.objects.filter(usuario__in=borrables).delete()
+        for usuario in borrables:
+            nombre = usuario.username
+            usuario.delete()
+            self.stdout.write(f'  Usuario borrado: {nombre}')
+        conservados = list(
+            Usuario.objects.filter(is_superuser=True).values_list('username', flat=True)
+        )
+        if conservados:
+            self.stdout.write(f'  Superusuarios conservados: {", ".join(conservados)}')
 
     # ------------------------------------------------------------------
     # Seccion: Clinicas
@@ -79,30 +134,42 @@ class Command(BaseCommand):
     # negocio: TEC-01); el resto del personal solo a ProSalud.
     USUARIOS_DE_PRUEBA = [
         {
-            'username': 'doctora.admin', 'first_name': 'Elsa Cecilia', 'last_name': 'Miranda Velasquez',
+            'username': 'doctora', 'first_name': 'Elsa Cecilia', 'last_name': 'Miranda Velasquez',
             'rol': 'Doctora Administradora', 'clinicas': ['ProSalud', 'Estética'],
         },
         {
-            'username': 'doctor.demo', 'first_name': 'Carlos', 'last_name': 'Rivas Aguilar',
+            'username': 'doctor1', 'first_name': 'Carlos', 'last_name': 'Rivas Aguilar',
             'rol': 'Doctor', 'clinicas': ['ProSalud'],
         },
         {
-            'username': 'enfermera.demo', 'first_name': 'Marta', 'last_name': 'Gonzalez Peña',
+            'username': 'doctor2', 'first_name': 'Ana Lucia', 'last_name': 'Portillo Mejia',
+            'rol': 'Doctor', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'doctor3', 'first_name': 'Mario', 'last_name': 'Guzman Serrano',
+            'rol': 'Doctor', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'enfermera1', 'first_name': 'Marta', 'last_name': 'Gonzalez Peña',
             'rol': 'Enfermera', 'clinicas': ['ProSalud'],
         },
         {
-            'username': 'laboratorio.demo', 'first_name': 'Jorge', 'last_name': 'Aguilar Castro',
+            'username': 'enfermera2', 'first_name': 'Rocio', 'last_name': 'Alfaro Menjivar',
+            'rol': 'Enfermera', 'clinicas': ['ProSalud'],
+        },
+        {
+            'username': 'laboratorio1', 'first_name': 'Jorge', 'last_name': 'Aguilar Castro',
             'rol': 'Laboratorio', 'clinicas': ['ProSalud'],
         },
         {
-            'username': 'regente.demo', 'first_name': 'Silvia', 'last_name': 'Ramos Flores',
+            'username': 'regente1', 'first_name': 'Silvia', 'last_name': 'Ramos Flores',
             'rol': 'Regente', 'clinicas': ['ProSalud'],
         },
     ]
-    # Contraseña de las 5 cuentas de arriba -- documentada tambien en
+    # Contraseña de las cuentas de arriba -- documentada tambien en
     # COMANDOS_DATOS_PRUEBA.txt. Son cuentas de prueba locales, no de
     # produccion, por eso vive en el codigo sin problema.
-    PASSWORD_USUARIOS_PRUEBA = 'ProSalud-2026'
+    PASSWORD_USUARIOS_PRUEBA = 'admin'
 
     def sembrar_seguridad(self):
         self.stdout.write('Seccion Seguridad (auth_group)')
@@ -117,9 +184,12 @@ class Command(BaseCommand):
                 username=datos['username'],
                 defaults={'first_name': datos['first_name'], 'last_name': datos['last_name']},
             )
-            if creado:
-                usuario.set_password(self.PASSWORD_USUARIOS_PRUEBA)
-                usuario.save()
+            # La contraseña se reescribe siempre, no solo al crear: si
+            # alguien la cambio probando, volver a correr el comando la
+            # deja otra vez en la documentada, igual que el rol y la
+            # clinica de abajo.
+            usuario.set_password(self.PASSWORD_USUARIOS_PRUEBA)
+            usuario.save()
             # set() en vez de add(): si se vuelve a correr el comando
             # despues de que alguien le cambio el rol o la clinica a mano,
             # esto lo regresa a su estado de prueba esperado -- coherente
