@@ -70,13 +70,16 @@
         guardar();
     });
 
-    // Antes de abrir el modal de finalizar: el modal manda su propio POST
-    // y no arrastra el formulario, así que lo escrito debe estar guardado.
-    var finalizar = document.querySelector('[data-confirmar]');
+    // Antes de abrir la ventana de finalizar: esa ventana manda su propio
+    // POST y no arrastra el formulario, así que lo escrito debe estar
+    // guardado. Se guarda primero y la ventana se abre después.
+    var finalizar = document.querySelector('[data-abrir-finalizar]');
     if (finalizar) {
         finalizar.addEventListener('click', function () {
             clearTimeout(espera);
-            guardar();
+            guardar().finally(function () {
+                new bootstrap.Modal(document.getElementById('modalFinalizar')).show();
+            });
         });
     }
 
@@ -108,4 +111,87 @@
             });
         });
     });
+})();
+
+/*
+ * Dos correcciones pedidas por Samuel el 08/09/2026, ambas sobre lo mismo:
+ * atender una consulta no debe interrumpirse.
+ */
+(function () {
+    'use strict';
+
+    /* 1. Revisar un documento sin salir de la consulta.
+     *
+     * Antes cada "Ver PDF" navegaba a otra pantalla, y volver a la atención
+     * costaba tres pasos (expediente → historial → continuar) con el
+     * paciente enfrente. Ahora el documento se abre encima.
+     */
+    var modal = document.getElementById('modalDocumento');
+    if (modal) {
+        var visor = document.getElementById('modalDocumentoVisor');
+        var titulo = document.getElementById('modalDocumentoTitulo');
+        var enlace = document.getElementById('modalDocumentoNuevaPestana');
+        var ventana = new bootstrap.Modal(modal);
+        document.querySelectorAll('[data-ver-pdf]').forEach(function (boton) {
+            boton.addEventListener('click', function () {
+                visor.src = boton.dataset.verPdf;
+                enlace.href = boton.dataset.verPdf;
+                titulo.textContent = boton.dataset.titulo || 'Documento';
+                ventana.show();
+            });
+        });
+        // Al cerrar se descarga el PDF de memoria: si no, sigue ahí cargado
+        // y el siguiente documento aparece un instante con el anterior.
+        modal.addEventListener('hidden.bs.modal', function () { visor.src = ''; });
+    }
+
+    /* 1b. Ver una aplicación o un control sin salir de la consulta.
+     *
+     * El contenido ya está en la página, oculto; la ventana solo lo copia y
+     * lo muestra. Así no hace falta ir a otra pantalla para leer una dosis.
+     */
+    var detalle = document.getElementById('modalDetalle');
+    if (detalle) {
+        var cuerpo = document.getElementById('modalDetalleCuerpo');
+        var tituloDetalle = document.getElementById('modalDetalleTitulo');
+        var ventanaDetalle = new bootstrap.Modal(detalle);
+        document.querySelectorAll('[data-ver-detalle]').forEach(function (boton) {
+            boton.addEventListener('click', function () {
+                var origen = document.getElementById(boton.dataset.verDetalle);
+                if (!origen) { return; }
+                cuerpo.innerHTML = origen.innerHTML;
+                tituloDetalle.textContent = boton.dataset.titulo || 'Detalle';
+                ventanaDetalle.show();
+            });
+        });
+    }
+
+    /* 2. Volver al mismo punto después de guardar.
+     *
+     * Agregar un documento es un POST que recarga la pantalla, y el
+     * navegador la deja arriba del todo. Con la consulta llena de campos,
+     * eso obliga a buscar otra vez dónde se iba.
+     */
+    var CLAVE = 'consulta-scroll:' + window.location.pathname;
+    // sessionStorage puede fallar (ventana privada, cookies bloqueadas). Si
+    // falla, la pantalla simplemente vuelve arriba como antes.
+    function recordar(valor) {
+        try { sessionStorage.setItem(CLAVE, valor); } catch (e) { /* sin guardar */ }
+    }
+    function recordado() {
+        try { return sessionStorage.getItem(CLAVE); } catch (e) { return null; }
+    }
+    document.querySelectorAll('form[action]').forEach(function (formulario) {
+        formulario.addEventListener('submit', function () {
+            recordar(String(window.scrollY));
+        });
+    });
+    var guardado = recordado();
+    if (guardado !== null) {
+        try { sessionStorage.removeItem(CLAVE); } catch (e) { /* nada */ }
+        // Después del pintado, si no el navegador lo sobrescribe.
+        window.requestAnimationFrame(function () {
+            window.scrollTo(0, parseInt(guardado, 10) || 0);
+        });
+    }
 })();

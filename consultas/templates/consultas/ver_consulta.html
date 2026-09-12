@@ -69,20 +69,79 @@
             </div>
             {% endfor %}
         </div>
-        {% else %}
+        {% endif %}
+
+        {% if referencias %}
+        <div class="vstack gap-2 mb-3">
+            {% for referencia in referencias %}
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <i class="bi bi-send me-1" style="color: var(--accent);"></i>
+                    Referencia a {{ referencia.especialidad }}
+                    <span class="text-muted small">· {{ referencia.fecha|date:'d/m/Y' }}</span>
+                </div>
+                <a href="{% url 'consultas:ver_referencia' referencia.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if aplicaciones %}
+        <div class="vstack gap-2 mb-3">
+            {% for aplicacion in aplicaciones %}
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <i class="bi bi-eyedropper me-1" style="color: var(--accent);"></i>
+                    {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}
+                    <span class="text-muted small">· {% if aplicacion.ejecutada %}aplicada{% else %}por aplicar{% endif %}</span>
+                </div>
+                <a href="{% url 'consultas:lista_aplicaciones' consulta.expediente_id %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if controles %}
+        <div class="vstack gap-2 mb-3">
+            {% for control in controles %}
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <i class="bi bi-calendar-check me-1" style="color: var(--accent);"></i>
+                    Control posterior el {{ control.fecha_control|date:'d/m/Y' }}
+                    <span class="text-muted small">· {{ control.get_estado_display|lower }}</span>
+                </div>
+                <a href="{% url 'consultas:lista_controles' consulta.expediente_id %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not incapacidades and not referencias and not controles and not aplicaciones %}
         <p class="text-muted small mb-3">No se ha emitido ningún documento en esta consulta.</p>
         {% endif %}
 
-        {% comment %} Emitir un documento no modifica la consulta, así que se permite
-           también en una finalizada -- es como funciona hoy HU-EXP-22. {% endcomment %}
-        {% if perms.consultas.add_incapacidad %}
+        {% comment %}
+        Agregar un documento no modifica la consulta, así que se permite también
+        sobre una finalizada: la doctora puede necesitar emitir una constancia
+        el día después de la atención.
+
+        Los cuatro se agregan desde la pantalla de atención, que es donde están
+        sus formularios. Desde aquí se ofrece continuar la atención si sigue
+        abierta; si ya se finalizó, solo la constancia, que es la que hoy tiene
+        pantalla propia.
+        {% endcomment %}
+        {% if not consulta.cerrada and perms.consultas.change_consulta %}
+        <a href="{% url 'consultas:atender_consulta' consulta.pk %}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-plus-lg"></i> Agregar documentos en la atención
+        </a>
+        {% elif perms.consultas.add_incapacidad %}
         <a href="{% url 'consultas:nuevo_documento' consulta.pk %}" class="btn btn-sm btn-outline-primary">
             <i class="bi bi-plus-lg"></i> Constancia de incapacidad
         </a>
         {% endif %}
         <p class="text-muted mb-0 mt-2" style="font-size: 0.75rem;">
-            Receta, referencia médica, órdenes de examen, aplicaciones y control
-            posterior se agregan aquí conforme se construyan.
+            La receta y las órdenes de examen se agregarán aquí cuando se construyan
+            (HU-EXP-25 y HU-EXP-20).
         </p>
     </div>
 </div>

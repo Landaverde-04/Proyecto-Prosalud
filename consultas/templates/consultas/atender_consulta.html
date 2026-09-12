@@ -52,6 +52,36 @@ permanentes y se corrigen desde su propia pantalla, no en cada visita.
 </div>
 {% endif %}
 
+{% comment %}
+Signos vitales, arriba junto a los antecedentes (pedido de Samuel,
+08/09/2026): son contexto que la doctora mira ANTES de escribir. Estaban al
+final de la pantalla, donde ya no servían para nada. Los toma enfermería en
+la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
+{% endcomment %}
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-3">
+        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+            <i class="bi bi-activity me-1"></i>SIGNOS VITALES
+        </h6>
+        {% if signos %}
+        <div class="d-flex flex-wrap gap-4 small">
+            <div><div class="text-muted">P/A</div><div class="fw-medium">{{ signos.presion_arterial|default:"—" }}</div></div>
+            <div><div class="text-muted">FC</div><div class="fw-medium">{{ signos.frecuencia_cardiaca|default:"—" }}</div></div>
+            <div><div class="text-muted">Temp.</div><div class="fw-medium">{{ signos.temperatura|default:"—" }}</div></div>
+            <div><div class="text-muted">Sat O₂</div><div class="fw-medium">{{ signos.saturacion|default:"—" }}</div></div>
+            <div><div class="text-muted">Peso</div><div class="fw-medium">{{ signos.peso|default:"—" }}</div></div>
+            <div><div class="text-muted">Talla</div><div class="fw-medium">{{ signos.talla|default:"—" }}</div></div>
+            <div><div class="text-muted">IMC</div><div class="fw-medium">{{ signos.imc|default:"—" }}</div></div>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">
+            Sin preconsulta registrada. Los toma enfermería antes de la consulta,
+            cuando esté construida esa parte.
+        </p>
+        {% endif %}
+    </div>
+</div>
+
 <form id="form-consulta" data-url-borrador="{% url 'consultas:guardar_borrador' consulta.pk %}">
     {% csrf_token %}
     <div class="card shadow-sm border-0 mb-3">
@@ -94,34 +124,6 @@ permanentes y se corrigen desde su propia pantalla, no en cada visita.
 </form>
 
 {% comment %}
-Signos vitales: en el mockup se ven dentro de la consulta. Los toma
-enfermería en la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
-{% endcomment %}
-<div class="card shadow-sm border-0 mb-3">
-    <div class="card-body p-3">
-        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
-            <i class="bi bi-activity me-1"></i>SIGNOS VITALES
-        </h6>
-        {% if signos %}
-        <div class="d-flex flex-wrap gap-4 small">
-            <div><div class="text-muted">P/A</div><div class="fw-medium">{{ signos.presion_arterial|default:"—" }}</div></div>
-            <div><div class="text-muted">FC</div><div class="fw-medium">{{ signos.frecuencia_cardiaca|default:"—" }}</div></div>
-            <div><div class="text-muted">Temp.</div><div class="fw-medium">{{ signos.temperatura|default:"—" }}</div></div>
-            <div><div class="text-muted">Sat O₂</div><div class="fw-medium">{{ signos.saturacion|default:"—" }}</div></div>
-            <div><div class="text-muted">Peso</div><div class="fw-medium">{{ signos.peso|default:"—" }}</div></div>
-            <div><div class="text-muted">Talla</div><div class="fw-medium">{{ signos.talla|default:"—" }}</div></div>
-            <div><div class="text-muted">IMC</div><div class="fw-medium">{{ signos.imc|default:"—" }}</div></div>
-        </div>
-        {% else %}
-        <p class="text-muted small mb-0">
-            Sin preconsulta registrada. Los toma enfermería antes de la consulta,
-            cuando esté construida esa parte.
-        </p>
-        {% endif %}
-    </div>
-</div>
-
-{% comment %}
 "Agregar documento (opcional)" del mockup: los botones despliegan sus campos
 aquí mismo, sin salir de la consulta. Solo la incapacidad está construida;
 las otras cuatro son historias pendientes y se muestran deshabilitadas para
@@ -142,7 +144,92 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
                     Incapacidad · {{ documento.dias }} día{{ documento.dias|pluralize }}
                     <span class="text-muted">· {{ documento.folio }}</span>
                 </div>
-                <a href="{% url 'consultas:ver_documento' documento.pk %}" class="btn btn-sm btn-outline-secondary">Ver PDF</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-ver-pdf="{% url 'consultas:pdf_documento' documento.pk %}"
+                        data-titulo="Constancia de incapacidad · {{ documento.folio }}">Ver PDF</button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if aplicaciones %}
+        <div class="vstack gap-2 mb-3">
+            {% for aplicacion in aplicaciones %}
+            <div class="d-flex justify-content-between align-items-center gap-2 small">
+                <div>
+                    <i class="bi bi-eyedropper me-1" style="color: var(--accent);"></i>
+                    {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}
+                    <span class="text-muted">· {% if aplicacion.ejecutada %}aplicada{% else %}por aplicar{% endif %}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-ver-detalle="detalle-aplicacion-{{ aplicacion.pk }}"
+                        data-titulo="{{ aplicacion.get_tipo_display }}">Ver</button>
+            </div>
+            <div id="detalle-aplicacion-{{ aplicacion.pk }}" hidden>
+                <dl class="row mb-0">
+                    <dt class="col-4 text-muted fw-normal">Tipo</dt>
+                    <dd class="col-8">{{ aplicacion.get_tipo_display }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Dosis</dt>
+                    <dd class="col-8">{{ aplicacion.dosis|default:"—" }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Indicaciones</dt>
+                    <dd class="col-8" style="white-space: pre-wrap;">{{ aplicacion.indicaciones|default:"—" }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Estado</dt>
+                    <dd class="col-8">{% if aplicacion.ejecutada %}Aplicada{% else %}Por aplicar{% endif %}</dd>
+                    {% if aplicacion.ejecutada %}
+                    <dt class="col-4 text-muted fw-normal">Aplicada por</dt>
+                    <dd class="col-8">{{ aplicacion.ejecutada_por.get_full_name|default:aplicacion.ejecutada_por.username|default:"—" }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Cuándo</dt>
+                    <dd class="col-8">{{ aplicacion.fecha_ejecucion|date:'d/m/Y H:i'|default:"—" }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if controles %}
+        <div class="vstack gap-2 mb-3">
+            {% for control in controles %}
+            <div class="d-flex justify-content-between align-items-center gap-2 small">
+                <div>
+                    <i class="bi bi-calendar-check me-1" style="color: var(--accent);"></i>
+                    Control el {{ control.fecha_control|date:'d/m/Y' }}
+                    <span class="text-muted">· {{ control.get_estado_display|lower }}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-ver-detalle="detalle-control-{{ control.pk }}"
+                        data-titulo="Control posterior">Ver</button>
+            </div>
+            <div id="detalle-control-{{ control.pk }}" hidden>
+                <dl class="row mb-0">
+                    <dt class="col-4 text-muted fw-normal">Fecha</dt>
+                    <dd class="col-8">{{ control.fecha_control|date:'d/m/Y' }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Motivo</dt>
+                    <dd class="col-8" style="white-space: pre-wrap;">{{ control.motivo }}</dd>
+                    <dt class="col-4 text-muted fw-normal">Estado</dt>
+                    <dd class="col-8">{{ control.get_estado_display }}</dd>
+                </dl>
+                <p class="small text-muted mt-2 mb-0">
+                    Para cambiar el estado o reprogramarlo, entre a Controles desde el expediente
+                    cuando termine la consulta.
+                </p>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if referencias %}
+        <div class="vstack gap-2 mb-3">
+            {% for referencia in referencias %}
+            <div class="d-flex justify-content-between align-items-center gap-2 small">
+                <div>
+                    <i class="bi bi-send me-1" style="color: var(--accent);"></i>
+                    Referencia a {{ referencia.especialidad }}
+                    <span class="text-muted">· {{ referencia.fecha|date:'d/m/Y' }}</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-ver-pdf="{% url 'consultas:pdf_referencia' referencia.pk %}"
+                        data-titulo="Referencia a {{ referencia.especialidad }}">Ver PDF</button>
             </div>
             {% endfor %}
         </div>
@@ -157,15 +244,21 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-20">
                 <i class="bi bi-clipboard2-pulse"></i> Exámenes
             </button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-21">
+            {% if perms.consultas.add_aplicacion %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-aplicacion">
                 <i class="bi bi-eyedropper"></i> Aplicación
             </button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-23">
+            {% endif %}
+            {% if perms.consultas.add_referenciamedica %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-referencia">
                 <i class="bi bi-send"></i> Referencia
             </button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-24">
+            {% endif %}
+            {% if perms.consultas.add_controlposterior %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-control">
                 <i class="bi bi-calendar-check"></i> Control
             </button>
+            {% endif %}
         </div>
 
         {% if perms.consultas.add_incapacidad %}
@@ -192,6 +285,74 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
                 <div class="col-12">
                     <label for="{{ form_incapacidad.motivo.id_for_label }}" class="form-label small fw-semibold">Diagnóstico o motivo del documento</label>
                     {{ form_incapacidad.motivo }}
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
+        {% if perms.consultas.add_referenciamedica %}
+        <form method="post" action="{% url 'consultas:agregar_referencia' consulta.pk %}"
+              id="panel-referencia" class="border rounded p-3 mt-3" hidden>
+            {% csrf_token %}
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-6">
+                    <label for="{{ form_referencia.especialidad.id_for_label }}" class="form-label small fw-semibold">Especialidad</label>
+                    {{ form_referencia.especialidad }}
+                </div>
+                <div class="col-sm-3">
+                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_referencia.motivo.id_for_label }}" class="form-label small fw-semibold">Motivo de la referencia</label>
+                    {{ form_referencia.motivo }}
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_referencia.observaciones.id_for_label }}" class="form-label small fw-semibold">Observaciones (opcional)</label>
+                    {{ form_referencia.observaciones }}
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
+        {% if perms.consultas.add_controlposterior %}
+        <form method="post" action="{% url 'consultas:agregar_control' consulta.pk %}"
+              id="panel-control" class="border rounded p-3 mt-3" hidden>
+            {% csrf_token %}
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-4">
+                    <label for="{{ form_control.fecha_control.id_for_label }}" class="form-label small fw-semibold">Fecha del control</label>
+                    {{ form_control.fecha_control }}
+                </div>
+                <div class="col-sm-3">
+                    <button type="submit" class="btn btn-primary w-100">Programar</button>
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_control.motivo.id_for_label }}" class="form-label small fw-semibold">Motivo del control</label>
+                    {{ form_control.motivo }}
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
+        {% if perms.consultas.add_aplicacion %}
+        <form method="post" action="{% url 'consultas:agregar_aplicacion' consulta.pk %}"
+              id="panel-aplicacion" class="border rounded p-3 mt-3" hidden>
+            {% csrf_token %}
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-4">
+                    <label for="{{ form_aplicacion.tipo.id_for_label }}" class="form-label small fw-semibold">Tipo</label>
+                    {{ form_aplicacion.tipo }}
+                </div>
+                <div class="col-sm-5">
+                    <label for="{{ form_aplicacion.dosis.id_for_label }}" class="form-label small fw-semibold">Dosis</label>
+                    {{ form_aplicacion.dosis }}
+                </div>
+                <div class="col-sm-3">
+                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_aplicacion.indicaciones.id_for_label }}" class="form-label small fw-semibold">Indicaciones</label>
+                    {{ form_aplicacion.indicaciones }}
                 </div>
             </div>
         </form>
@@ -227,21 +388,133 @@ cerraba la consulta -- esa regla se descartó el 05/09/2026.
     </output>
     <div class="d-flex gap-2">
         <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary">Salir</a>
-        <button type="button" class="btn btn-primary"
-                data-confirmar
-                data-url="{% url 'consultas:finalizar_consulta' consulta.pk %}"
-                data-titulo="Finalizar consulta"
-                data-mensaje="Se cerrará la consulta de "
-                data-nombre="{{ consulta.expediente.persona }}"
-                data-boton="Sí, finalizar"
-                data-color="success"
-                data-icono="bi-check2-circle"
-                data-nota="Una consulta finalizada queda de solo lectura.">
+        <button type="button" class="btn btn-primary" data-abrir-finalizar>
             Finalizar consulta
         </button>
     </div>
 </div>
 {% endif %}
+
+{% comment %}
+Ventana para revisar un documento SIN salir de la consulta. Antes cada
+"Ver PDF" navegaba a otra pantalla, y para volver a la atención había que
+pasar por expediente → historial → continuar, con el paciente enfrente.
+{% endcomment %}
+{% comment %}
+Confirmación de "Finalizar consulta" con el resumen de lo que se registró.
+
+Finalizar es irreversible: la consulta queda de solo lectura. Por eso, antes
+de cerrar, se muestra qué documentos quedaron agregados -- sirve de control
+de calidad (¿faltó la receta?) y evita que un clic accidental cierre una
+consulta a medias. Se cuidó que se lea de un vistazo: la clínica tiene
+usuarios adultos mayores a los que la parte tecnológica les cuesta.
+
+No usa el modal genérico del sistema porque ese solo admite texto plano, y
+aquí hace falta una lista.
+{% endcomment %}
+<div class="modal fade" id="modalFinalizar" tabindex="-1" aria-labelledby="tituloFinalizar" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloFinalizar">
+                    <i class="bi bi-check2-circle me-1" style="color: var(--accent);"></i>
+                    Finalizar la consulta de {{ consulta.expediente.persona }}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2 fw-semibold">En esta consulta se registró:</p>
+                <ul class="list-unstyled mb-3">
+                    {% for documento in incapacidades %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        Constancia de incapacidad de {{ documento.dias }} día{{ documento.dias|pluralize }}</li>
+                    {% endfor %}
+                    {% for referencia in referencias %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        Referencia a {{ referencia.especialidad }}</li>
+                    {% endfor %}
+                    {% for aplicacion in aplicaciones %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}</li>
+                    {% endfor %}
+                    {% for control in controles %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        Control posterior el {{ control.fecha_control|date:'d/m/Y' }}</li>
+                    {% endfor %}
+                    {% if not incapacidades and not referencias and not aplicaciones and not controles %}
+                    <li class="text-muted"><i class="bi bi-dash me-2"></i>Ningún documento</li>
+                    {% endif %}
+                </ul>
+
+                {% comment %}
+                Lo que NO se registró se dice igual de claro: si faltó la receta
+                o el motivo, es mejor verlo aquí que después de cerrar.
+                {% endcomment %}
+                <div class="alert alert-warning py-2 small mb-0">
+                    <div><i class="bi bi-exclamation-triangle me-1"></i><span class="fw-semibold">Revise antes de cerrar:</span></div>
+                    <ul class="mb-0 mt-1 ps-4">
+                        <li>No se emitió receta{% if not incapacidades and not referencias and not aplicaciones and not controles %}, ni ningún otro documento{% endif %}.</li>
+                        <li>Una consulta finalizada queda de <strong>solo lectura</strong> y no se puede seguir escribiendo en ella.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    No, seguir atendiendo
+                </button>
+                <form method="post" action="{% url 'consultas:finalizar_consulta' consulta.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">Sí, finalizar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% comment %}
+Ventana para ver una aplicación o un control sin salir de la consulta. Su
+contenido ya está en la página (los bloques `detalle-...`, ocultos); esta
+ventana solo lo muestra. Antes eran enlaces a otra pantalla, y ver un dato
+costaba abandonar la atención.
+{% endcomment %}
+<div class="modal fade" id="modalDetalle" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="modalDetalleTitulo">Detalle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body" id="modalDetalleCuerpo"></div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
+                    Volver a la consulta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="modalDocumentoTitulo">Documento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-0">
+                <iframe id="modalDocumentoVisor" title="Documento" style="width:100%; height:70vh; border:0;"></iframe>
+            </div>
+            <div class="modal-footer py-2">
+                <a id="modalDocumentoNuevaPestana" href="#" target="_blank" rel="noopener" class="small me-auto">
+                    Abrir en otra pestaña
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">
+                    Volver a la consulta
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
 

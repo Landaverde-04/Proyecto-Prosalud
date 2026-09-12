@@ -1,0 +1,43 @@
+{% comment %}
+Datos de la consulta que originó el documento. Parcial compartido por el
+visor de la constancia y el de la referencia, para que las dos pantallas
+muestren lo mismo y no se separen con el tiempo.
+
+Contexto requerido: consulta
+{% endcomment %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-3">
+        <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+            CONSULTA QUE LO ORIGINÓ
+        </h6>
+        <div class="row g-3 small">
+            <div class="col-sm-4">
+                <div class="text-muted">Fecha de la atención</div>
+                <div class="fw-medium">
+                    {% if consulta.inicio %}{{ consulta.inicio|date:'d/m/Y' }} · {{ consulta.inicio|date:'H:i' }}{% else %}—{% endif %}
+                </div>
+            </div>
+            <div class="col-sm-4">
+                <div class="text-muted">Atendida por</div>
+                <div class="fw-medium">{{ consulta.doctor_nombre|default:consulta.doctor.get_full_name|default:"—" }}</div>
+            </div>
+            <div class="col-sm-4">
+                <div class="text-muted">Estado</div>
+                <div class="fw-medium">
+                    {% if consulta.cerrada %}Finalizada{% elif consulta.en_atencion %}En atención{% else %}En espera{% endif %}
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="text-muted">Motivo de consulta</div>
+                <div style="white-space: pre-wrap;">{{ consulta.motivo|default:"—" }}</div>
+            </div>
+            <div class="col-md-6">
+                <div class="text-muted">Diagnóstico</div>
+                <div style="white-space: pre-wrap;">{{ consulta.diagnostico|default:"—" }}</div>
+            </div>
+        </div>
+        <a href="{% url 'consultas:ver_consulta' consulta.pk %}" class="small d-inline-block mt-3">
+            Ver la consulta completa
+        </a>
+    </div>
+</div>

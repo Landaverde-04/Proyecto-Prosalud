@@ -1,0 +1,43 @@
+{% extends 'core/base.html' %}
+{% block titulo %}Referencias médicas - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'pacientes:ver_expediente' expediente.pk %}"
+   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Expediente de {{ expediente.persona }}
+</a>
+
+<h4 class="fw-semibold mb-1">Referencias médicas</h4>
+<p class="text-muted small mb-4">{{ expediente.persona }} · {{ expediente.clinica }}</p>
+
+{% if pagina.object_list %}
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr><th>Fecha</th><th>Especialidad</th><th>Motivo</th><th>Profesional</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for referencia in pagina %}
+                <tr>
+                    <td>{{ referencia.fecha|date:'d/m/Y' }}</td>
+                    <td class="fw-medium">{{ referencia.especialidad }}</td>
+                    <td class="text-muted small">{{ referencia.motivo|truncatechars:70 }}</td>
+                    <td class="text-muted small">{{ referencia.nombre_profesional }}</td>
+                    <td><a href="{% url 'consultas:ver_referencia' referencia.pk %}">Ver documento</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% include "core/paginacion.html" %}
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-send fs-1 d-block mb-3 opacity-25"></i>
+    <p class="mb-0">Aún no se han emitido referencias médicas.</p>
+    <p class="small">Se generan desde una consulta, en "Agregar documento".</p>
+</div>
+{% endif %}
+
+{% endblock %}

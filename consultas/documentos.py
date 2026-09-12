@@ -44,27 +44,45 @@ def anio_en_letras(anio):
     return ('mil' if miles == 1 else unidades[miles]+' mil') + (' '+anio_en_letras(resto) if resto else '')
 
 
-def generar_pdf(documento, borrador=False):
-    consulta = documento.consulta
-    clinica = consulta.expediente.clinica
+def seguro(valor):
+    """Lo que escribe la doctora se imprime como contenido, no como formato."""
+    return escape(str(valor or '')).replace('\n', '<br/>')
+
+
+def relleno(valor):
+    """Los datos variables van subrayados, como en el impreso de la clinica."""
+    return '<u><b>' + seguro(valor) + '</b></u>'
+
+
+def _estilos():
+    cuerpo = ParagraphStyle('Cuerpo', fontName='Times-Roman', fontSize=12, leading=19,
+                            alignment=TA_JUSTIFY, spaceAfter=14, splitLongWords=True)
+    centro = ParagraphStyle('Centro', parent=cuerpo, alignment=TA_CENTER, spaceAfter=4)
+    return {'cuerpo': cuerpo, 'centro': centro,
+            'titulo': ParagraphStyle('Titulo', parent=centro, fontName='Times-Bold', fontSize=15, leading=21),
+            'pequeno': ParagraphStyle('Pequeno', parent=centro, fontSize=9, leading=12)}
+
+
+def _abrir(documento, titulo_pdf):
+    """
+    Encabezado comun a los documentos de la consulta: logo, nombre del medico
+    y datos de la clinica. Lo comparten la constancia de incapacidad
+    (HU-EXP-22) y la referencia medica (HU-EXP-23), y lo reusaran los que
+    falten -- asi el papel de la clinica se define en un solo lugar.
+    """
+    clinica = documento.consulta.expediente.clinica
     es_prosalud = 'prosalud' in clinica.nombre.lower().replace(' ', '').replace('-', '')
     encabezado = ENCABEZADO_PROSALUD if es_prosalud else {
         'nombre': clinica.nombre, 'direccion': clinica.direccion, 'telefono': clinica.telefono,
     }
-    paciente_nombre = str(consulta.expediente.persona)
     doctor_nombre = documento.nombre_profesional
-    doctor_jvpm = documento.jvpm_profesional
     salida = BytesIO()
     pdf = SimpleDocTemplate(salida, pagesize=letter, rightMargin=60, leftMargin=60,
-                            topMargin=45, bottomMargin=55, title=documento.get_tipo_display(),
+                            topMargin=45, bottomMargin=55, title=titulo_pdf,
                             author=encabezado['nombre'])
-    cuerpo = ParagraphStyle('Cuerpo', fontName='Times-Roman', fontSize=12, leading=19,
-                            alignment=TA_JUSTIFY, spaceAfter=14, splitLongWords=True)
-    centro = ParagraphStyle('Centro', parent=cuerpo, alignment=TA_CENTER, spaceAfter=4)
-    titulo = ParagraphStyle('Titulo', parent=centro, fontName='Times-Bold', fontSize=15, leading=21)
-    pequeno = ParagraphStyle('Pequeno', parent=centro, fontSize=9, leading=12)
-    def seguro(valor):
-        return escape(str(valor or '')).replace('\n', '<br/>')
+    estilos = _estilos()
+    cuerpo, centro = estilos['cuerpo'], estilos['centro']
+    titulo, pequeno = estilos['titulo'], estilos['pequeno']
     historia = []
     # Logo tipográfico recreado del mockup; no usa la imagen de baja resolución.
     if es_prosalud:
@@ -82,9 +100,46 @@ def generar_pdf(documento, borrador=False):
         historia.append(Paragraph(seguro(encabezado['direccion']), pequeno))
     if encabezado['telefono']:
         historia.append(Paragraph('CEL. '+seguro(encabezado['telefono']), pequeno))
+    return salida, pdf, historia, estilos, es_prosalud
+
+
+def _firma(documento, estilos):
+    """Firma al pie: raya, nombre y JVPM, sin partirse entre dos paginas."""
+    centro = estilos['centro']
+    bloque = [Spacer(1, 105), HRFlowable(width='75%', hAlign='CENTER', color=colors.black),
+              Spacer(1, 7), Paragraph(seguro(documento.nombre_profesional).upper(), centro)]
+    if documento.jvpm_profesional:
+        bloque.append(Paragraph('J.V.P.M. ' + seguro(documento.jvpm_profesional), centro))
+    return KeepTogether(bloque)
+
+
+def _pie_borrador(borrador):
+    def pie(canvas, doc):
+        canvas.saveState(); canvas.setFont('Helvetica', 8); canvas.setFillColor(colors.grey)
+        if borrador:
+            canvas.drawString(60, 30, 'VISTA PREVIA \u00b7 SIN EMITIR')
+        canvas.restoreState()
+    return pie
+
+
+def _expedicion(documento, estilos, es_prosalud):
+    """Parrafo de cierre, con el ano en letras de la fecha de emision."""
+    meses = ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre')
+    lugar = ' en la ciudad de Lourdes' if es_prosalud else ''
+    texto = ('Y para los usos que el interesado estime conveniente se extiende la presente'
+             f'{lugar}, a los {relleno(documento.fecha.day)} d\u00edas del mes de '
+             f'{relleno(meses[documento.fecha.month-1])} del a\u00f1o {anio_en_letras(documento.fecha.year)}.')
+    return Paragraph(texto, estilos['cuerpo'])
+
+
+def generar_pdf(documento, borrador=False):
+    """Constancia de incapacidad (HU-EXP-22)."""
+    paciente_nombre = str(documento.consulta.expediente.persona)
+    doctor_nombre = documento.nombre_profesional
+    salida, pdf, historia, estilos, es_prosalud = _abrir(documento, documento.get_tipo_display())
+    cuerpo, centro = estilos['cuerpo'], estilos['centro']
     historia += [Spacer(1, 48), Paragraph('A QUIEN INTERESE:', cuerpo), Spacer(1, 8)]
-    def relleno(valor):
-        return '<u><b>'+seguro(valor)+'</b></u>'
     texto = (f'EL INFRASCRITO MÉDICO, {seguro(doctor_nombre)}, por medio de la presente, '
              f'HACE CONSTAR QUE {relleno(paciente_nombre)} ')
     if documento.tipo == Incapacidad.Tipo.INCAPACIDAD:
@@ -98,23 +153,36 @@ def generar_pdf(documento, borrador=False):
         texto += (f'recibió atención médica el {relleno(fecha)}, por el siguiente motivo: '
                   f'{relleno(documento.motivo)}.')
     historia.append(Paragraph(texto, cuerpo))
-    meses = ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre')
-    lugar = ' en la ciudad de Lourdes' if es_prosalud else ''
-    anio = anio_en_letras(documento.fecha.year)
-    expedicion = ('Y para los usos que el interesado estime conveniente se extiende la presente'
-                  f'{lugar}, a los {relleno(documento.fecha.day)} días del mes de '
-                  f'{relleno(meses[documento.fecha.month-1])} del año {anio}.')
-    historia += [Spacer(1, 18), Paragraph(expedicion, cuerpo)]
-    firma = [Spacer(1, 105), HRFlowable(width='75%', hAlign='CENTER', color=colors.black), Spacer(1, 7),
-             Paragraph(seguro(doctor_nombre).upper(), centro)]
-    if doctor_jvpm:
-        firma.append(Paragraph('J.V.P.M. '+seguro(doctor_jvpm), centro))
-    historia.append(KeepTogether(firma))
-    def pie(canvas, doc):
-        canvas.saveState();canvas.setFont('Helvetica',8);canvas.setFillColor(colors.grey)
-        if borrador:
-            canvas.drawString(60,30,'VISTA PREVIA · SIN EMITIR')
-        canvas.restoreState()
-    pdf.build(historia, onFirstPage=pie, onLaterPages=pie)
+    historia += [Spacer(1, 18), _expedicion(documento, estilos, es_prosalud)]
+    historia.append(_firma(documento, estilos))
+    pdf.build(historia, onFirstPage=_pie_borrador(borrador), onLaterPages=_pie_borrador(borrador))
+    return salida.getvalue()
+
+
+def generar_pdf_referencia(referencia, borrador=False):
+    """
+    Referencia medica (HU-EXP-23). Reusa el encabezado, la expedicion y la
+    firma de la constancia: es el mismo papel de la clinica.
+
+    El formato del texto es provisional -- no existe un impreso real de
+    referencia como el que se uso para la constancia. Falta aprobarlo con
+    la doctora.
+    """
+    paciente = str(referencia.consulta.expediente.persona)
+    salida, pdf, historia, estilos, es_prosalud = _abrir(referencia, 'Referencia medica')
+    cuerpo = estilos['cuerpo']
+    # Mismo esqueleto que la constancia: encabezado, "A QUIEN INTERESE", un
+    # parrafo corrido con los datos subrayados, expedicion y firma. Es el
+    # papel de la clinica, no un formato propio de cada documento.
+    historia += [Spacer(1, 48), Paragraph('A QUIEN INTERESE:', cuerpo), Spacer(1, 8)]
+    texto = (f'EL INFRASCRITO MÉDICO, {seguro(referencia.nombre_profesional)}, por medio de la '
+             f'presente, REFIERE A {relleno(paciente)} a la especialidad de '
+             f'{relleno(referencia.especialidad)}, por el siguiente motivo: '
+             f'{relleno(referencia.motivo)}.')
+    if referencia.observaciones:
+        texto += f' Observaciones: {relleno(referencia.observaciones)}.'
+    historia.append(Paragraph(texto, cuerpo))
+    historia += [Spacer(1, 18), _expedicion(referencia, estilos, es_prosalud)]
+    historia.append(_firma(referencia, estilos))
+    pdf.build(historia, onFirstPage=_pie_borrador(borrador), onLaterPages=_pie_borrador(borrador))
     return salida.getvalue()

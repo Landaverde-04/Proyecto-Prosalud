@@ -324,6 +324,14 @@ def _contexto_ver_expediente(expediente):
     # sin importar el modelo de `consultas` aqui.
     antecedentes = expediente.antecedentes.filter(activo=True)
 
+    # HU-EXP-24: los controles pendientes se ven aqui, que es la version mas
+    # simple que recomendo Kevin -- sin pantalla grande ni notificaciones.
+    controles_pendientes = expediente.consultas.filter(activo=True).none()
+    from consultas.models import ControlPosterior
+    controles_pendientes = ControlPosterior.objects.filter(
+        consulta__expediente=expediente, activo=True,
+        estado=ControlPosterior.Estado.PENDIENTE).order_by('fecha_control')
+
     # "DUI o datos del responsable" (HU-EXP-05): si no tiene DUI propio
     # (tipico de un menor, aunque tambien puede faltarle a un adulto,
     # ver reglas de negocio), se muestra a su responsable en su lugar.
@@ -346,6 +354,7 @@ def _contexto_ver_expediente(expediente):
         'es_menor': es_menor,
         'responsable': responsable,
         'antecedentes': antecedentes,
+        'controles_pendientes': controles_pendientes,
         # Todos los contactos ACTIVOS del paciente (HU-EXP-02: "un
         # paciente puede tener mas de uno") -- a diferencia de
         # 'responsable' arriba, esta lista es la que se administra desde
