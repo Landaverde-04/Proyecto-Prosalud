@@ -43,6 +43,36 @@
 
 </div>
 
+{% if puede_gestionar %}
+{# Fuera de data-cola-resultados: si viviera adentro, el auto-refresco lo cerraria mientras se escribe. #}
+<div class="modal fade" id="modalEmergencia" tabindex="-1" aria-labelledby="tituloEmergencia" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" class="modal-content" id="formEmergencia">
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloEmergencia">
+                    <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>
+                    Marcar como emergencia
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3"><span class="fw-semibold" id="nombreEmergencia"></span> pasará adelante en la cola de su médico.</p>
+                <label for="motivoEmergencia" class="form-label fw-medium">
+                    Motivo <span class="text-danger">*</span>
+                </label>
+                <input type="text" name="motivo_prioridad" id="motivoEmergencia" class="form-control"
+                       maxlength="255" required placeholder="Ej: dificultad para respirar">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-danger">Marcar emergencia</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts_extra %}

@@ -24,10 +24,18 @@
         if (document.hidden) return;
         fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (resp) {
+                // Sesion vencida: el servidor redirige al login y fetch sigue
+                // la redireccion solo. Sin esto, la pagina de login entera
+                // terminaba pegada dentro de la cola.
+                if (resp.redirected) {
+                    window.location.href = resp.url;
+                    return null;
+                }
                 if (!resp.ok) throw new Error('respuesta no valida');
                 return resp.text();
             })
             .then(function (html) {
+                if (html === null) return;
                 resultados.innerHTML = html;
                 marcarHora();
             })
@@ -35,6 +43,27 @@
                 // Un fallo puntual de red no debe romper nada: se deja lo
                 // que ya estaba en pantalla y se reintenta al siguiente ciclo.
             });
+    }
+
+    /* ---- Modal de emergencia ----
+       Delegado en document: los botones viven dentro del fragmento que se
+       reemplaza cada 30s, asi que un listener directo se perderia. */
+    var modalEl = document.getElementById('modalEmergencia');
+    if (modalEl && window.bootstrap) {
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        var form = document.getElementById('formEmergencia');
+        var motivo = document.getElementById('motivoEmergencia');
+        var nombre = document.getElementById('nombreEmergencia');
+
+        document.addEventListener('click', function (e) {
+            var boton = e.target.closest('[data-marcar-emergencia]');
+            if (!boton) return;
+            form.action = boton.dataset.url;
+            nombre.textContent = boton.dataset.nombre;
+            motivo.value = '';
+            modal.show();
+        });
+        modalEl.addEventListener('shown.bs.modal', function () { motivo.focus(); });
     }
 
     marcarHora();

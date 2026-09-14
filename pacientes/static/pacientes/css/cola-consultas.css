@@ -17,6 +17,14 @@
     .punto-vivo { animation: none; }
 }
 
+.tarjeta-siguiente {
+    border-left: 4px solid var(--accent) !important;
+}
+
+.tarjeta-siguiente.es-emergencia {
+    border-left-color: var(--bs-danger) !important;
+}
+
 .icono-encabezado {
     width: 44px;
     height: 44px;

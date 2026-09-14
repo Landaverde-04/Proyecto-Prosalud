@@ -415,6 +415,13 @@ class AgregarContactoForm(forms.Form):
         return datos
 
 
+def mensajes_de_rango(que, minimo, maximo, unidad):
+    """Un solo mensaje claro para los dos limites, en vez del generico de Django."""
+    # Django formatea estos mensajes con %: un "%" literal (saturacion) va doble.
+    mensaje = f'{que} debe estar entre {minimo} y {maximo} {unidad}.'.replace('%', '%%')
+    return {'min_value': mensaje, 'max_value': mensaje}
+
+
 def calcular_imc(peso, talla):
     """IMC = peso(kg) / talla(m)^2, redondeado a 1 decimal. None si falta peso o talla."""
     if peso is None or not talla:
@@ -438,6 +445,7 @@ class PreconsultaForm(forms.Form):
     talla = forms.DecimalField(
         label='Talla (metros)', max_digits=5, decimal_places=2,
         min_value=TALLA_MIN, max_value=TALLA_MAX, required=False,
+        error_messages=mensajes_de_rango('La talla', TALLA_MIN, TALLA_MAX, 'm'),
         # TextInput para permitir el formato automatico del punto decimal via JS.
         widget=forms.TextInput(attrs={'placeholder': '1.20', 'inputmode': 'decimal'}),
     )
@@ -448,22 +456,39 @@ class PreconsultaForm(forms.Form):
     temperatura = forms.DecimalField(
         label='Temperatura (°C)', max_digits=4, decimal_places=1, required=False,
         min_value=TEMPERATURA_MIN, max_value=TEMPERATURA_MAX,
+        error_messages=mensajes_de_rango('La temperatura', TEMPERATURA_MIN, TEMPERATURA_MAX, '°C'),
     )
     saturacion = forms.IntegerField(
         label='Saturación de oxígeno (%)', required=False,
         min_value=SATURACION_MIN, max_value=SATURACION_MAX,
+        error_messages=mensajes_de_rango('La saturación', SATURACION_MIN, SATURACION_MAX, '%'),
     )
     frecuencia_cardiaca = forms.IntegerField(
         label='Frecuencia cardíaca (lpm)', required=False,
         min_value=FRECUENCIA_CARDIACA_MIN, max_value=FRECUENCIA_CARDIACA_MAX,
+        error_messages=mensajes_de_rango(
+            'La frecuencia cardíaca', FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX, 'lpm',
+        ),
     )
+    es_emergencia = forms.BooleanField(label='Es una emergencia', required=False)
+    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
 
     def __init__(self, *args, medicos, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['medico'].queryset = medicos
         for nombre, campo in self.fields.items():
-            if nombre != 'medico':
+            if nombre == 'es_emergencia':
+                campo.widget.attrs.setdefault('class', 'form-check-input')
+            elif nombre != 'medico':
                 campo.widget.attrs.setdefault('class', 'form-control')
+
+    def full_clean(self):
+        """Marca en rojo cada campo con error, para que se vea cual es sin buscarlo."""
+        super().full_clean()
+        for nombre in self.errors:
+            if nombre in self.fields:
+                clases = self.fields[nombre].widget.attrs.get('class', '')
+                self.fields[nombre].widget.attrs['class'] = f'{clases} is-invalid'.strip()
 
     def clean_presion_arterial(self):
         """Valida el formato sistólica/diastólica y sus rangos."""
@@ -487,4 +512,25 @@ class PreconsultaForm(forms.Form):
     def clean(self):
         datos = super().clean()
         datos['imc'] = calcular_imc(datos.get('peso'), datos.get('talla'))
+        validar_motivo_emergencia(self, datos)
+        return datos
+
+
+def validar_motivo_emergencia(form, datos):
+    """Exige motivo si se marca emergencia; si no, descarta lo que se haya escrito."""
+    motivo = (datos.get('motivo_prioridad') or '').strip()
+    if datos.get('es_emergencia') and not motivo:
+        form.add_error('motivo_prioridad', 'Falta el motivo: al marcar emergencia, el médico necesita saber qué le pasa al paciente.')
+    datos['motivo_prioridad'] = motivo if datos.get('es_emergencia') else ''
+
+
+class MarcarEmergenciaForm(forms.Form):
+    """Marca como emergencia a un paciente que ya está en la cola."""
+
+    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
+
+    def clean(self):
+        datos = super().clean()
+        datos['es_emergencia'] = True
+        validar_motivo_emergencia(self, datos)
         return datos

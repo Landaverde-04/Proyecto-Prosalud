@@ -22,4 +22,6 @@ urlpatterns = [
         views.registrar_preconsulta, name='registrar_preconsulta',
     ),
     path('cola/', views.cola_consultas, name='cola_consultas'),
+    path('cola/<int:consulta_id>/emergencia/', views.marcar_emergencia, name='marcar_emergencia'),
+    path('cola/<int:consulta_id>/quitar-emergencia/', views.quitar_emergencia, name='quitar_emergencia'),
 ]

@@ -15,8 +15,14 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
 <div class="mb-2 text-uppercase fw-semibold text-muted" style="font-size: 0.7rem; letter-spacing: 0.08em;">
     Siguiente paciente
 </div>
-<div class="card border-0 shadow-sm mb-4" style="border-left: 4px solid var(--accent) !important;">
+<div class="card border-0 shadow-sm mb-4 tarjeta-siguiente {% if consulta.es_emergencia %}es-emergencia{% endif %}">
     <div class="card-body p-4">
+        {% if consulta.es_emergencia %}
+        <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-3 small">
+            <i class="bi bi-exclamation-triangle-fill mt-1 flex-shrink-0"></i>
+            <div><span class="fw-semibold">Emergencia:</span> {{ consulta.motivo_prioridad }}</div>
+        </div>
+        {% endif %}
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div class="min-width-0">
                 <div class="fs-4 fw-semibold text-truncate">
@@ -36,7 +42,7 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
             {% if puede_atender %}
             <form method="post" action="{% url 'consultas:iniciar_consulta' consulta.pk %}">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-primary btn-lg px-4">
+                <button type="submit" class="btn {% if consulta.es_emergencia %}btn-danger{% else %}btn-primary{% endif %} btn-lg px-4">
                     <i class="bi bi-play-fill"></i> Atender
                 </button>
             </form>
@@ -56,11 +62,14 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
 {% else %}
         <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 py-3">
             <div class="d-flex align-items-center gap-3 min-width-0">
-                <span class="badge rounded-pill text-bg-light text-muted flex-shrink-0">{{ forloop.counter }}</span>
+                <span class="badge rounded-pill flex-shrink-0 {% if consulta.es_emergencia %}text-bg-danger{% else %}text-bg-light text-muted{% endif %}">{{ forloop.counter }}</span>
                 <div class="min-width-0">
                     <div class="fw-medium text-truncate">
                         {{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}
                     </div>
+                    {% if consulta.es_emergencia %}
+                    <div class="text-danger small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ consulta.motivo_prioridad }}</div>
+                    {% endif %}
                     <div class="text-muted small">
                         {% if consulta.hora_llegada %}
                             {{ consulta.hora_llegada|time:"H:i" }} · {{ consulta.hora_llegada|timesince }} esperando
@@ -115,21 +124,46 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                 </div>
 
                 {% for consulta in cola.consultas %}
-                <div class="d-flex align-items-start gap-2 {% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
-                    <span class="badge rounded-pill flex-shrink-0 {% if forloop.first %}text-bg-success{% else %}text-bg-light text-muted{% endif %}">
-                        {{ forloop.counter }}
-                    </span>
-                    <div class="min-width-0">
-                        <div class="fw-medium text-truncate">
-                            {{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}
+                <div class="{% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="badge rounded-pill flex-shrink-0 mt-1 {% if consulta.es_emergencia %}text-bg-danger{% elif forloop.first %}text-bg-success{% else %}text-bg-light text-muted{% endif %}">
+                            {{ forloop.counter }}
+                        </span>
+                        <div class="min-width-0 flex-grow-1">
+                            <div class="fw-medium text-truncate">
+                                {{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}
+                            </div>
+                            {% if consulta.es_emergencia %}
+                            <div class="text-danger small"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ consulta.motivo_prioridad }}</div>
+                            {% endif %}
+                            <div class="text-muted small">
+                                {% if consulta.hora_llegada %}
+                                    {{ consulta.hora_llegada|time:"H:i" }} · {{ consulta.hora_llegada|timesince }}
+                                {% else %}
+                                    Sin hora de llegada
+                                {% endif %}
+                            </div>
                         </div>
-                        <div class="text-muted small">
-                            {% if consulta.hora_llegada %}
-                                {{ consulta.hora_llegada|time:"H:i" }} · {{ consulta.hora_llegada|timesince }}
+                        {% if puede_gestionar %}
+                        <div class="flex-shrink-0">
+                            {% if consulta.es_emergencia %}
+                            <form method="post" action="{% url 'pacientes:quitar_emergencia' consulta.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-link text-muted p-0 small" title="Quitar la marca de emergencia">
+                                    Quitar
+                                </button>
+                            </form>
                             {% else %}
-                                Sin hora de llegada
+                            <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2"
+                                    data-marcar-emergencia
+                                    data-url="{% url 'pacientes:marcar_emergencia' consulta.pk %}"
+                                    data-nombre="{{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}"
+                                    title="Marcar como emergencia">
+                                <i class="bi bi-exclamation-triangle"></i>
+                            </button>
                             {% endif %}
                         </div>
+                        {% endif %}
                     </div>
                 </div>
                 {% empty %}

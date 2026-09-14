@@ -38,28 +38,61 @@ document.addEventListener('DOMContentLoaded', function () {
     var presion = document.getElementById('id_presion_arterial');
     if (presion) conCursorFijo(presion, formatearPresion);
 
-    /* ---- Aviso si se intenta enviar sin elegir medico ----
-       El formulario tiene novalidate, asi que el "required" del radio no
-       dispara el aviso nativo del navegador -- este chequeo lo reemplaza. */
+    function llevarA(elemento, foco) {
+        elemento.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (foco) foco.focus({ preventScroll: true });
+    }
+
+    /* ---- Emergencia: el motivo solo aparece si se marca ---- */
+    var checkEmergencia = document.getElementById('id_es_emergencia');
+    var campoMotivo = document.getElementById('campo-motivo-emergencia');
+    var bloqueEmergencia = document.getElementById('bloque-emergencia');
+    var inputMotivo = document.getElementById('id_motivo_prioridad');
+    if (checkEmergencia && campoMotivo && inputMotivo) {
+        checkEmergencia.addEventListener('change', function () {
+            campoMotivo.classList.toggle('d-none', !checkEmergencia.checked);
+            if (bloqueEmergencia) bloqueEmergencia.classList.toggle('border-danger', checkEmergencia.checked);
+            if (checkEmergencia.checked) inputMotivo.focus();
+        });
+        // En cuanto escribe algo, se quita el rojo: el aviso ya cumplio.
+        inputMotivo.addEventListener('input', function () {
+            if (inputMotivo.value.trim()) inputMotivo.classList.remove('is-invalid');
+        });
+    }
+
+    /* ---- Chequeo antes de enviar ----
+       El formulario tiene novalidate, asi que el navegador no avisa nada por
+       su cuenta. Se revisa en el orden de la pantalla y se lleva a la
+       persona al primer problema, sin recargar ni perder lo escrito. */
     var formulario = document.getElementById('form-preconsulta');
     var seccionMedico = document.getElementById('seccion-medico');
     var avisoMedico = document.getElementById('aviso-medico-cliente');
 
-    if (formulario && seccionMedico) {
+    if (formulario) {
         formulario.addEventListener('submit', function (evento) {
+            if (checkEmergencia && checkEmergencia.checked && !inputMotivo.value.trim()) {
+                evento.preventDefault();
+                inputMotivo.classList.add('is-invalid');
+                llevarA(bloqueEmergencia || inputMotivo, inputMotivo);
+                return;
+            }
             var hayMedicos = formulario.querySelectorAll('input[name="medico"]').length > 0;
             var elegido = formulario.querySelector('input[name="medico"]:checked');
-            if (hayMedicos && !elegido) {
+            if (seccionMedico && hayMedicos && !elegido) {
                 evento.preventDefault();
                 if (avisoMedico) avisoMedico.classList.remove('d-none');
-                seccionMedico.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                llevarA(seccionMedico);
             }
         });
-    }
 
-    // Respaldo si el error vino del servidor (JS desactivado): scroll hasta el aviso.
-    var avisoServidor = document.getElementById('aviso-medico-servidor');
-    if (avisoServidor && seccionMedico) {
-        seccionMedico.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Errores que vienen del servidor (rangos, formato, o si JS falla):
+        // el POST recarga la pagina arriba del todo, asi que se baja solo al
+        // primero en vez de dejar que la persona lo busque.
+        var primerError = formulario.querySelector('.is-invalid, [data-error-servidor]');
+        if (primerError) {
+            var esCampo = primerError.matches('input, select, textarea');
+            llevarA(esCampo ? (primerError.closest('.mb-3, .col-sm-6, #bloque-emergencia') || primerError) : seccionMedico,
+                    esCampo ? primerError : null);
+        }
     }
 });
