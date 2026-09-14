@@ -46,9 +46,8 @@ class Consulta(ModeloBase):
     clinica del expediente al que pertenece, sin guardarla por separado
     (TEC-01) -- ver la propiedad `clinica` mas abajo.
 
-    De los campos de la Cola de Consulta que trae el diagrama, por ahora
-    solo esta `hora_llegada`; es_emergencia, motivo_prioridad y
-    nota_retiro se agregan cuando se construyan sus historias.
+    De los campos de la Cola de Consulta que trae el diagrama, falta
+    nota_retiro; se agrega cuando se construya su historia.
     """
 
     expediente = models.ForeignKey(
@@ -78,6 +77,10 @@ class Consulta(ModeloBase):
     # Momento en que el paciente entro a la cola. Vacio en las consultas
     # que la doctora crea directamente, que nunca pasaron por la cola.
     hora_llegada = models.DateTimeField(null=True, blank=True)
+    # Una emergencia pasa adelante en la cola de su medico; el motivo es
+    # obligatorio al marcarla (lo valida el formulario, no la base).
+    es_emergencia = models.BooleanField(default=False)
+    motivo_prioridad = models.CharField(max_length=255, blank=True)
 
     motivo = models.TextField()
     historia_enfermedad_actual = models.TextField(blank=True)

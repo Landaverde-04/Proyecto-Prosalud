@@ -86,6 +86,27 @@
                 {% for error in form.saturacion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
             </div>
 
+            <div class="border rounded-3 p-3 mb-4 {% if form.es_emergencia.value %}border-danger{% endif %}" id="bloque-emergencia">
+                <div class="form-check form-switch mb-0">
+                    {{ form.es_emergencia }}
+                    <label class="form-check-label fw-medium" for="{{ form.es_emergencia.id_for_label }}">
+                        <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Es una emergencia
+                    </label>
+                </div>
+                <div class="form-text ms-5 mt-0">Pasa adelante en la cola del médico.</div>
+                <div class="mt-3 {% if not form.es_emergencia.value %}d-none{% endif %}" id="campo-motivo-emergencia">
+                    <label for="{{ form.motivo_prioridad.id_for_label }}" class="form-label fw-medium">
+                        Motivo <span class="text-danger">*</span>
+                    </label>
+                    {{ form.motivo_prioridad }}
+                    {% for error in form.motivo_prioridad.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% if not form.motivo_prioridad.errors %}
+                    {# Aviso inmediato del navegador; Bootstrap lo muestra solo cuando el campo tiene is-invalid. #}
+                    <div class="invalid-feedback">Falta el motivo: al marcar emergencia, el médico necesita saber qué le pasa al paciente.</div>
+                    {% endif %}
+                </div>
+            </div>
+
             <hr>
 
             <div id="seccion-medico">
@@ -121,7 +142,7 @@
                 </div>
                 {% if form.medico.errors %}
                 {# Respaldo del lado del servidor -- cubre el caso de JavaScript desactivado. #}
-                <div class="alert alert-danger py-2" id="aviso-medico-servidor">
+                <div class="alert alert-danger py-2" id="aviso-medico-servidor" data-error-servidor>
                     {{ form.medico.errors|join:" " }}
                 </div>
                 {% endif %}

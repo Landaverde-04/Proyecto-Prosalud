@@ -1346,6 +1346,45 @@ class RegistrarPreconsultaTests(PruebaCore):
         self.assertEqual(respuesta.status_code, 200)
         self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
 
+    def test_emergencia_sin_motivo_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, es_emergencia='on', motivo_prioridad='  ')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'Falta el motivo')
+        self.assertFalse(Consulta.objects.filter(expediente=self.expediente).exists())
+
+    def test_el_campo_con_error_queda_marcado_en_rojo(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, temperatura='50.0')
+
+        respuesta = self.client.post(self.url, datos)
+
+        self.assertIn('is-invalid', respuesta.context['form'].fields['temperatura'].widget.attrs['class'])
+        self.assertNotIn('is-invalid', respuesta.context['form'].fields['peso'].widget.attrs['class'])
+
+    def test_emergencia_con_motivo_se_guarda_en_la_consulta(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, es_emergencia='on', motivo_prioridad='Dolor de pecho')
+
+        self.client.post(self.url, datos)
+
+        consulta = Consulta.objects.get(expediente=self.expediente)
+        self.assertTrue(consulta.es_emergencia)
+        self.assertEqual(consulta.motivo_prioridad, 'Dolor de pecho')
+
+    def test_motivo_sin_marcar_emergencia_se_descarta(self):
+        self.client.force_login(self.enfermera)
+        datos = dict(self.datos_base, motivo_prioridad='Quedo escrito por error')
+
+        self.client.post(self.url, datos)
+
+        consulta = Consulta.objects.get(expediente=self.expediente)
+        self.assertFalse(consulta.es_emergencia)
+        self.assertEqual(consulta.motivo_prioridad, '')
+
     def test_temperatura_frecuencia_saturacion_validas_se_guardan(self):
         self.client.force_login(self.enfermera)
         datos = dict(self.datos_base, temperatura='38.5', frecuencia_cardiaca='90', saturacion='97')
@@ -1366,6 +1405,8 @@ class ColaConsultasTests(PruebaCore):
         self.rol_enfermera = Group.objects.create(name='Enfermera')
         self.rol_enfermera.permissions.add(
             Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_signosvitales'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_consulta'),
         )
         self.rol_doctor = Group.objects.create(name='Doctor')
         self.rol_doctor.permissions.add(
@@ -1547,3 +1588,82 @@ class ColaConsultasTests(PruebaCore):
 
         self.assertContains(respuesta, 'DeAna')
         self.assertGreater(len(respuesta.context['colas']), 1)
+
+
+    def test_la_emergencia_pasa_adelante_y_el_resto_conserva_su_orden(self):
+        ahora = timezone.now()
+        self._consulta_en_cola('Primero', ahora - timedelta(minutes=30))
+        self._consulta_en_cola('Segundo', ahora - timedelta(minutes=20))
+        urgente = self._consulta_en_cola('Urgente', ahora)
+        urgente.es_emergencia, urgente.motivo_prioridad = True, 'Convulsiona'
+        urgente.save()
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        cola = respuesta.context['colas'][0]['consultas']
+        self.assertEqual([c.expediente.persona.nombres for c in cola], ['Urgente', 'Primero', 'Segundo'])
+        self.assertContains(respuesta, 'Convulsiona')
+
+    def test_enfermera_marca_emergencia_desde_la_cola(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:marcar_emergencia', args=[consulta.pk]),
+                         {'motivo_prioridad': 'Fiebre muy alta'})
+
+        consulta.refresh_from_db()
+        self.assertTrue(consulta.es_emergencia)
+        self.assertEqual(consulta.motivo_prioridad, 'Fiebre muy alta')
+        self.assertEqual(consulta.modificado_por, self.enfermera)
+
+    def test_marcar_emergencia_sin_motivo_no_cambia_nada(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:marcar_emergencia', args=[consulta.pk]), {'motivo_prioridad': ''})
+
+        consulta.refresh_from_db()
+        self.assertFalse(consulta.es_emergencia)
+
+    def test_enfermera_quita_la_emergencia(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        consulta.es_emergencia, consulta.motivo_prioridad = True, 'Error'
+        consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:quitar_emergencia', args=[consulta.pk]))
+
+        consulta.refresh_from_db()
+        self.assertFalse(consulta.es_emergencia)
+        self.assertEqual(consulta.motivo_prioridad, '')
+
+    def test_el_doctor_no_puede_marcar_emergencias(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.post(reverse('pacientes:marcar_emergencia', args=[consulta.pk]),
+                                     {'motivo_prioridad': 'x'})
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_no_se_marca_un_paciente_que_ya_paso_a_consulta(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        consulta.inicio = timezone.now()
+        consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:marcar_emergencia', args=[consulta.pk]), {'motivo_prioridad': 'x'})
+
+        consulta.refresh_from_db()
+        self.assertFalse(consulta.es_emergencia)
+
+    def test_no_se_marca_la_consulta_de_otra_clinica(self):
+        medico_ajeno = Usuario.objects.create_user(username='doctor9', password='x')
+        consulta = self._consulta_en_cola('Ajeno', timezone.now(), medico=medico_ajeno, clinica=self.otra_clinica)
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(reverse('pacientes:marcar_emergencia', args=[consulta.pk]),
+                                     {'motivo_prioridad': 'x'})
+
+        self.assertEqual(respuesta.status_code, 403)

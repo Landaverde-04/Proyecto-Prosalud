@@ -15,8 +15,14 @@ from core.models import Clinica
 from core.paginacion import es_ajax, paginar
 from seguridad.models import Usuario
 
-from .forms import AgregarContactoForm, EditarContactoForm, PreconsultaForm, RegistrarPacienteForm
+from .forms import (
+    AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, RegistrarPacienteForm,
+)
 from .models import Contacto, Expediente, Persona
+
+# Lo que hace enfermeria sobre la cola: tomar preconsulta y gestionar la
+# espera. Se usa el mismo par en la preconsulta y en marcar emergencias.
+PERMISOS_ENFERMERIA = ('consultas.add_signosvitales', 'consultas.add_consulta')
 
 
 def _condiciones_busqueda_persona(consulta):
@@ -574,7 +580,7 @@ def _con_conteo_de_cola(medicos):
 
 
 @login_required
-@permission_required(('consultas.add_signosvitales', 'consultas.add_consulta'), raise_exception=True)
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
 def registrar_preconsulta(request, expediente_id):
     """Registra signos vitales y asigna medico en un solo envio; crea la Consulta y su SignosVitales."""
     expediente = get_object_or_404(
@@ -605,6 +611,8 @@ def registrar_preconsulta(request, expediente_id):
                 doctor_nombre=medico.get_full_name() or medico.username,
                 motivo='',
                 hora_llegada=timezone.now(),
+                es_emergencia=datos['es_emergencia'],
+                motivo_prioridad=datos['motivo_prioridad'],
                 creado_por=request.user,
                 modificado_por=request.user,
             )
@@ -667,9 +675,10 @@ def cola_consultas(request):
             expediente__clinica__in=clinicas,
         )
         .select_related('expediente__persona', 'expediente__clinica')
+        # Emergencias primero; dentro de cada grupo, por hora de llegada.
         # fecha_creacion como desempate: las consultas anteriores a que
         # existiera hora_llegada la tienen vacia.
-        .order_by('hora_llegada', 'fecha_creacion')
+        .order_by('-es_emergencia', 'hora_llegada', 'fecha_creacion')
     )
     if solo_la_suya:
         en_cola = en_cola.filter(doctor=request.user)
@@ -693,6 +702,62 @@ def cola_consultas(request):
         'puede_atender': request.user.has_perms(
             ['pacientes.view_expediente', 'consultas.change_consulta'],
         ),
+        'puede_gestionar': request.user.has_perms(PERMISOS_ENFERMERIA),
     }
     plantilla = 'pacientes/resultados_cola.html' if es_ajax(request) else 'pacientes/cola_consultas.html'
     return render(request, plantilla, contexto)
+
+
+def _consulta_de_mi_clinica(request, consulta_id):
+    """404 si no existe; 403 si es de una clinica a la que el usuario no pertenece."""
+    consulta = get_object_or_404(
+        Consulta.objects.select_related('expediente__persona'), pk=consulta_id, activo=True,
+    )
+    if not request.user.clinicas.filter(pk=consulta.expediente.clinica_id).exists():
+        raise PermissionDenied
+    return consulta
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def marcar_emergencia(request, consulta_id):
+    """Pasa adelante en la cola a un paciente que sigue esperando."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    # La pantalla se refresca cada 30s: el boton pudo quedar viejo si el
+    # doctor ya lo llamo. Se avisa en vez de mostrar un error.
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya pasó a consulta; la prioridad ya no aplica.')
+        return redirect('pacientes:cola_consultas')
+
+    form = MarcarEmergenciaForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Falta el motivo: al marcar emergencia, el médico necesita saber qué le pasa al paciente.')
+        return redirect('pacientes:cola_consultas')
+
+    consulta.es_emergencia = True
+    consulta.motivo_prioridad = form.cleaned_data['motivo_prioridad']
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['es_emergencia', 'motivo_prioridad', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} quedó como emergencia.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def quitar_emergencia(request, consulta_id):
+    """Devuelve al paciente a su lugar por hora de llegada."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya pasó a consulta; la prioridad ya no aplica.')
+        return redirect('pacientes:cola_consultas')
+
+    consulta.es_emergencia = False
+    consulta.motivo_prioridad = ''
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['es_emergencia', 'motivo_prioridad', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} volvió a su lugar en la cola.')
+    return redirect('pacientes:cola_consultas')
