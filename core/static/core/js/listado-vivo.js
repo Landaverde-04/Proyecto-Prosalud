@@ -38,10 +38,18 @@
             marcarCargando(true);
             fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (resp) {
+                    // Sesion vencida: fetch sigue solo la redireccion al login y
+                    // devuelve 200, asi que resp.ok no lo detecta. Se navega al
+                    // login de verdad en vez de pegarlo dentro de la tabla.
+                    if (resp.redirected) {
+                        window.location.href = resp.url;
+                        return null;
+                    }
                     if (!resp.ok) throw new Error('respuesta no valida');
                     return resp.text();
                 })
                 .then(function (html) {
+                    if (html === null) return;
                     resultados.innerHTML = html;
                     if (empujarHistorial !== false) {
                         window.history.pushState({ listadoUrl: url }, '', url);
