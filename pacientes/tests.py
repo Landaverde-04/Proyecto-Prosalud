@@ -1489,6 +1489,22 @@ class ColaConsultasTests(PruebaCore):
         self.assertNotContains(respuesta, 'AjenaIniciada')
         self.assertEqual(respuesta.context['total_en_cola'], 0)  # no cuenta como espera
 
+    def test_con_un_paciente_en_atencion_solo_puede_iniciar_emergencias(self):
+        ahora = timezone.now()
+        iniciada = self._consulta_en_cola('Iniciada', ahora)
+        iniciada.inicio = ahora
+        iniciada.save()
+        normal = self._consulta_en_cola('Normal', ahora)
+        emergencia = self._consulta_en_cola('Urgente', ahora)
+        emergencia.es_emergencia, emergencia.motivo_prioridad = True, 'Dolor torácico'
+        emergencia.save()
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, reverse('consultas:iniciar_consulta', args=[emergencia.pk]))
+        self.assertNotContains(respuesta, reverse('consultas:iniciar_consulta', args=[normal.pk]))
+
     def test_la_enfermera_ve_quien_esta_en_consulta_sin_poder_continuarla(self):
         ahora = timezone.now()
         consulta = self._consulta_en_cola('Iniciada', ahora)

@@ -215,6 +215,12 @@ def pdf_documento(request, documento_id):
 # La consulta es el molde: todos los documentos cuelgan de ella.
 # --------------------------------------------------------------------------
 
+def consulta_en_curso(usuario, excepto=None):
+    """Consulta que el medico ya inicio y no ha finalizado: atiende uno a la vez."""
+    return (Consulta.objects.filter(doctor=usuario, inicio__isnull=False, cierre__isnull=True, activo=True)
+            .exclude(pk=excepto).select_related('expediente__persona').first())
+
+
 def consulta_editable(request, consulta_id):
     """Consulta que todavia se puede escribir. Cerrada = solo lectura."""
     consulta = consulta_propia(request, consulta_id)
@@ -239,6 +245,10 @@ def nueva_consulta(request, expediente_id):
     if abierta:
         messages.info(request, 'Este paciente ya tiene una consulta sin finalizar; se retomó esa.')
         return redirect('consultas:atender_consulta', consulta_id=abierta.pk)
+    en_curso = consulta_en_curso(request.user)
+    if en_curso:
+        messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} antes de registrar otra.')
+        return redirect('pacientes:ver_expediente', expediente_id=expediente.pk)
 
     form = ConsultaManualForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -271,6 +281,12 @@ def iniciar_consulta(request, consulta_id):
     """
     consulta = consulta_editable(request, consulta_id)
     if consulta.en_cola:
+        # Una emergencia no espera a que termine la consulta en curso.
+        en_curso = None if consulta.es_emergencia else consulta_en_curso(request.user, excepto=consulta.pk)
+        if en_curso:
+            messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} '
+                                    'antes de atender a otro paciente.')
+            return redirect('pacientes:cola_consultas')
         consulta.inicio = timezone.now()
         consulta.modificado_por = request.user
         consulta.save(update_fields=['inicio', 'modificado_por', 'fecha_modificacion'])

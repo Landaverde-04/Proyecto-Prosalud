@@ -539,6 +539,63 @@ class ConsultaSoloDeSuDoctorTests(PruebaCore):
         self.assertEqual(respuesta.status_code, 200)
 
 
+class UnPacienteALaVezTests(PruebaCore):
+    """Con una consulta en atencion, el medico no inicia otra salvo emergencia."""
+
+    def setUp(self):
+        clinica = Clinica.objects.create(nombre='ProSalud')
+        self.doctor = Usuario.objects.create_user(username='doctor1', password='x', debe_cambiar_password=False)
+        self.doctor.user_permissions.add(*Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta', 'add_consulta'],
+        ))
+        self.doctor.clinicas.add(clinica)
+        self.expedientes = [
+            Expediente.objects.create(persona=Persona.objects.create(nombres=nombre, apellidos='Prueba'),
+                                      clinica=clinica)
+            for nombre in ('Atendiendo', 'Esperando')
+        ]
+        self.en_curso = Consulta.objects.create(
+            expediente=self.expedientes[0], doctor=self.doctor, motivo='', inicio=timezone.now(),
+        )
+        self.en_espera = Consulta.objects.create(expediente=self.expedientes[1], doctor=self.doctor, motivo='')
+        self.client.force_login(self.doctor)
+
+    def test_no_inicia_otro_paciente_con_uno_en_atencion(self):
+        respuesta = self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'), fetch_redirect_response=False)
+        self.en_espera.refresh_from_db()
+        self.assertIsNone(self.en_espera.inicio)
+
+    def test_una_emergencia_si_se_puede_iniciar(self):
+        self.en_espera.es_emergencia = True
+        self.en_espera.save()
+
+        self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.en_espera.refresh_from_db()
+        self.assertIsNotNone(self.en_espera.inicio)
+
+    def test_al_finalizar_ya_puede_iniciar_el_siguiente(self):
+        self.en_curso.cierre = timezone.now()
+        self.en_curso.save()
+
+        self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.en_espera.refresh_from_db()
+        self.assertIsNotNone(self.en_espera.inicio)
+
+    def test_no_registra_consulta_manual_con_una_en_atencion(self):
+        otro = Expediente.objects.create(
+            persona=Persona.objects.create(nombres='Manual', apellidos='Prueba'),
+            clinica=self.expedientes[0].clinica,
+        )
+        respuesta = self.client.get(reverse('consultas:nueva_consulta', args=[otro.pk]))
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[otro.pk]),
+                             fetch_redirect_response=False)
+
+
 class VisitaRetiradaTests(PruebaCore):
     """Una visita donde el paciente se fue sin atenderse."""
 
