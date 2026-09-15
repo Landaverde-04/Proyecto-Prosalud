@@ -48,7 +48,7 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                     </td>
                     <td>
                         <div class="d-flex flex-wrap gap-1">
-                            {% if perms.consultas.add_signosvitales and persona.expediente_id %}
+                            {% if perms.consultas.add_signosvitales and persona.expediente_id and clinica_activa.usa_cola %}
                             <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
                                class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation()">
                                 <i class="bi bi-heart-pulse"></i> Enviar a consulta
@@ -86,7 +86,7 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
             </div>
             {% endif %}
             <div class="d-flex flex-wrap gap-1 mt-2">
-                {% if perms.consultas.add_signosvitales and persona.expediente_id %}
+                {% if perms.consultas.add_signosvitales and persona.expediente_id and clinica_activa.usa_cola %}
                 <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
                    class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation()">
                     <i class="bi bi-heart-pulse"></i> Enviar a consulta
@@ -103,7 +103,11 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
 
 {% include "core/paginacion.html" %}
 
+{% include "pacientes/personas_sin_expediente_aqui.html" %}
+
 {% else %}
+{# Antes del "registrar nuevo": si ya existe en el sistema, se ofrece primero abrirle expediente. #}
+{% include "pacientes/personas_sin_expediente_aqui.html" %}
 <div class="text-center py-5 text-muted">
     <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
     {% if consulta %}

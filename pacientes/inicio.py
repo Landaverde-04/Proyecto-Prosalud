@@ -9,14 +9,15 @@ from .models import Expediente
 from .views import PERMISOS_ENFERMERIA, _medicos_disponibles, _solo_su_propia_cola
 
 
-def resumen_de_atencion(usuario):
-    """Cifras, proximos pacientes y colas segun lo que el usuario puede ver. None si no ve nada de esto."""
+def resumen_de_atencion(usuario, clinica):
+    """Cifras, proximos pacientes y colas de la clinica activa. None si no aplica al usuario o a la clinica."""
     ve_cola = usuario.has_perm('consultas.view_consulta')
     ve_pacientes = usuario.has_perm('pacientes.view_persona')
-    if not (ve_cola or ve_pacientes):
+    # Todo el resumen gira alrededor de la cola: una clinica que atiende por cita no lo tiene.
+    if clinica is None or not clinica.usa_cola or not (ve_cola or ve_pacientes):
         return None
 
-    clinicas = usuario.clinicas.all()
+    clinicas = [clinica]
     hoy = timezone.localdate()
     solo_lo_suyo = _solo_su_propia_cola(usuario)
     # Atendidos y pacientes nuevos del dia son un control para quien atiende;
@@ -46,7 +47,9 @@ def resumen_de_atencion(usuario):
         resumen['nuevos_hoy'] = Expediente.objects.filter(clinica__in=clinicas, fecha_apertura=hoy).count()
 
     if usuario.has_perm('consultas.change_consulta'):
-        propias = Consulta.objects.filter(doctor=usuario, activo=True, cierre__isnull=True).select_related('expediente__persona')
+        propias = Consulta.objects.filter(
+            doctor=usuario, activo=True, cierre__isnull=True, expediente__clinica=clinica,
+        ).select_related('expediente__persona')
         # "Continuar" abre la atencion, que exige tambien ver el expediente: sin ese permiso daria 403.
         if usuario.has_perm('pacientes.view_expediente'):
             resumen['atendiendo'] = list(propias.filter(inicio__isnull=False).order_by('inicio'))

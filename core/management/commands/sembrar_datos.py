@@ -113,12 +113,25 @@ class Command(BaseCommand):
     # --limpiar -- son las clinicas reales del sistema, no datos de
     # ejemplo.
     # ------------------------------------------------------------------
+    # Tipo, tema y logo de cada clinica de prueba. El logo de Estetica queda
+    # vacio hasta tener el archivo (provisional u oficial).
+    CLINICAS_DE_PRUEBA = [
+        {'nombre': 'ProSalud', 'tipo': Clinica.Tipo.MEDICA, 'tema': Clinica.Tema.VERDE_SALUD,
+         'logo': 'core/img/logo_prosalud.svg'},
+        {'nombre': 'Estética', 'tipo': Clinica.Tipo.ESTETICA, 'tema': Clinica.Tema.ESTETICA,
+         'logo': 'core/img/logo_estetica.svg'},
+    ]
+
     def sembrar_clinicas(self):
         self.stdout.write('Seccion Clinicas (core_clinica)')
-        for nombre in ['ProSalud', 'Estética']:
-            _, creada = Clinica.objects.get_or_create(nombre=nombre)
+        for datos in self.CLINICAS_DE_PRUEBA:
+            clinica, creada = Clinica.objects.get_or_create(nombre=datos['nombre'])
+            # Se reescriben siempre, igual que el rol de las cuentas de prueba:
+            # volver a correr el comando las deja en su configuracion esperada.
+            clinica.tipo, clinica.tema, clinica.logo = datos['tipo'], datos['tema'], datos['logo']
+            clinica.save(update_fields=['tipo', 'tema', 'logo'])
             etiqueta = 'creada' if creada else 'ya existia'
-            self.stdout.write(f'  Clinica {etiqueta}: {nombre}')
+            self.stdout.write(f'  Clinica {etiqueta}: {datos["nombre"]} ({clinica.get_tipo_display()})')
 
     # ------------------------------------------------------------------
     # Seccion: Seguridad
@@ -131,7 +144,8 @@ class Command(BaseCommand):
     # que exige el permiso view_expediente + pertenecer a la clinica) sin
     # tener que crear una cuenta a mano despues de clonar el proyecto.
     # La doctora administradora pertenece a las dos clinicas (regla de
-    # negocio: TEC-01); el resto del personal solo a ProSalud.
+    # negocio: TEC-01); el resto del personal solo a la suya -- la
+    # secretaria es la unica de la clinica estetica.
     USUARIOS_DE_PRUEBA = [
         {
             'username': 'doctora', 'first_name': 'Elsa Cecilia', 'last_name': 'Miranda Velasquez',
@@ -158,6 +172,10 @@ class Command(BaseCommand):
             'rol': 'Enfermera', 'clinicas': ['ProSalud'],
         },
         {
+            'username': 'secretaria1', 'first_name': 'Karla', 'last_name': 'Mendoza Rivas',
+            'rol': 'Secretaria', 'clinicas': ['Estética'],
+        },
+        {
             'username': 'laboratorio1', 'first_name': 'Jorge', 'last_name': 'Aguilar Castro',
             'rol': 'Laboratorio', 'clinicas': ['ProSalud'],
         },
@@ -173,7 +191,7 @@ class Command(BaseCommand):
 
     def sembrar_seguridad(self):
         self.stdout.write('Seccion Seguridad (auth_group)')
-        roles = ['Doctora Administradora', 'Doctor', 'Enfermera', 'Laboratorio', 'Regente']
+        roles = ['Doctora Administradora', 'Doctor', 'Enfermera', 'Secretaria', 'Laboratorio', 'Regente']
         for nombre in roles:
             _, creado = Group.objects.get_or_create(name=nombre)
             etiqueta = 'creado' if creado else 'ya existia'

@@ -14,9 +14,7 @@
     <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4 pb-3 border-bottom">
         <div>
             <div class="inicio-fecha text-uppercase fw-semibold">{% now "l j \d\e F" %}</div>
-            <h4 class="fw-semibold mb-0">
-                {% for clinica in clinicas %}{{ clinica.nombre }}{% if not forloop.last %} · {% endif %}{% empty %}Sistema ProSalud{% endfor %}
-            </h4>
+            <h4 class="fw-semibold mb-0">{{ clinica_activa.nombre|default:"Sistema ProSalud" }}</h4>
         </div>
         <div class="d-flex align-items-center gap-2 text-muted small">
             <i class="bi bi-person-badge"></i>
@@ -104,7 +102,7 @@
             </div>
             {% endfor %}
 
-            {% if not resumen %}
+            {% if sin_pantallas %}
             <p class="text-muted small mt-4 mb-0">
                 <i class="bi bi-info-circle me-1"></i>Tu puesto todavía no tiene pantallas asignadas.
                 Si necesitas acceso a alguna, pídelo a la administración del sistema.
