@@ -5,6 +5,12 @@
 
    Se guarda la posicion del cursor porque insertar un separador sin
    ajustarla lo manda al final cada vez que se teclea. */
+/* DUI: 00000000-0. Lo usan el registro de paciente y el modal de registrar DUI. */
+function formatearDui(valor) {
+    var digitos = valor.replace(/\D/g, '').slice(0, 9);
+    return digitos.length > 8 ? digitos.slice(0, 8) + '-' + digitos.slice(8) : digitos;
+}
+
 function conCursorFijo(campo, formatear) {
     campo.addEventListener('input', function () {
         var largoAntes = campo.value.length;

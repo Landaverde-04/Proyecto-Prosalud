@@ -14,6 +14,11 @@
     Signos vitales y asignación de médico -- al guardar, el paciente entra a la cola del médico elegido.
 </p>
 
+{# Arriba del formulario: registrar el DUI recarga esta pantalla y se perderia lo ya escrito. #}
+<div class="mx-auto" style="max-width: 640px;">
+    {% include "pacientes/aviso_mayoria_edad.html" %}
+</div>
+
 <div class="card shadow-sm border-0 mx-auto" style="max-width: 640px;">
     <div class="card-body p-4">
 
@@ -106,9 +111,14 @@
     </div>
 </div>
 
+{% if responsables_por_convertir and perms.pacientes.change_persona %}
+{% include "pacientes/modal_registrar_dui.html" with origen="preconsulta" %}
+{% endif %}
+
 {% endblock %}
 
 {% block scripts_extra %}
 <script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
 <script src="{% static 'pacientes/js/registrar-preconsulta.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-dui.js' %}"></script>
 {% endblock %}

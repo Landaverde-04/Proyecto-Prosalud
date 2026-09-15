@@ -793,6 +793,28 @@ class AgregarContactoTests(PruebaCore):
         self.assertContains(respuesta, 'ya es contacto de este paciente')
         self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
 
+    def test_agregar_de_nuevo_un_contacto_desactivado_lo_reactiva(self):
+        existente = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        desactivado = Contacto.objects.create(
+            paciente=self.paciente, persona_contacto=existente, activo=False,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.AMIGO,
+        )
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_base, persona_id=existente.pk, nombres='', apellidos='', telefono='')
+        respuesta = self.client.post(self.url, datos, follow=True)
+
+        self.assertContains(respuesta, 'vuelve a ser contacto')
+        desactivado.refresh_from_db()
+        self.assertTrue(desactivado.activo)
+        # Toma el tipo y parentesco elegidos ahora, sin crear otra fila ni otra Persona.
+        self.assertEqual(desactivado.tipo, Contacto.Tipo.RESPONSABLE)
+        self.assertEqual(desactivado.parentesco, Contacto.Parentesco.PADRE_MADRE)
+        self.assertEqual(desactivado.modificado_por, self.doctor)
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
+        self.assertEqual(Persona.objects.filter(nombres='Ana').count(), 1)
+        self.assertContains(respuesta, 'Ana Lopez')
+
     def test_campos_incompletos_no_guarda(self):
         self.client.force_login(self.doctor)
         datos = dict(self.datos_base, telefono='')
@@ -2106,3 +2128,219 @@ class EditarPreconsultaTests(PruebaCore):
             Permission.objects.get(content_type__app_label='consultas', codename='change_signosvitales'),
         )
         self.assertNotContains(self.client.get(url_cola), self.url)
+
+
+class RegistrarDuiTests(PruebaCore):
+    """Paciente que cumplio 18: se registra su DUI y sus responsables pasan a contacto de referencia."""
+
+    def setUp(self):
+        def permiso(app, codename):
+            return Permission.objects.get(content_type__app_label=app, codename=codename)
+
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            permiso('pacientes', 'view_persona'), permiso('pacientes', 'change_persona'),
+            permiso('consultas', 'add_signosvitales'), permiso('consultas', 'add_consulta'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            permiso('pacientes', 'view_persona'), permiso('pacientes', 'view_expediente'),
+            permiso('pacientes', 'change_persona'), permiso('consultas', 'change_consulta'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+        self.enfermera = self._usuario('enfermera', self.rol_enfermera)
+        self.doctor = self._usuario('doctor', self.rol_doctor)
+
+        hoy = date.today()
+        self.paciente = Persona.objects.create(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento=date(hoy.year - 18, 1, 1),
+        )
+        self.expediente = Expediente.objects.create(persona=self.paciente, clinica=self.clinica)
+        self.madre = Persona.objects.create(nombres='Marta', apellidos='Peña Díaz', telefono='7000-1111')
+        self.contacto_madre = Contacto.objects.create(
+            paciente=self.paciente, persona_contacto=self.madre,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.url = reverse('pacientes:registrar_dui', args=[self.expediente.id])
+
+    def _usuario(self, username, rol):
+        usuario = Usuario.objects.create_user(username=username, password='x')
+        usuario.groups.add(rol)
+        usuario.clinicas.add(self.clinica)
+        return usuario
+
+    def test_registra_el_dui_y_el_responsable_pasa_a_referencia(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'dui': '01234567-8', 'origen': 'lista'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '01234567-8')
+        self.assertEqual(self.paciente.modificado_por, self.enfermera)
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.REFERENCIA)
+        self.assertEqual(self.contacto_madre.modificado_por, self.enfermera)
+
+    def test_la_conversion_no_duplica_ni_afecta_a_otros_pacientes_a_su_cargo(self):
+        hermano = Persona.objects.create(nombres='Luis', apellidos='Guevara Peña', fecha_nacimiento='2016-05-05')
+        contacto_hermano = Contacto.objects.create(
+            paciente=hermano, persona_contacto=self.madre,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        personas_antes = Persona.objects.count()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        contacto_hermano.refresh_from_db()
+        self.madre.refresh_from_db()
+        self.assertEqual(contacto_hermano.tipo, Contacto.Tipo.RESPONSABLE)
+        self.assertEqual(Persona.objects.count(), personas_antes)
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
+        self.assertEqual((self.madre.nombres, self.madre.telefono), ('Marta', '7000-1111'))
+
+    def test_convierte_a_todos_los_responsables_activos_y_no_toca_los_desactivados(self):
+        padre = Persona.objects.create(nombres='Roberto', apellidos='Guevara', telefono='7000-2222')
+        Contacto.objects.create(paciente=self.paciente, persona_contacto=padre,
+                                tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE)
+        abuela = Persona.objects.create(nombres='Rosa', apellidos='Díaz', telefono='7000-3333')
+        desactivado = Contacto.objects.create(paciente=self.paciente, persona_contacto=abuela, activo=False,
+                                              tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.ABUELO)
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.assertFalse(self.paciente.contactos.filter(activo=True, tipo=Contacto.Tipo.RESPONSABLE).exists())
+        desactivado.refresh_from_db()
+        self.assertEqual(desactivado.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_el_historial_previo_se_conserva(self):
+        consulta = Consulta.objects.create(expediente=self.expediente, doctor=self.doctor, motivo='Control')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.expediente, self.expediente)
+        self.assertEqual(consulta.motivo, 'Control')
+
+    def test_despues_ya_no_requiere_responsable(self):
+        self.client.force_login(self.doctor)
+        self.client.post(self.url, {'dui': '01234567-8', 'origen': 'expediente'})
+
+        self.client.post(reverse('pacientes:desactivar_contacto', args=[self.expediente.id, self.contacto_madre.id]))
+
+        self.contacto_madre.refresh_from_db()
+        self.assertFalse(self.contacto_madre.activo)
+
+    def test_adulto_sin_responsables_solo_guarda_el_dui(self):
+        self.contacto_madre.tipo = Contacto.Tipo.REFERENCIA
+        self.contacto_madre.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '01234567-8')
+
+    def test_un_menor_de_edad_no_puede_registrar_dui(self):
+        hoy = date.today()
+        self.paciente.fecha_nacimiento = date(hoy.year - 17, 12, 31)
+        self.paciente.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_dui_de_otra_persona_no_se_guarda_ni_convierte(self):
+        Persona.objects.create(nombres='Otra', apellidos='Persona', dui='01234567-8')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_formato_invalido_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '123'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+
+    def test_si_ya_tiene_dui_no_se_reemplaza(self):
+        self.paciente.dui = '99999999-9'
+        self.paciente.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '99999999-9')
+
+    def test_sin_permiso_da_403(self):
+        self.rol_enfermera.permissions.remove(
+            Permission.objects.get(content_type__app_label='pacientes', codename='change_persona'),
+        )
+        self.client.force_login(self.enfermera)
+
+        self.assertEqual(self.client.post(self.url, {'dui': '01234567-8'}).status_code, 403)
+
+    def test_paciente_de_otra_clinica_da_403(self):
+        self.expediente.clinica = self.otra_clinica
+        self.expediente.save()
+        self.client.force_login(self.enfermera)
+
+        self.assertEqual(self.client.post(self.url, {'dui': '01234567-8'}).status_code, 403)
+
+    def test_vuelve_a_la_pantalla_de_origen(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(self.url, {'dui': '01234567-8', 'origen': 'expediente'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+    def test_el_expediente_avisa_y_no_lo_llama_menor_de_edad(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+        self.assertContains(respuesta, 'ya cumplió 18 años')
+        self.assertNotContains(respuesta, 'Sin DUI (menor de edad)')
+        self.assertContains(respuesta, self.url)
+
+    def test_la_preconsulta_avisa(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:registrar_preconsulta', args=[self.expediente.id]))
+
+        self.assertContains(respuesta, 'ya cumplió 18 años')
+
+    def test_la_lista_ofrece_el_boton_pero_no_el_aviso(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:lista_pacientes'))
+
+        self.assertContains(respuesta, self.url)
+        self.assertNotContains(respuesta, 'ya cumplió 18 años')
+
+    def test_un_menor_no_ve_boton_ni_aviso(self):
+        hoy = date.today()
+        self.paciente.fecha_nacimiento = date(hoy.year - 17, 12, 31)
+        self.paciente.save()
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+        self.assertNotContains(respuesta, self.url)
+        self.assertNotContains(respuesta, 'ya cumplió 18 años')

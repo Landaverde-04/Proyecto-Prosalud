@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Concat, Replace
 from django.http import Http404, JsonResponse
@@ -20,7 +20,7 @@ from seguridad.models import Usuario
 
 from .forms import (
     AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, ReasignarForm,
-    RegistrarPacienteForm, RetiroForm, SignosVitalesForm, calcular_imc,
+    RegistrarDuiForm, RegistrarPacienteForm, RetiroForm, SignosVitalesForm, calcular_imc,
 )
 from .models import Contacto, Expediente, Persona
 
@@ -364,6 +364,10 @@ def _contexto_ver_expediente(expediente):
         'persona': persona,
         'es_menor': es_menor,
         'responsable': responsable,
+        # Ya cumplio 18 y sigue con responsable: se avisa al abrir el expediente.
+        'responsables_por_convertir': (
+            list(_responsables_activos(persona)) if persona.puede_registrar_dui else []
+        ),
         'antecedentes': antecedentes,
         'controles_pendientes': controles_pendientes,
         # Todos los contactos ACTIVOS del paciente (HU-EXP-02: "un
@@ -438,16 +442,30 @@ def agregar_contacto(request, expediente_id):
                     creado_por=request.user,
                     modificado_por=request.user,
                 )
-            Contacto.objects.create(
-                paciente=paciente,
-                persona_contacto=persona_contacto,
-                tipo=datos['tipo'],
-                parentesco=datos['parentesco'],
-                parentesco_otro=datos['parentesco_otro'],
-                creado_por=request.user,
-                modificado_por=request.user,
-            )
-        messages.success(request, f'{persona_contacto} agregado como contacto de {paciente}.')
+            contacto = form.contacto_desactivado
+            if contacto:
+                # Misma fila de antes: conserva quien la creo y cuando; toma
+                # el tipo y parentesco que se eligieron ahora.
+                contacto.tipo = datos['tipo']
+                contacto.parentesco = datos['parentesco']
+                contacto.parentesco_otro = datos['parentesco_otro']
+                contacto.activo = True
+                contacto.modificado_por = request.user
+                contacto.save()
+            else:
+                Contacto.objects.create(
+                    paciente=paciente,
+                    persona_contacto=persona_contacto,
+                    tipo=datos['tipo'],
+                    parentesco=datos['parentesco'],
+                    parentesco_otro=datos['parentesco_otro'],
+                    creado_por=request.user,
+                    modificado_por=request.user,
+                )
+        if contacto:
+            messages.success(request, f'{persona_contacto} vuelve a ser contacto de {paciente} (estaba desactivado).')
+        else:
+            messages.success(request, f'{persona_contacto} agregado como contacto de {paciente}.')
         # Post/redirect/get, igual que registrar_paciente: evita volver a
         # crear el mismo contacto si se recarga la pagina despues.
         return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
@@ -563,6 +581,64 @@ def desactivar_contacto(request, expediente_id, contacto_id):
     return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
 
 
+def _responsables_activos(persona):
+    return persona.contactos.filter(tipo=Contacto.Tipo.RESPONSABLE, activo=True).select_related('persona_contacto')
+
+
+def _volver_tras_registrar_dui(origen, expediente):
+    """A la pantalla desde donde se abrio el modal; nunca a una URL que llegue en el POST."""
+    if origen == 'expediente':
+        return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
+    if origen == 'preconsulta':
+        return redirect('pacientes:registrar_preconsulta', expediente_id=expediente.id)
+    return redirect('pacientes:lista_pacientes')
+
+
+@require_POST
+@login_required
+@permission_required('pacientes.change_persona', raise_exception=True)
+def registrar_dui(request, expediente_id):
+    """Registra el DUI de un paciente que ya cumplio 18; sus responsables pasan a contacto de referencia."""
+    expediente = _expediente_para_usuario(request, expediente_id)
+    volver = _volver_tras_registrar_dui(request.POST.get('origen'), expediente)
+
+    form = RegistrarDuiForm(request.POST, persona=expediente.persona)
+    if not form.is_valid():
+        messages.error(request, next(iter(form.errors.values()))[0])
+        return volver
+
+    with transaction.atomic():
+        # Bloquea a la persona: dos registros simultaneos no convierten dos veces.
+        persona = Persona.objects.select_for_update().get(pk=expediente.persona_id)
+        if persona.dui:
+            messages.info(request, f'{persona} ya tiene DUI registrado.')
+            return volver
+        persona.dui = form.cleaned_data['dui']
+        persona.modificado_por = request.user
+        try:
+            # Savepoint: si otra persona tomo el DUI entre la validacion y el guardado.
+            with transaction.atomic():
+                persona.save(update_fields=['dui', 'modificado_por', 'fecha_modificacion'])
+        except IntegrityError:
+            messages.error(request, 'Ya existe otra persona registrada con este DUI.')
+            return volver
+
+        # Solo cambia el tipo de SU relacion: la Persona del responsable y sus
+        # otros pacientes no se tocan.
+        convertidos = list(_responsables_activos(persona))
+        for contacto in convertidos:
+            contacto.tipo = Contacto.Tipo.REFERENCIA
+            contacto.modificado_por = request.user
+            contacto.save(update_fields=['tipo', 'modificado_por', 'fecha_modificacion'])
+
+    mensaje = f'DUI de {persona} registrado.'
+    if convertidos:
+        nombres = ', '.join(str(c.persona_contacto) for c in convertidos)
+        mensaje += f' Ya se maneja como adulto: {nombres} pasó a contacto de referencia.'
+    messages.success(request, mensaje)
+    return volver
+
+
 def _medicos_disponibles(clinicas):
     """Usuarios de esas clinicas con permiso para atender consultas, vía su Rol."""
     permiso = Permission.objects.get(content_type__app_label='consultas', codename='change_consulta')
@@ -646,6 +722,9 @@ def registrar_preconsulta(request, expediente_id):
         'form': form,
         'medicos': _con_conteo_de_cola(medicos),
         'es_menor': persona.edad is not None and persona.edad < 18,
+        'responsables_por_convertir': (
+            list(_responsables_activos(persona)) if persona.puede_registrar_dui else []
+        ),
     })
 
 

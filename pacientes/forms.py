@@ -340,6 +340,8 @@ class AgregarContactoForm(forms.Form):
         # clean() para el chequeo de "no puede ser su propio contacto" y
         # para saber contra quién comparar el Contacto ya existente.
         self.paciente = paciente
+        # Contacto desactivado de esta misma persona, si lo hay: se reactiva.
+        self.contacto_desactivado = None
         # "Responsable" es un concepto exclusivo de menores de edad
         # (HU-EXP-02) -- un adulto solo puede tener contactos de
         # referencia. Se decide con la edad real del paciente, no con lo
@@ -381,8 +383,14 @@ class AgregarContactoForm(forms.Form):
             # vez de un error tecnico si tronara la restriccion.
             if datos['persona_id'] == self.paciente.pk:
                 raise forms.ValidationError('El paciente no puede ser su propio contacto.')
-            if Contacto.objects.filter(paciente=self.paciente, persona_contacto_id=datos['persona_id']).exists():
+            existente = Contacto.objects.filter(
+                paciente=self.paciente, persona_contacto_id=datos['persona_id'],
+            ).first()
+            if existente and existente.activo:
                 raise forms.ValidationError('Esa persona ya es contacto de este paciente.')
+            # Fue contacto y se desactivo: la relacion es unica por paciente,
+            # asi que la vista reactiva esa misma fila en vez de crear otra.
+            self.contacto_desactivado = existente
             if not datos.get('parentesco'):
                 self.add_error('parentesco', 'Falta el parentesco con el paciente.')
             self._validar_parentesco_otro(datos)
@@ -412,6 +420,30 @@ class AgregarContactoForm(forms.Form):
             )
 
         self._validar_parentesco_otro(datos)
+        return datos
+
+
+class RegistrarDuiForm(forms.Form):
+    """DUI de un paciente que ya cumplio 18 y todavia no lo tiene registrado."""
+
+    dui = forms.CharField(max_length=10, label='DUI', validators=[validador_dui])
+
+    def __init__(self, *args, persona, **kwargs):
+        self.persona = persona
+        super().__init__(*args, **kwargs)
+
+    def clean_dui(self):
+        dui = self.cleaned_data['dui']
+        if Persona.objects.filter(dui=dui).exclude(pk=self.persona.pk).exists():
+            raise forms.ValidationError('Ya existe otra persona registrada con este DUI.')
+        return dui
+
+    def clean(self):
+        datos = super().clean()
+        if self.persona.dui:
+            raise forms.ValidationError(f'{self.persona} ya tiene DUI registrado.')
+        if not self.persona.puede_registrar_dui:
+            raise forms.ValidationError('El DUI se registra cuando el paciente ya cumplió 18 años.')
         return datos
 
 
