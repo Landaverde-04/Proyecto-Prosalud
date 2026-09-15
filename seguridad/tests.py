@@ -315,6 +315,22 @@ class ClinicasUsuarioTests(PruebaSeguridad):
         self.assertEqual(list(nuevo.clinicas.all()), [self.prosalud])
 
 
+class PermisosDelRolTests(PruebaSeguridad):
+    """Casillas de permisos con nombres legibles y agrupadas por modelo."""
+
+    def test_usa_el_nombre_legible_del_modelo(self):
+        from .views import _etiqueta_permiso
+        permiso = Permission.objects.get(content_type__app_label='consultas', codename='add_controlposterior')
+        self.assertEqual(_etiqueta_permiso(permiso), 'Agregar control posterior')
+
+    def test_ordena_por_modelo_y_luego_por_accion(self):
+        from .views import _permisos_agrupados
+        consultas = dict(_permisos_agrupados())['Consultas']
+        etiquetas = [item['label'] for item in consultas]
+        self.assertEqual(etiquetas[etiquetas.index('Ver consulta'):etiquetas.index('Ver consulta') + 3],
+                         ['Ver consulta', 'Agregar consulta', 'Modificar consulta'])
+
+
 class PasswordSinValidadoresTests(PruebaSeguridad):
     """
     Decision de Kevin, 10/09/2026: ninguna contrasena se rechaza por

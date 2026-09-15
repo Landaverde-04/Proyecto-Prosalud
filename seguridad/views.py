@@ -100,15 +100,39 @@ def _etiqueta_permiso(permiso):
     auditoria, para que nunca se le muestre un codename crudo a nadie.
     """
     accion = permiso.codename.split('_')[0]
-    modelo = _MODELOS_ES.get(permiso.content_type.model, permiso.content_type.model)
-    return f"{_ACCIONES_ES.get(accion, accion)} {modelo}"
+    return f"{_ACCIONES_ES.get(accion, accion)} {_nombre_modelo(permiso)}"
+
+
+def _nombre_modelo(permiso):
+    """Nombre legible del modelo: la excepcion de _MODELOS_ES o su verbose_name."""
+    tipo = permiso.content_type
+    if tipo.model in _MODELOS_ES:
+        return _MODELOS_ES[tipo.model]
+    clase = tipo.model_class()
+    return str(clase._meta.verbose_name) if clase else tipo.model
+
+
+# Orden de las casillas dentro de cada modelo.
+_ORDEN_ACCIONES = ['view', 'add', 'change', 'delete']
+
+
+def _posicion_accion(permiso):
+    accion = permiso.codename.split('_')[0]
+    return _ORDEN_ACCIONES.index(accion) if accion in _ORDEN_ACCIONES else len(_ORDEN_ACCIONES)
 
 
 def _permisos_agrupados():
     permisos = permisos_asignables()
     resultado = []
     for app_label, grupo in groupby(permisos, key=lambda p: p.content_type.app_label):
-        items = [{'pk': p.pk, 'label': _etiqueta_permiso(p)} for p in grupo]
+        # Por modelo y luego por accion: "Ver / Agregar / Modificar consulta" quedan juntos.
+        ordenados = sorted(grupo, key=lambda p: (_nombre_modelo(p), _posicion_accion(p)))
+        items = []
+        for p in ordenados:
+            modelo = _nombre_modelo(p)
+            items.append({'pk': p.pk, 'label': _etiqueta_permiso(p),
+                          'nuevo_modelo': bool(items) and items[-1]['modelo'] != modelo,
+                          'modelo': modelo})
         resultado.append((_APPS_ES.get(app_label, app_label), items))
     return resultado
 
