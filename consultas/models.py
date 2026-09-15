@@ -168,6 +168,40 @@ class SignosVitales(ModeloBase):
         return f'Signos vitales · {self.consulta}'
 
 
+class ReasignacionConsulta(ModeloBase):
+    """
+    Cambio de medico de una consulta en espera. Consulta.doctor guarda solo
+    el medico actual; cada cambio queda aqui, porque una visita puede
+    reasignarse mas de una vez. La fecha es fecha_creacion.
+    """
+
+    consulta = models.ForeignKey(
+        Consulta, on_delete=models.PROTECT, related_name='reasignaciones',
+    )
+    medico_anterior = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_cedidas',
+    )
+    medico_nuevo = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_recibidas',
+    )
+    reasignado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_hechas',
+    )
+    motivo = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = 'ReasignacionConsulta'
+        verbose_name = 'reasignación de consulta'
+        verbose_name_plural = 'reasignaciones de consulta'
+        ordering = ['fecha_creacion']
+
+    def __str__(self):
+        return f'{self.consulta} · {self.medico_anterior} → {self.medico_nuevo}'
+
+
 class Receta(ModeloBase):
     """Uno a uno con Consulta (TEC-01): al emitirla, la consulta se cierra."""
 

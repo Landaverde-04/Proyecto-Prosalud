@@ -421,6 +421,9 @@ def ver_consulta(request, consulta_id):
         'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
         'controles': consulta.controles.filter(activo=True).order_by('fecha_control'),
         'aplicaciones': consulta.aplicaciones.filter(activo=True).order_by('-pk'),
+        'reasignaciones': consulta.reasignaciones.select_related(
+            'medico_anterior', 'medico_nuevo', 'reasignado_por',
+        ),
     })
 
 

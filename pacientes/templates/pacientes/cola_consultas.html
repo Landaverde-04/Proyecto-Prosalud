@@ -101,6 +101,46 @@
         </form>
     </div>
 </div>
+<div class="modal fade" id="modalReasignar" tabindex="-1" aria-labelledby="tituloReasignar" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" class="modal-content" data-formulario-modal>
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloReasignar">
+                    <i class="bi bi-arrow-left-right me-1" style="color: var(--accent);"></i>
+                    Reasignar a otro médico
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    <span class="fw-semibold" data-nombre-modal></span> pasará a la cola del médico que elijas,
+                    conservando su hora de llegada.
+                </p>
+                <label for="medicoReasignar" class="form-label fw-medium">
+                    Nuevo médico <span class="text-danger">*</span>
+                </label>
+                <select name="medico" id="medicoReasignar" class="form-select mb-3" required data-campo-modal data-opciones-medico>
+                    <option value="">Elige un médico…</option>
+                    {% for cola in colas %}
+                    <option value="{{ cola.medico.pk }}" data-clinicas="{% for clinica in cola.medico.clinicas.all %}{{ clinica.pk }} {% endfor %}">
+                        {{ cola.medico.get_full_name|default:cola.medico.username }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <label for="motivoReasignar" class="form-label fw-medium">
+                    Motivo <span class="text-muted fw-normal small">(opcional)</span>
+                </label>
+                <input type="text" name="motivo" id="motivoReasignar" class="form-control" maxlength="255"
+                       data-campo-modal placeholder="Ej: el paciente pidió otro médico">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Reasignar</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endif %}
 
 {% endblock %}

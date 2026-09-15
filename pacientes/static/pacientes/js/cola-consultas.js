@@ -45,7 +45,7 @@
             });
     }
 
-    /* ---- Modales de accion (emergencia, retiro) ----
+    /* ---- Modales de accion (emergencia, retiro, reasignar) ----
        Cada boton dice que modal abre con data-abrir-modal. El clic se
        escucha delegado en document: los botones viven dentro del fragmento
        que se reemplaza cada 30s, asi que un listener directo se perderia. */
@@ -57,8 +57,18 @@
             if (!modalEl) return;
             modalEl.querySelector('[data-formulario-modal]').action = boton.dataset.url;
             modalEl.querySelector('[data-nombre-modal]').textContent = boton.dataset.nombre;
-            var campo = modalEl.querySelector('[data-campo-modal]');
-            campo.value = '';
+            modalEl.querySelectorAll('[data-campo-modal]').forEach(function (campo) { campo.value = ''; });
+            // Lista de medicos: sin el actual y solo los de la clinica del paciente.
+            var opciones = modalEl.querySelector('[data-opciones-medico]');
+            if (opciones) {
+                Array.prototype.forEach.call(opciones.options, function (opcion) {
+                    if (!opcion.value) return;
+                    var fuera = opcion.value === boton.dataset.medicoActual
+                        || opcion.dataset.clinicas.split(' ').indexOf(boton.dataset.clinica) === -1;
+                    opcion.hidden = fuera;
+                    opcion.disabled = fuera;
+                });
+            }
             bootstrap.Modal.getOrCreateInstance(modalEl).show();
         });
         document.addEventListener('shown.bs.modal', function (e) {

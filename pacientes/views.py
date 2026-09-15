@@ -10,14 +10,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from consultas.models import Consulta, SignosVitales
+from consultas.models import Consulta, ReasignacionConsulta, SignosVitales
 from core.models import Clinica
 from core.paginacion import es_ajax, paginar
 from seguridad.models import Usuario
 
 from .forms import (
-    AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, RegistrarPacienteForm,
-    RetiroForm,
+    AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, ReasignarForm,
+    RegistrarPacienteForm, RetiroForm,
 )
 from .models import Contacto, Expediente, Persona
 
@@ -667,7 +667,7 @@ def cola_consultas(request):
 
     medicos = (
         Usuario.objects.filter(pk=request.user.pk) if solo_la_suya
-        else _medicos_disponibles(clinicas)
+        else _medicos_disponibles(clinicas).prefetch_related('clinicas')
     )
 
     en_cola = (
@@ -676,6 +676,7 @@ def cola_consultas(request):
             expediente__clinica__in=clinicas,
         )
         .select_related('expediente__persona', 'expediente__clinica')
+        .prefetch_related('reasignaciones__medico_anterior')
         # Emergencias primero; dentro de cada grupo, por hora de llegada.
         # fecha_creacion como desempate: las consultas anteriores a que
         # existiera hora_llegada la tienen vacia.
@@ -802,4 +803,43 @@ def registrar_retiro(request, consulta_id):
     consulta.modificado_por = request.user
     consulta.save(update_fields=['nota_retiro', 'cierre', 'modificado_por', 'fecha_modificacion'])
     messages.success(request, f'Se registró el retiro de {persona}.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def reasignar_consulta(request, consulta_id):
+    """Pasa a un paciente en espera a otro medico, dejando constancia del cambio."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya no está en espera; solo se reasigna antes de pasar a consulta.')
+        return redirect('pacientes:cola_consultas')
+
+    medicos = _medicos_disponibles([consulta.expediente.clinica]).exclude(pk=consulta.doctor_id)
+    form = ReasignarForm(request.POST, medicos=medicos)
+    if not form.is_valid():
+        messages.error(request, next(iter(form.errors.values()))[0])
+        return redirect('pacientes:cola_consultas')
+
+    nuevo = form.cleaned_data['medico']
+    with transaction.atomic():
+        # Bloquea la fila: dos reasignaciones simultaneas no pisan el historial.
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if not consulta.en_cola:
+            messages.info(request, f'{persona} ya no está en espera; solo se reasigna antes de pasar a consulta.')
+            return redirect('pacientes:cola_consultas')
+        ReasignacionConsulta.objects.create(
+            consulta=consulta, medico_anterior_id=consulta.doctor_id, medico_nuevo=nuevo,
+            reasignado_por=request.user, motivo=form.cleaned_data['motivo'],
+            creado_por=request.user, modificado_por=request.user,
+        )
+        # hora_llegada no se toca: conserva su lugar por orden de llegada.
+        consulta.doctor = nuevo
+        # Aun no se atiende: el nombre congelado debe ser el de quien atendera.
+        consulta.doctor_nombre = nuevo.get_full_name() or nuevo.username
+        consulta.modificado_por = request.user
+        consulta.save(update_fields=['doctor', 'doctor_nombre', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} pasó a la cola de {consulta.doctor_nombre}.')
     return redirect('pacientes:cola_consultas')

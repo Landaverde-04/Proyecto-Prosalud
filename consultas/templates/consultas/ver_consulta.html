@@ -43,6 +43,29 @@
 </div>
 {% endif %}
 
+{% if reasignaciones %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body px-4 py-3">
+        <div class="text-muted small fw-semibold text-uppercase mb-2" style="font-size: 0.7rem; letter-spacing: 0.03em;">
+            <i class="bi bi-arrow-left-right me-1"></i>Cambios de médico
+        </div>
+        <div class="vstack gap-2">
+            {% for cambio in reasignaciones %}
+            <div class="small">
+                De <span class="fw-semibold">{{ cambio.medico_anterior.get_full_name|default:cambio.medico_anterior.username }}</span>
+                a <span class="fw-semibold">{{ cambio.medico_nuevo.get_full_name|default:cambio.medico_nuevo.username }}</span>
+                <span class="text-muted">
+                    · por {{ cambio.reasignado_por.get_full_name|default:cambio.reasignado_por.username }}
+                    el {{ cambio.fecha_creacion|date:'d/m/Y' }} a las {{ cambio.fecha_creacion|date:'H:i' }}
+                </span>
+                {% if cambio.motivo %}<div class="text-muted">Motivo: {{ cambio.motivo }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% if consulta.retirada %}
 {# Visita sin atencion: no hay campos clinicos ni documentos que mostrar. #}
 <div class="alert alert-secondary">
