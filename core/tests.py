@@ -160,3 +160,127 @@ class BitacoraPantallaTests(PruebaCore):
         self.client.force_login(self.auditora)
         respuesta = self.client.get(self.url, {'accion': RegistroAuditoria.Accion.CREAR_ROL})
         self.assertContains(respuesta, 'accion=crear_rol')
+
+
+class InicioTests(PruebaCore):
+    """Pantalla de inicio: cifras del dia, accesos y paneles segun los permisos del usuario."""
+
+    def setUp(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from consultas.models import Consulta
+        from core.models import Clinica
+        from pacientes.models import Expediente, Persona
+
+        def permisos(*nombres):
+            return [Permission.objects.get(content_type__app_label=app, codename=codigo)
+                    for app, codigo in (n.split('.') for n in nombres)]
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        rol_enfermera = Group.objects.create(name='Enfermera')
+        rol_enfermera.permissions.set(permisos(
+            'pacientes.view_persona', 'pacientes.add_persona', 'consultas.view_consulta',
+            'consultas.add_signosvitales', 'consultas.add_consulta'))
+        rol_doctor = Group.objects.create(name='Doctor')
+        rol_doctor.permissions.set(permisos(
+            'pacientes.view_persona', 'pacientes.view_expediente', 'consultas.view_consulta',
+            'consultas.change_consulta'))
+        rol_admin = Group.objects.create(name='Doctora Administradora')
+        rol_admin.permissions.set(permisos(
+            'seguridad.view_usuario', 'auth.view_group', 'core.view_registroauditoria'))
+        Group.objects.create(name='Laboratorio')
+
+        def usuario(nombre, rol):
+            u = Usuario.objects.create_user(username=nombre, password='x', first_name=nombre.capitalize())
+            u.groups.add(Group.objects.get(name=rol))
+            u.clinicas.add(self.clinica)
+            return u
+
+        self.enfermera = usuario('enfermera', 'Enfermera')
+        self.doctor = usuario('doctor', 'Doctor')
+        self.otro_doctor = usuario('otro', 'Doctor')
+        self.admin = usuario('admin', 'Doctora Administradora')
+        self.laboratorio = usuario('lab', 'Laboratorio')
+
+        ahora = timezone.now()
+
+        def consulta(nombre, doctor, **campos):
+            persona = Persona.objects.create(nombres=nombre, apellidos='Prueba', fecha_nacimiento='1990-01-01')
+            expediente = Expediente.objects.create(persona=persona, clinica=self.clinica)
+            return Consulta.objects.create(expediente=expediente, doctor=doctor, motivo='x', **campos)
+
+        consulta('EsperaMia', self.doctor, hora_llegada=ahora)
+        consulta('EmergenciaMia', self.doctor, hora_llegada=ahora, es_emergencia=True, motivo_prioridad='Dolor')
+        consulta('EsperaAjena', self.otro_doctor, hora_llegada=ahora)
+        consulta('AtendidoHoy', self.doctor, inicio=ahora, cierre=ahora)
+        consulta('Retirado', self.doctor, cierre=ahora, nota_retiro='Se fue')
+        consulta('Ayer', self.doctor, inicio=ahora - timedelta(days=1), cierre=ahora - timedelta(days=1))
+        self.url = reverse('core:home')
+
+    def test_ya_no_muestra_bienvenida(self):
+        self.client.force_login(self.enfermera)
+
+        self.assertNotContains(self.client.get(self.url), 'Bienvenido')
+
+    def test_enfermera_ve_cifras_de_toda_la_clinica_y_colas_por_medico(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        resumen = respuesta.context['resumen']
+        self.assertFalse(resumen['solo_lo_suyo'])
+        self.assertEqual(resumen['en_espera'], 3)
+        self.assertEqual(resumen['emergencias'], 1)
+        self.assertEqual({m.username: m.en_espera for m in resumen['colas']}, {'doctor': 2, 'otro': 1})
+        self.assertIsNone(resumen['proximos'])
+        self.assertContains(respuesta, 'Nuevo paciente')
+        self.assertContains(respuesta, 'Colas por médico')
+        self.assertNotContains(respuesta, reverse('seguridad:lista_usuarios'))
+
+    def test_enfermera_no_ve_atendidos_ni_pacientes_nuevos_del_dia(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertIsNone(respuesta.context['resumen']['atendidos_hoy'])
+        self.assertIsNone(respuesta.context['resumen']['nuevos_hoy'])
+        self.assertNotContains(respuesta, 'Atendidos hoy')
+        self.assertNotContains(respuesta, 'Pacientes nuevos hoy')
+
+    def test_doctor_ve_solo_lo_suyo_y_sus_proximos_con_la_emergencia_primero(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(self.url)
+
+        resumen = respuesta.context['resumen']
+        self.assertTrue(resumen['solo_lo_suyo'])
+        self.assertEqual(resumen['en_espera'], 2)
+        # Los retiros y lo de ayer no cuentan como atendidos hoy.
+        self.assertEqual(resumen['atendidos_hoy'], 1)
+        self.assertEqual(resumen['nuevos_hoy'], 6)
+        self.assertContains(respuesta, 'Atendiste hoy')
+        self.assertEqual([c.expediente.persona.nombres for c in resumen['proximos']], ['EmergenciaMia', 'EsperaMia'])
+        self.assertIsNone(resumen['colas'])
+        self.assertContains(respuesta, 'En tu cola')
+        self.assertNotContains(respuesta, 'EsperaAjena')
+        self.assertNotContains(respuesta, 'Nuevo paciente')
+
+    def test_administracion_ve_sus_accesos(self):
+        self.client.force_login(self.admin)
+
+        respuesta = self.client.get(self.url)
+
+        for url in ('seguridad:lista_usuarios', 'seguridad:lista_roles', 'core:bitacora'):
+            self.assertContains(respuesta, reverse(url))
+        self.assertIsNone(respuesta.context['resumen'])
+
+    def test_puesto_sin_permisos_solo_ve_su_perfil_y_un_aviso(self):
+        self.client.force_login(self.laboratorio)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual([s['titulo'] for s in respuesta.context['accesos']], ['Mi cuenta'])
+        self.assertFalse(respuesta.context['hay_paneles'])
+        self.assertContains(respuesta, 'todavía no tiene pantallas asignadas')
