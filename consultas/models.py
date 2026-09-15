@@ -167,6 +167,11 @@ class SignosVitales(ModeloBase):
     def __str__(self):
         return f'Signos vitales · {self.consulta}'
 
+    @property
+    def fue_corregida(self):
+        """Se volvio a guardar despues de tomarse: al crear, las dos fechas difieren en microsegundos."""
+        return self.fecha_modificacion - self.fecha_creacion > timedelta(seconds=1)
+
 
 class ReasignacionConsulta(ModeloBase):
     """

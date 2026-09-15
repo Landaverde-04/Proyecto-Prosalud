@@ -32,59 +32,7 @@
         <form method="post" novalidate id="form-preconsulta">
             {% csrf_token %}
 
-            <div class="mb-3">
-                <label for="{{ form.peso.id_for_label }}" class="form-label fw-medium">
-                    Peso (kg) <span class="text-danger">*</span>
-                </label>
-                {{ form.peso }}
-                {% for error in form.peso.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-            </div>
-
-            {% if es_menor %}
-            {# Solo a menores de edad. #}
-            <div class="mb-3">
-                <label for="{{ form.talla.id_for_label }}" class="form-label fw-medium">Talla (metros)</label>
-                {{ form.talla }}
-                <div class="form-text">Ej: 1.20. Se usa para calcular el IMC.</div>
-                {% for error in form.talla.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-            </div>
-            {# IMC en vivo, se recalcula con JS al escribir peso/talla. #}
-            <div class="mb-3">
-                <label class="form-label fw-medium">IMC calculado</label>
-                <div class="form-control-plaintext fw-semibold py-1" id="imc-calculado">—</div>
-                <div class="form-text">Se calcula solo con el peso y la talla que se escriban arriba.</div>
-            </div>
-            {% else %}
-            {# Solo a adultos y adultos mayores. #}
-            <div class="mb-3">
-                <label for="{{ form.presion_arterial.id_for_label }}" class="form-label fw-medium">Presión arterial</label>
-                {{ form.presion_arterial }}
-                <div class="form-text">Ej: 120/80.</div>
-                {% for error in form.presion_arterial.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-            </div>
-            {% endif %}
-
-            <div class="row g-3">
-                <div class="col-sm-6">
-                    <label for="{{ form.temperatura.id_for_label }}" class="form-label fw-medium">Temperatura (°C)</label>
-                    {{ form.temperatura }}
-                    <div class="form-text">Opcional -- si el paciente presenta fiebre.</div>
-                    {% for error in form.temperatura.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-                </div>
-                <div class="col-sm-6">
-                    <label for="{{ form.frecuencia_cardiaca.id_for_label }}" class="form-label fw-medium">Frecuencia cardíaca (lpm)</label>
-                    {{ form.frecuencia_cardiaca }}
-                    <div class="form-text">Opcional.</div>
-                    {% for error in form.frecuencia_cardiaca.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-                </div>
-            </div>
-
-            <div class="mb-4 mt-3">
-                <label for="{{ form.saturacion.id_for_label }}" class="form-label fw-medium">Saturación de oxígeno (%)</label>
-                {{ form.saturacion }}
-                <div class="form-text">Solo en casos de emergencia.</div>
-                {% for error in form.saturacion.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-            </div>
+            {% include "pacientes/campos_signos_vitales.html" %}
 
             <div class="border rounded-3 p-3 mb-4 {% if form.es_emergencia.value %}border-danger{% endif %}" id="bloque-emergencia">
                 <div class="form-check form-switch mb-0">

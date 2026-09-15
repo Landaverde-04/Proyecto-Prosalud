@@ -166,7 +166,8 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                 </div>
 
                 {% for consulta in cola.en_atencion %}
-                <div class="d-flex justify-content-between align-items-center gap-2 mb-2 px-2 py-1 rounded tarjeta-en-atencion small">
+                {# flex-wrap: si no caben junto al nombre, los botones bajan a su propia linea. #}
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2 px-2 py-1 rounded tarjeta-en-atencion small">
                     <div class="min-width-0">
                         <div class="text-truncate">
                             <i class="bi bi-stopwatch me-1"></i><span class="fw-semibold">En consulta:</span>
@@ -174,15 +175,23 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                         </div>
                         <div class="text-muted">desde las {{ consulta.inicio|time:"H:i" }}</div>
                     </div>
-                    {% if puede_atender and consulta.doctor_id == user.pk %}
-                    <a href="{% url 'consultas:atender_consulta' consulta.pk %}" class="btn btn-sm btn-warning py-0 flex-shrink-0">Continuar</a>
-                    {% endif %}
+                    <div class="d-flex gap-1 ms-auto">
+                        {% if puede_editar_preconsulta and consulta.tiene_preconsulta %}
+                        <a href="{% url 'pacientes:editar_preconsulta' consulta.pk %}"
+                           class="btn btn-sm btn-outline-secondary py-0 px-2" title="Editar preconsulta">
+                            <i class="bi bi-pencil-square"></i>
+                        </a>
+                        {% endif %}
+                        {% if puede_atender and consulta.doctor_id == user.pk %}
+                        <a href="{% url 'consultas:atender_consulta' consulta.pk %}" class="btn btn-sm btn-warning py-0">Continuar</a>
+                        {% endif %}
+                    </div>
                 </div>
                 {% endfor %}
 
                 {% for consulta in cola.consultas %}
                 <div class="{% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
-                    <div class="d-flex align-items-start gap-2">
+                    <div class="d-flex flex-wrap align-items-start gap-2">
                         <span class="badge rounded-pill flex-shrink-0 mt-1 {% if consulta.es_emergencia %}text-bg-danger{% elif forloop.first %}text-bg-success{% else %}text-bg-light text-muted{% endif %}">
                             {{ forloop.counter }}
                         </span>
@@ -202,8 +211,15 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                                 {% endif %}
                             </div>
                         </div>
-                        {% if puede_gestionar %}
-                        <div class="flex-shrink-0 d-flex align-items-start gap-1">
+                        {% if puede_gestionar or puede_editar_preconsulta and consulta.tiene_preconsulta %}
+                        <div class="flex-shrink-0 d-flex align-items-start gap-1 ms-auto">
+                            {% if puede_editar_preconsulta and consulta.tiene_preconsulta %}
+                            <a href="{% url 'pacientes:editar_preconsulta' consulta.pk %}"
+                               class="btn btn-sm btn-outline-secondary py-0 px-2" title="Editar preconsulta">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            {% endif %}
+                            {% if puede_gestionar %}
                             <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
                                     data-abrir-modal="modalReasignar"
                                     data-url="{% url 'pacientes:reasignar_consulta' consulta.pk %}"
@@ -235,6 +251,7 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                                     title="Marcar como emergencia">
                                 <i class="bi bi-exclamation-triangle"></i>
                             </button>
+                            {% endif %}
                             {% endif %}
                         </div>
                         {% endif %}

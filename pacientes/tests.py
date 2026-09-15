@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from consultas.models import Consulta, SignosVitales
-from core.models import Clinica
+from core.models import Clinica, RegistroAuditoria
 from core.tests import PruebaCore
 from seguridad.models import Usuario
 
@@ -1489,6 +1489,51 @@ class ColaConsultasTests(PruebaCore):
         self.assertNotContains(respuesta, 'AjenaIniciada')
         self.assertEqual(respuesta.context['total_en_cola'], 0)  # no cuenta como espera
 
+    def _administradora(self):
+        rol = Group.objects.create(name='Doctora Administradora')
+        rol.permissions.add(*self.rol_doctor.permissions.all(), *self.rol_enfermera.permissions.all(),
+                            Permission.objects.get(content_type__app_label='auth', codename='change_group'))
+        doctora = Usuario.objects.create_user(username='doctora', password='x')
+        doctora.groups.add(rol)
+        doctora.clinicas.add(self.clinica)
+        return doctora
+
+    def test_administradora_ve_por_defecto_el_tablero_de_todas_las_colas(self):
+        self.client.force_login(self._administradora())
+
+        respuesta = self.client.get(self.url)
+
+        self.assertFalse(respuesta.context['solo_la_suya'])
+        self.assertTrue(respuesta.context['puede_elegir_vista'])
+
+    def test_administradora_cambia_a_su_propia_cola_para_atender(self):
+        doctora = self._administradora()
+        suya = self._consulta_en_cola('Suyo', timezone.now(), medico=doctora)
+        self._consulta_en_cola('DeOtroMedico', timezone.now())
+        self.client.force_login(doctora)
+
+        respuesta = self.client.get(self.url, {'vista': 'medico'})
+
+        self.assertTrue(respuesta.context['solo_la_suya'])
+        self.assertContains(respuesta, reverse('consultas:iniciar_consulta', args=[suya.pk]))
+        self.assertNotContains(respuesta, 'DeOtroMedico')
+
+    def test_la_vista_elegida_se_recuerda_sin_el_parametro(self):
+        self.client.force_login(self._administradora())
+        self.client.get(self.url, {'vista': 'medico'})
+
+        self.assertTrue(self.client.get(self.url).context['solo_la_suya'])
+        self.client.get(self.url, {'vista': 'enfermeria'})
+        self.assertFalse(self.client.get(self.url).context['solo_la_suya'])
+
+    def test_un_doctor_no_puede_cambiar_al_tablero(self):
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url, {'vista': 'enfermeria'})
+
+        self.assertTrue(respuesta.context['solo_la_suya'])
+        self.assertFalse(respuesta.context['puede_elegir_vista'])
+
     def _otro_medico(self, clinica=None):
         otro = Usuario.objects.create_user(username='doctor3', password='x', first_name='Luis', last_name='Ramos')
         otro.groups.add(self.rol_doctor)
@@ -1859,3 +1904,205 @@ class ColaConsultasTests(PruebaCore):
 
         self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
         self.assertEqual(Consulta.objects.filter(expediente_id=consulta.expediente_id).count(), 2)
+
+
+class EditarPreconsultaTests(PruebaCore):
+    """Correccion de signos vitales ya enviados, con registro de quien y cuando."""
+
+    def setUp(self):
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_signosvitales'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_signosvitales'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_consulta'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='x')
+        self.enfermera.groups.add(self.rol_enfermera)
+        self.enfermera.clinicas.add(self.clinica)
+        self.otra_enfermera = Usuario.objects.create_user(username='enfermera2', password='x')
+        self.otra_enfermera.groups.add(self.rol_enfermera)
+        self.otra_enfermera.clinicas.add(self.clinica)
+
+        self.medico = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Ana', last_name='Médica',
+        )
+        self.medico.groups.add(self.rol_doctor)
+        self.medico.clinicas.add(self.clinica)
+
+        self.consulta, self.signos = self._preconsulta('1990-01-01', presion_arterial='120/80')
+        self.url = reverse('pacientes:editar_preconsulta', args=[self.consulta.pk])
+
+    def _preconsulta(self, fecha_nacimiento, clinica=None, **signos):
+        persona = Persona.objects.create(nombres='Paciente', apellidos='Prueba', fecha_nacimiento=fecha_nacimiento)
+        expediente = Expediente.objects.create(persona=persona, clinica=clinica or self.clinica)
+        consulta = Consulta.objects.create(
+            expediente=expediente, doctor=self.medico, motivo='', hora_llegada=timezone.now(),
+        )
+        signos_vitales = SignosVitales.objects.create(
+            consulta=consulta, tomado_por=self.enfermera, creado_por=self.enfermera,
+            modificado_por=self.enfermera, **{'peso': '70', **signos},
+        )
+        # Tomada hace un rato, como en la realidad: una correccion nunca llega en el mismo segundo.
+        hace_rato = timezone.now() - timedelta(minutes=10)
+        SignosVitales.objects.filter(pk=signos_vitales.pk).update(fecha_creacion=hace_rato, fecha_modificacion=hace_rato)
+        signos_vitales.refresh_from_db()
+        return consulta, signos_vitales
+
+    def test_enfermera_corrige_la_preconsulta_y_se_guarda(self):
+        self.client.force_login(self.otra_enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '72.5', 'presion_arterial': '130/85'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'))
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '72.50')
+        self.assertEqual(self.signos.presion_arterial, '130/85')
+        # Quien la tomo no cambia; quien la corrigio queda en modificado_por.
+        self.assertEqual(self.signos.tomado_por, self.enfermera)
+        self.assertEqual(self.signos.modificado_por, self.otra_enfermera)
+
+    def test_la_correccion_queda_en_la_bitacora_con_antes_y_despues(self):
+        self.client.force_login(self.otra_enfermera)
+
+        self.client.post(self.url, {'peso': '72', 'presion_arterial': '120/80'})
+
+        registro = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.EDITAR_PRECONSULTA)
+        self.assertEqual(registro.usuario, self.otra_enfermera)
+        self.assertEqual(registro.objetivo, 'Paciente Prueba')
+        self.assertEqual(registro.detalle, 'Peso: 70 kg → 72 kg')
+
+    def test_sin_cambios_no_guarda_ni_registra_en_bitacora(self):
+        self.client.force_login(self.otra_enfermera)
+
+        self.client.post(self.url, {'peso': '70.00', 'presion_arterial': '120/80'})
+
+        self.signos.refresh_from_db()
+        self.assertEqual(self.signos.modificado_por, self.enfermera)
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_en_un_menor_recalcula_el_imc_al_corregir_la_talla(self):
+        consulta, signos = self._preconsulta('2018-01-01', talla='1.00', imc='70.0')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:editar_preconsulta', args=[consulta.pk]), {'peso': '70', 'talla': '1.20'})
+
+        signos.refresh_from_db()
+        self.assertEqual(str(signos.imc), '48.6')  # 70 / 1.20**2 = 48.61...
+        detalle = RegistroAuditoria.objects.get().detalle
+        self.assertIn('Talla: 1 m → 1.2 m', detalle)
+        self.assertIn('IMC: 70 → 48.6', detalle)
+
+    def test_se_puede_editar_mientras_el_medico_atiende(self):
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'peso': '68', 'presion_arterial': '120/80'})
+
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '68.00')
+
+    def test_el_medico_ve_los_signos_corregidos_al_abrir_la_atencion(self):
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_expediente'),
+        )
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+        self.client.post(self.url, {'peso': '81.5', 'presion_arterial': '120/80'})
+
+        self.client.force_login(self.medico)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+
+        self.assertContains(respuesta, '81,50')  # formato local: coma decimal
+        self.assertIn('no-cache', respuesta['Cache-Control'])
+
+    def test_el_fragmento_en_vivo_trae_la_correccion_solo_al_medico_de_la_consulta(self):
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_expediente'),
+        )
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        url_fragmento = reverse('consultas:signos_vitales_consulta', args=[self.consulta.pk])
+        self.client.force_login(self.enfermera)
+        self.client.post(self.url, {'peso': '81.5', 'presion_arterial': '120/80'})
+
+        self.client.force_login(self.medico)
+        respuesta = self.client.get(url_fragmento)
+        self.assertContains(respuesta, '81,50')
+        self.assertContains(respuesta, 'Corregidos por')
+
+        otro = Usuario.objects.create_user(username='doctor2', password='x')
+        otro.groups.add(self.rol_doctor)
+        otro.clinicas.add(self.clinica)
+        self.client.force_login(otro)
+        self.assertEqual(self.client.get(url_fragmento).status_code, 403)
+
+    def test_no_se_edita_la_preconsulta_de_una_consulta_cerrada(self):
+        self.consulta.inicio = self.consulta.cierre = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '99', 'presion_arterial': '120/80'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'))
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '70.00')
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_no_se_edita_la_preconsulta_de_un_paciente_retirado(self):
+        self.consulta.cierre = timezone.now()
+        self.consulta.nota_retiro = 'Se fue'
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.assertRedirects(self.client.get(self.url), reverse('pacientes:cola_consultas'))
+
+    def test_valores_fuera_de_rango_no_se_guardan(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '70', 'presion_arterial': '120/80', 'temperatura': '55'})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_sin_permiso_de_edicion_da_403(self):
+        self.client.force_login(self.medico)
+
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_consulta_de_otra_clinica_da_403(self):
+        consulta, _ = self._preconsulta('1990-01-01', clinica=self.otra_clinica)
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:editar_preconsulta', args=[consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_consulta_sin_preconsulta_da_404(self):
+        consulta = Consulta.objects.create(expediente=self.consulta.expediente, doctor=self.medico, motivo='')
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:editar_preconsulta', args=[consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_la_cola_muestra_el_boton_solo_a_quien_puede_editar(self):
+        url_cola = reverse('pacientes:cola_consultas')
+        self.client.force_login(self.enfermera)
+        self.assertContains(self.client.get(url_cola), self.url)
+
+        self.rol_enfermera.permissions.remove(
+            Permission.objects.get(content_type__app_label='consultas', codename='change_signosvitales'),
+        )
+        self.assertNotContains(self.client.get(url_cola), self.url)

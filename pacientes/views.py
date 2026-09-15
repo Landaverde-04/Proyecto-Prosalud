@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import Permission
@@ -5,19 +7,20 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, Value
 from django.db.models.functions import Concat, Replace
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from consultas.models import Consulta, ReasignacionConsulta, SignosVitales
-from core.models import Clinica
+from core.auditoria import registrar
+from core.models import Clinica, RegistroAuditoria
 from core.paginacion import es_ajax, paginar
 from seguridad.models import Usuario
 
 from .forms import (
     AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, ReasignarForm,
-    RegistrarPacienteForm, RetiroForm,
+    RegistrarPacienteForm, RetiroForm, SignosVitalesForm, calcular_imc,
 )
 from .models import Contacto, Expediente, Persona
 
@@ -646,6 +649,103 @@ def registrar_preconsulta(request, expediente_id):
     })
 
 
+# Etiqueta y unidad de cada signo vital, para el detalle legible de la bitacora.
+ETIQUETAS_SIGNOS = {
+    'peso': ('Peso', 'kg'),
+    'talla': ('Talla', 'm'),
+    'presion_arterial': ('Presión arterial', ''),
+    'temperatura': ('Temperatura', '°C'),
+    'saturacion': ('Saturación', '%'),
+    'frecuencia_cardiaca': ('Frecuencia cardíaca', 'lpm'),
+    'imc': ('IMC', ''),
+}
+
+
+def _campos_de_preconsulta(es_menor):
+    """Campos que muestra la preconsulta segun la edad: talla a menores, presion a adultos."""
+    por_edad = ['talla'] if es_menor else ['presion_arterial']
+    return ['peso', *por_edad, 'temperatura', 'frecuencia_cardiaca', 'saturacion']
+
+
+def _valor_legible(campo, valor):
+    if valor in (None, ''):
+        return 'vacío'
+    if isinstance(valor, Decimal):
+        # 70.00 -> 70; 1.20 -> 1.2
+        valor = f'{valor.normalize():f}'
+    unidad = ETIQUETAS_SIGNOS[campo][1]
+    return f'{valor} {unidad}'.strip()
+
+
+@login_required
+@permission_required('consultas.change_signosvitales', raise_exception=True)
+def editar_preconsulta(request, consulta_id):
+    """Corrige los signos vitales de una consulta que todavia no se cierra."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    signos = (
+        SignosVitales.objects.select_related('tomado_por', 'modificado_por')
+        .filter(consulta=consulta).first()
+    )
+    # Consulta creada directo por la doctora: no paso por preconsulta.
+    if signos is None:
+        raise Http404
+    if consulta.cerrada:
+        messages.info(request, f'La consulta de {persona} ya se cerró; su preconsulta ya no se puede editar.')
+        return redirect('pacientes:cola_consultas')
+
+    es_menor = persona.edad is not None and persona.edad < 18
+    campos = _campos_de_preconsulta(es_menor)
+    form = SignosVitalesForm(request.POST or None, initial={c: getattr(signos, c) for c in campos})
+
+    if request.method == 'POST' and form.is_valid():
+        with transaction.atomic():
+            # Bloquea la fila: si el medico finaliza al mismo tiempo, se respeta el cierre.
+            consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+            if consulta.cerrada:
+                messages.info(request, f'La consulta de {persona} se cerró mientras se editaba; no se guardaron los cambios.')
+                return redirect('pacientes:cola_consultas')
+
+            # Releida bajo el bloqueo: el antes -> despues compara contra lo guardado ahora.
+            signos = SignosVitales.objects.get(pk=signos.pk)
+            cambios = []
+            for campo in campos:
+                anterior, nuevo = getattr(signos, campo), form.cleaned_data[campo]
+                # '' y None son el mismo "vacio"; Decimal compara por valor (70.00 == 70).
+                if (None if anterior == '' else anterior) != (None if nuevo == '' else nuevo):
+                    cambios.append((campo, anterior, nuevo))
+                    setattr(signos, campo, nuevo)
+            if not cambios:
+                messages.info(request, 'No se cambió ningún dato de la preconsulta.')
+                return redirect('pacientes:cola_consultas')
+
+            imc_anterior = signos.imc
+            signos.imc = calcular_imc(signos.peso, signos.talla)
+            if imc_anterior != signos.imc:
+                cambios.append(('imc', imc_anterior, signos.imc))
+
+            signos.modificado_por = request.user
+            signos.save()
+            registrar(
+                request, RegistroAuditoria.Accion.EDITAR_PRECONSULTA,
+                objetivo=f'{persona.nombres} {persona.apellidos}',
+                detalle='; '.join(
+                    f'{ETIQUETAS_SIGNOS[c][0]}: {_valor_legible(c, a)} → {_valor_legible(c, n)}'
+                    for c, a, n in cambios
+                ),
+            )
+        messages.success(request, f'Preconsulta de {persona} corregida.')
+        return redirect('pacientes:cola_consultas')
+
+    return render(request, 'pacientes/editar_preconsulta.html', {
+        'consulta': consulta,
+        'persona': persona,
+        'signos': signos,
+        'form': form,
+        'es_menor': es_menor,
+    })
+
+
 def _solo_su_propia_cola(usuario):
     """
     Un medico ve unicamente los pacientes que le asignaron. Enfermeria
@@ -658,12 +758,30 @@ def _solo_su_propia_cola(usuario):
     )
 
 
+def _puede_elegir_vista_de_cola(usuario):
+    """Quien administra y ademas atiende alterna entre el tablero de todas las colas y la suya."""
+    return usuario.has_perm('consultas.change_consulta') and usuario.has_perm('auth.change_group')
+
+
+VISTAS_COLA = ('enfermeria', 'medico')
+
+
 @login_required
 @permission_required('consultas.view_consulta', raise_exception=True)
 def cola_consultas(request):
     """Cola de espera agrupada por medico, ordenada por hora de llegada."""
     clinicas = request.user.clinicas.all()
-    solo_la_suya = _solo_su_propia_cola(request.user)
+    puede_elegir_vista = _puede_elegir_vista_de_cola(request.user)
+    if puede_elegir_vista:
+        # La eleccion se recuerda en la sesion: sobrevive a las redirecciones
+        # de las acciones de la cola y al auto-refresco.
+        if request.GET.get('vista') in VISTAS_COLA:
+            request.session['vista_cola'] = request.GET['vista']
+        solo_la_suya = request.session.get('vista_cola') == 'medico'
+    else:
+        solo_la_suya = _solo_su_propia_cola(request.user)
+    # Solo las que pasaron por preconsulta tienen signos vitales que corregir.
+    tiene_preconsulta = Exists(SignosVitales.objects.filter(consulta=OuterRef('pk')))
 
     medicos = (
         Usuario.objects.filter(pk=request.user.pk) if solo_la_suya
@@ -677,6 +795,7 @@ def cola_consultas(request):
         )
         .select_related('expediente__persona', 'expediente__clinica')
         .prefetch_related('reasignaciones__medico_anterior')
+        .annotate(tiene_preconsulta=tiene_preconsulta)
         # Emergencias primero; dentro de cada grupo, por hora de llegada.
         # fecha_creacion como desempate: las consultas anteriores a que
         # existiera hora_llegada la tienen vacia.
@@ -690,6 +809,7 @@ def cola_consultas(request):
             expediente__clinica__in=clinicas,
         )
         .select_related('expediente__persona')
+        .annotate(tiene_preconsulta=tiene_preconsulta)
         .order_by('inicio')
     )
     if solo_la_suya:
@@ -713,6 +833,7 @@ def cola_consultas(request):
         'colas': colas,
         'total_en_cola': len(en_cola),
         'solo_la_suya': solo_la_suya,
+        'puede_elegir_vista': puede_elegir_vista,
         # Los dos permisos que exige iniciar_consulta: si se pidiera solo
         # uno, el boton se veria pero el clic daria 403. La enfermera
         # entra a la misma pantalla, unicamente a mirar.
@@ -720,6 +841,7 @@ def cola_consultas(request):
             ['pacientes.view_expediente', 'consultas.change_consulta'],
         ),
         'puede_gestionar': request.user.has_perms(PERMISOS_ENFERMERIA),
+        'puede_editar_preconsulta': request.user.has_perm('consultas.change_signosvitales'),
     }
     plantilla = 'pacientes/resultados_cola.html' if es_ajax(request) else 'pacientes/cola_consultas.html'
     return render(request, plantilla, contexto)

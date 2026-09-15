@@ -429,8 +429,8 @@ def calcular_imc(peso, talla):
     return round(peso / (talla ** 2), 1)
 
 
-class PreconsultaForm(forms.Form):
-    """Signos vitales de una preconsulta, más el médico que la atenderá."""
+class SignosVitalesForm(forms.Form):
+    """Signos vitales de una preconsulta: los mismos campos y reglas al registrar y al corregir."""
 
     # Rangos de seguridad para atrapar errores de tecleo, no un limite clinico exacto.
     PRESION_SISTOLICA_MIN, PRESION_SISTOLICA_MAX = 60, 260
@@ -440,7 +440,6 @@ class PreconsultaForm(forms.Form):
     FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX = 30, 220
     SATURACION_MIN, SATURACION_MAX = 0, 100
 
-    medico = forms.ModelChoiceField(queryset=None, label='Médico', empty_label=None)
     peso = forms.DecimalField(label='Peso (kg)', max_digits=5, decimal_places=2, min_value=0)
     talla = forms.DecimalField(
         label='Talla (metros)', max_digits=5, decimal_places=2,
@@ -470,12 +469,9 @@ class PreconsultaForm(forms.Form):
             'La frecuencia cardíaca', FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX, 'lpm',
         ),
     )
-    es_emergencia = forms.BooleanField(label='Es una emergencia', required=False)
-    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
 
-    def __init__(self, *args, medicos, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['medico'].queryset = medicos
         for nombre, campo in self.fields.items():
             if nombre == 'es_emergencia':
                 campo.widget.attrs.setdefault('class', 'form-check-input')
@@ -512,6 +508,22 @@ class PreconsultaForm(forms.Form):
     def clean(self):
         datos = super().clean()
         datos['imc'] = calcular_imc(datos.get('peso'), datos.get('talla'))
+        return datos
+
+
+class PreconsultaForm(SignosVitalesForm):
+    """Signos vitales de una preconsulta, más el médico que la atenderá."""
+
+    medico = forms.ModelChoiceField(queryset=None, label='Médico', empty_label=None)
+    es_emergencia = forms.BooleanField(label='Es una emergencia', required=False)
+    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
+
+    def __init__(self, *args, medicos, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['medico'].queryset = medicos
+
+    def clean(self):
+        datos = super().clean()
         validar_motivo_emergencia(self, datos)
         return datos
 
