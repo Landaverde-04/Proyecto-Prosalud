@@ -40,8 +40,15 @@
 
 </div>
 
+{# Fuera de data-listado-resultados: si viviera adentro, cada busqueda lo reemplazaria. #}
+{% if perms.pacientes.change_persona %}
+{% include "pacientes/modal_registrar_dui.html" with origen="lista" %}
+{% endif %}
+
 {% endblock %}
 
 {% block scripts_extra %}
 <script src="{% static 'core/js/listado-vivo.js' %}"></script>
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-dui.js' %}"></script>
 {% endblock %}

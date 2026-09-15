@@ -95,6 +95,7 @@ class RegistroAuditoria(models.Model):
         CREAR_ROL = 'crear_rol', 'Creó un rol'
         EDITAR_ROL = 'editar_rol', 'Modificó un rol'
         ELIMINAR_ROL = 'eliminar_rol', 'Eliminó un rol'
+        EDITAR_PRECONSULTA = 'editar_preconsulta', 'Corrigió una preconsulta'
 
     fecha = models.DateTimeField(auto_now_add=True, db_index=True)
 

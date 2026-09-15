@@ -1,0 +1,29 @@
+{% comment %}
+Contenido de la tarjeta de signos vitales en la pantalla de atencion. Vive
+aparte porque signos-vivos.js lo vuelve a pedir y lo reemplaza si enfermeria
+corrige la preconsulta; data-signos-version cambia con cada guardado.
+{% endcomment %}
+<div data-signos-version="{% if signos %}{{ signos.fecha_modificacion|date:'c' }}{% endif %}">
+    {% if signos %}
+    <div class="d-flex flex-wrap gap-4 small">
+        <div><div class="text-muted">P/A</div><div class="fw-medium">{{ signos.presion_arterial|default:"—" }}</div></div>
+        <div><div class="text-muted">FC</div><div class="fw-medium">{{ signos.frecuencia_cardiaca|default:"—" }}</div></div>
+        <div><div class="text-muted">Temp.</div><div class="fw-medium">{{ signos.temperatura|default:"—" }}</div></div>
+        <div><div class="text-muted">Sat O₂</div><div class="fw-medium">{{ signos.saturacion|default:"—" }}</div></div>
+        <div><div class="text-muted">Peso</div><div class="fw-medium">{{ signos.peso|default:"—" }}</div></div>
+        <div><div class="text-muted">Talla</div><div class="fw-medium">{{ signos.talla|default:"—" }}</div></div>
+        <div><div class="text-muted">IMC</div><div class="fw-medium">{{ signos.imc|default:"—" }}</div></div>
+    </div>
+    {% if signos.fue_corregida and signos.modificado_por %}
+    <div class="text-muted small mt-2">
+        <i class="bi bi-pencil me-1"></i>Corregidos por
+        {{ signos.modificado_por.get_full_name|default:signos.modificado_por.username }}
+        a las {{ signos.fecha_modificacion|time:"H:i" }}
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="text-muted small mb-0">
+        Sin preconsulta registrada: esta consulta se abrió directamente, sin pasar por enfermería.
+    </p>
+    {% endif %}
+</div>

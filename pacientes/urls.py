@@ -17,10 +17,12 @@ urlpatterns = [
         'expediente/<int:expediente_id>/contacto/<int:contacto_id>/desactivar/',
         views.desactivar_contacto, name='desactivar_contacto',
     ),
+    path('expediente/<int:expediente_id>/registrar-dui/', views.registrar_dui, name='registrar_dui'),
     path(
         'expediente/<int:expediente_id>/preconsulta/',
         views.registrar_preconsulta, name='registrar_preconsulta',
     ),
+    path('cola/<int:consulta_id>/editar-preconsulta/', views.editar_preconsulta, name='editar_preconsulta'),
     path('cola/', views.cola_consultas, name='cola_consultas'),
     path('cola/<int:consulta_id>/emergencia/', views.marcar_emergencia, name='marcar_emergencia'),
     path('cola/<int:consulta_id>/quitar-emergencia/', views.quitar_emergencia, name='quitar_emergencia'),

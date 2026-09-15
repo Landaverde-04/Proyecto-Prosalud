@@ -29,12 +29,27 @@
                 </p>
             </div>
         </div>
-        <span class="badge rounded-pill d-inline-flex align-items-center gap-2 fw-normal px-3 py-2"
-              style="background-color: var(--accent-soft); color: var(--text-sec);"
-              title="Esta pantalla se actualiza sola">
-            <span class="punto-vivo"></span>
-            En vivo · <span id="cola-actualizada">--:--</span>
-        </span>
+        <div class="d-flex align-items-center flex-wrap gap-2">
+            {% if puede_elegir_vista %}
+            {# Solo cambia lo que se muestra: cada accion sigue validando sus permisos en el servidor. #}
+            <div class="btn-group btn-group-sm" role="group" aria-label="Vista de la cola">
+                <a href="?vista=enfermeria" class="btn {% if solo_la_suya %}btn-outline-secondary{% else %}btn-primary{% endif %}"
+                   {% if not solo_la_suya %}aria-current="true"{% endif %}>
+                    <i class="bi bi-grid-3x3-gap"></i> Vista de enfermería
+                </a>
+                <a href="?vista=medico" class="btn {% if solo_la_suya %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                   {% if solo_la_suya %}aria-current="true"{% endif %}>
+                    <i class="bi bi-person-badge"></i> Vista de médico
+                </a>
+            </div>
+            {% endif %}
+            <span class="badge rounded-pill d-inline-flex align-items-center gap-2 fw-normal px-3 py-2"
+                  style="background-color: var(--accent-soft); color: var(--text-sec);"
+                  title="Esta pantalla se actualiza sola">
+                <span class="punto-vivo"></span>
+                En vivo · <span id="cola-actualizada">--:--</span>
+            </span>
+        </div>
     </div>
 
     <div data-cola-resultados>

@@ -34,6 +34,8 @@ document.addEventListener('DOMContentLoaded', function () {
         talla.addEventListener('input', actualizarImc);
     }
     if (peso) peso.addEventListener('input', actualizarImc);
+    // Con valores ya cargados (al editar, o tras un error del servidor) el IMC se ve de entrada.
+    actualizarImc();
 
     var presion = document.getElementById('id_presion_arterial');
     if (presion) conCursorFijo(presion, formatearPresion);

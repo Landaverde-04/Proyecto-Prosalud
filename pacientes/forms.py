@@ -340,6 +340,8 @@ class AgregarContactoForm(forms.Form):
         # clean() para el chequeo de "no puede ser su propio contacto" y
         # para saber contra quién comparar el Contacto ya existente.
         self.paciente = paciente
+        # Contacto desactivado de esta misma persona, si lo hay: se reactiva.
+        self.contacto_desactivado = None
         # "Responsable" es un concepto exclusivo de menores de edad
         # (HU-EXP-02) -- un adulto solo puede tener contactos de
         # referencia. Se decide con la edad real del paciente, no con lo
@@ -381,8 +383,14 @@ class AgregarContactoForm(forms.Form):
             # vez de un error tecnico si tronara la restriccion.
             if datos['persona_id'] == self.paciente.pk:
                 raise forms.ValidationError('El paciente no puede ser su propio contacto.')
-            if Contacto.objects.filter(paciente=self.paciente, persona_contacto_id=datos['persona_id']).exists():
+            existente = Contacto.objects.filter(
+                paciente=self.paciente, persona_contacto_id=datos['persona_id'],
+            ).first()
+            if existente and existente.activo:
                 raise forms.ValidationError('Esa persona ya es contacto de este paciente.')
+            # Fue contacto y se desactivo: la relacion es unica por paciente,
+            # asi que la vista reactiva esa misma fila en vez de crear otra.
+            self.contacto_desactivado = existente
             if not datos.get('parentesco'):
                 self.add_error('parentesco', 'Falta el parentesco con el paciente.')
             self._validar_parentesco_otro(datos)
@@ -415,6 +423,30 @@ class AgregarContactoForm(forms.Form):
         return datos
 
 
+class RegistrarDuiForm(forms.Form):
+    """DUI de un paciente que ya cumplio 18 y todavia no lo tiene registrado."""
+
+    dui = forms.CharField(max_length=10, label='DUI', validators=[validador_dui])
+
+    def __init__(self, *args, persona, **kwargs):
+        self.persona = persona
+        super().__init__(*args, **kwargs)
+
+    def clean_dui(self):
+        dui = self.cleaned_data['dui']
+        if Persona.objects.filter(dui=dui).exclude(pk=self.persona.pk).exists():
+            raise forms.ValidationError('Ya existe otra persona registrada con este DUI.')
+        return dui
+
+    def clean(self):
+        datos = super().clean()
+        if self.persona.dui:
+            raise forms.ValidationError(f'{self.persona} ya tiene DUI registrado.')
+        if not self.persona.puede_registrar_dui:
+            raise forms.ValidationError('El DUI se registra cuando el paciente ya cumplió 18 años.')
+        return datos
+
+
 def mensajes_de_rango(que, minimo, maximo, unidad):
     """Un solo mensaje claro para los dos limites, en vez del generico de Django."""
     # Django formatea estos mensajes con %: un "%" literal (saturacion) va doble.
@@ -429,8 +461,8 @@ def calcular_imc(peso, talla):
     return round(peso / (talla ** 2), 1)
 
 
-class PreconsultaForm(forms.Form):
-    """Signos vitales de una preconsulta, más el médico que la atenderá."""
+class SignosVitalesForm(forms.Form):
+    """Signos vitales de una preconsulta: los mismos campos y reglas al registrar y al corregir."""
 
     # Rangos de seguridad para atrapar errores de tecleo, no un limite clinico exacto.
     PRESION_SISTOLICA_MIN, PRESION_SISTOLICA_MAX = 60, 260
@@ -440,7 +472,6 @@ class PreconsultaForm(forms.Form):
     FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX = 30, 220
     SATURACION_MIN, SATURACION_MAX = 0, 100
 
-    medico = forms.ModelChoiceField(queryset=None, label='Médico', empty_label=None)
     peso = forms.DecimalField(label='Peso (kg)', max_digits=5, decimal_places=2, min_value=0)
     talla = forms.DecimalField(
         label='Talla (metros)', max_digits=5, decimal_places=2,
@@ -470,12 +501,9 @@ class PreconsultaForm(forms.Form):
             'La frecuencia cardíaca', FRECUENCIA_CARDIACA_MIN, FRECUENCIA_CARDIACA_MAX, 'lpm',
         ),
     )
-    es_emergencia = forms.BooleanField(label='Es una emergencia', required=False)
-    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
 
-    def __init__(self, *args, medicos, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['medico'].queryset = medicos
         for nombre, campo in self.fields.items():
             if nombre == 'es_emergencia':
                 campo.widget.attrs.setdefault('class', 'form-check-input')
@@ -512,6 +540,22 @@ class PreconsultaForm(forms.Form):
     def clean(self):
         datos = super().clean()
         datos['imc'] = calcular_imc(datos.get('peso'), datos.get('talla'))
+        return datos
+
+
+class PreconsultaForm(SignosVitalesForm):
+    """Signos vitales de una preconsulta, más el médico que la atenderá."""
+
+    medico = forms.ModelChoiceField(queryset=None, label='Médico', empty_label=None)
+    es_emergencia = forms.BooleanField(label='Es una emergencia', required=False)
+    motivo_prioridad = forms.CharField(label='Motivo de la emergencia', max_length=255, required=False)
+
+    def __init__(self, *args, medicos, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['medico'].queryset = medicos
+
+    def clean(self):
+        datos = super().clean()
         validar_motivo_emergencia(self, datos)
         return datos
 

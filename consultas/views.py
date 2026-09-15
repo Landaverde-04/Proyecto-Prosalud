@@ -21,7 +21,7 @@ from .forms import (AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
                     ConsultaManualForm, ControlPosteriorForm, DocumentoMedicoForm,
                     ReferenciaMedicaForm, ReprogramarControlForm)
 from .models import (Antecedente, Aplicacion, Consulta, ControlPosterior,
-                     Incapacidad, ReferenciaMedica)
+                     Incapacidad, ReferenciaMedica, SignosVitales)
 
 
 def expediente_autorizado(request, expediente_id):
@@ -322,6 +322,16 @@ def atender_consulta(request, consulta_id):
         'antecedentes': consulta.expediente.antecedentes.filter(activo=True),
         'signos': getattr(consulta, 'signos_vitales', None),
     })
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
+def signos_vitales_consulta(request, consulta_id):
+    """Tarjeta de signos vitales sola: la atencion la vuelve a pedir para ver correcciones de enfermeria."""
+    consulta = consulta_propia(request, consulta_id)
+    signos = SignosVitales.objects.select_related('modificado_por').filter(consulta=consulta).first()
+    return render(request, 'consultas/signos_vitales.html', {'signos': signos})
 
 
 @require_POST

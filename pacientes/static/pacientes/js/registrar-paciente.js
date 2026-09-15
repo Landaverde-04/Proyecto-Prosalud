@@ -118,11 +118,6 @@
         return digitos.length > 4 ? digitos.slice(0, 4) + '-' + digitos.slice(4) : digitos;
     }
 
-    function formatearDui(valor) {
-        var digitos = valor.replace(/\D/g, '').slice(0, 9);
-        return digitos.length > 8 ? digitos.slice(0, 8) + '-' + digitos.slice(8) : digitos;
-    }
-
     ['id_telefono', 'id_contacto_telefono'].forEach(function (id) {
         var campo = document.getElementById(id);
         if (campo) conCursorFijo(campo, formatearTelefono);

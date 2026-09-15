@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from consultas.models import Consulta, SignosVitales
-from core.models import Clinica
+from core.models import Clinica, RegistroAuditoria
 from core.tests import PruebaCore
 from seguridad.models import Usuario
 
@@ -793,6 +793,28 @@ class AgregarContactoTests(PruebaCore):
         self.assertContains(respuesta, 'ya es contacto de este paciente')
         self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
 
+    def test_agregar_de_nuevo_un_contacto_desactivado_lo_reactiva(self):
+        existente = Persona.objects.create(nombres='Ana', apellidos='Lopez', telefono='7011-9988')
+        desactivado = Contacto.objects.create(
+            paciente=self.paciente, persona_contacto=existente, activo=False,
+            tipo=Contacto.Tipo.REFERENCIA, parentesco=Contacto.Parentesco.AMIGO,
+        )
+        self.client.force_login(self.doctor)
+
+        datos = dict(self.datos_base, persona_id=existente.pk, nombres='', apellidos='', telefono='')
+        respuesta = self.client.post(self.url, datos, follow=True)
+
+        self.assertContains(respuesta, 'vuelve a ser contacto')
+        desactivado.refresh_from_db()
+        self.assertTrue(desactivado.activo)
+        # Toma el tipo y parentesco elegidos ahora, sin crear otra fila ni otra Persona.
+        self.assertEqual(desactivado.tipo, Contacto.Tipo.RESPONSABLE)
+        self.assertEqual(desactivado.parentesco, Contacto.Parentesco.PADRE_MADRE)
+        self.assertEqual(desactivado.modificado_por, self.doctor)
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
+        self.assertEqual(Persona.objects.filter(nombres='Ana').count(), 1)
+        self.assertContains(respuesta, 'Ana Lopez')
+
     def test_campos_incompletos_no_guarda(self):
         self.client.force_login(self.doctor)
         datos = dict(self.datos_base, telefono='')
@@ -1489,6 +1511,51 @@ class ColaConsultasTests(PruebaCore):
         self.assertNotContains(respuesta, 'AjenaIniciada')
         self.assertEqual(respuesta.context['total_en_cola'], 0)  # no cuenta como espera
 
+    def _administradora(self):
+        rol = Group.objects.create(name='Doctora Administradora')
+        rol.permissions.add(*self.rol_doctor.permissions.all(), *self.rol_enfermera.permissions.all(),
+                            Permission.objects.get(content_type__app_label='auth', codename='change_group'))
+        doctora = Usuario.objects.create_user(username='doctora', password='x')
+        doctora.groups.add(rol)
+        doctora.clinicas.add(self.clinica)
+        return doctora
+
+    def test_administradora_ve_por_defecto_el_tablero_de_todas_las_colas(self):
+        self.client.force_login(self._administradora())
+
+        respuesta = self.client.get(self.url)
+
+        self.assertFalse(respuesta.context['solo_la_suya'])
+        self.assertTrue(respuesta.context['puede_elegir_vista'])
+
+    def test_administradora_cambia_a_su_propia_cola_para_atender(self):
+        doctora = self._administradora()
+        suya = self._consulta_en_cola('Suyo', timezone.now(), medico=doctora)
+        self._consulta_en_cola('DeOtroMedico', timezone.now())
+        self.client.force_login(doctora)
+
+        respuesta = self.client.get(self.url, {'vista': 'medico'})
+
+        self.assertTrue(respuesta.context['solo_la_suya'])
+        self.assertContains(respuesta, reverse('consultas:iniciar_consulta', args=[suya.pk]))
+        self.assertNotContains(respuesta, 'DeOtroMedico')
+
+    def test_la_vista_elegida_se_recuerda_sin_el_parametro(self):
+        self.client.force_login(self._administradora())
+        self.client.get(self.url, {'vista': 'medico'})
+
+        self.assertTrue(self.client.get(self.url).context['solo_la_suya'])
+        self.client.get(self.url, {'vista': 'enfermeria'})
+        self.assertFalse(self.client.get(self.url).context['solo_la_suya'])
+
+    def test_un_doctor_no_puede_cambiar_al_tablero(self):
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url, {'vista': 'enfermeria'})
+
+        self.assertTrue(respuesta.context['solo_la_suya'])
+        self.assertFalse(respuesta.context['puede_elegir_vista'])
+
     def _otro_medico(self, clinica=None):
         otro = Usuario.objects.create_user(username='doctor3', password='x', first_name='Luis', last_name='Ramos')
         otro.groups.add(self.rol_doctor)
@@ -1859,3 +1926,421 @@ class ColaConsultasTests(PruebaCore):
 
         self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
         self.assertEqual(Consulta.objects.filter(expediente_id=consulta.expediente_id).count(), 2)
+
+
+class EditarPreconsultaTests(PruebaCore):
+    """Correccion de signos vitales ya enviados, con registro de quien y cuando."""
+
+    def setUp(self):
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_signosvitales'),
+            Permission.objects.get(content_type__app_label='consultas', codename='add_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_signosvitales'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='consultas', codename='view_consulta'),
+            Permission.objects.get(content_type__app_label='consultas', codename='change_consulta'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+
+        self.enfermera = Usuario.objects.create_user(username='enfermera', password='x')
+        self.enfermera.groups.add(self.rol_enfermera)
+        self.enfermera.clinicas.add(self.clinica)
+        self.otra_enfermera = Usuario.objects.create_user(username='enfermera2', password='x')
+        self.otra_enfermera.groups.add(self.rol_enfermera)
+        self.otra_enfermera.clinicas.add(self.clinica)
+
+        self.medico = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Ana', last_name='Médica',
+        )
+        self.medico.groups.add(self.rol_doctor)
+        self.medico.clinicas.add(self.clinica)
+
+        self.consulta, self.signos = self._preconsulta('1990-01-01', presion_arterial='120/80')
+        self.url = reverse('pacientes:editar_preconsulta', args=[self.consulta.pk])
+
+    def _preconsulta(self, fecha_nacimiento, clinica=None, **signos):
+        persona = Persona.objects.create(nombres='Paciente', apellidos='Prueba', fecha_nacimiento=fecha_nacimiento)
+        expediente = Expediente.objects.create(persona=persona, clinica=clinica or self.clinica)
+        consulta = Consulta.objects.create(
+            expediente=expediente, doctor=self.medico, motivo='', hora_llegada=timezone.now(),
+        )
+        signos_vitales = SignosVitales.objects.create(
+            consulta=consulta, tomado_por=self.enfermera, creado_por=self.enfermera,
+            modificado_por=self.enfermera, **{'peso': '70', **signos},
+        )
+        # Tomada hace un rato, como en la realidad: una correccion nunca llega en el mismo segundo.
+        hace_rato = timezone.now() - timedelta(minutes=10)
+        SignosVitales.objects.filter(pk=signos_vitales.pk).update(fecha_creacion=hace_rato, fecha_modificacion=hace_rato)
+        signos_vitales.refresh_from_db()
+        return consulta, signos_vitales
+
+    def test_enfermera_corrige_la_preconsulta_y_se_guarda(self):
+        self.client.force_login(self.otra_enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '72.5', 'presion_arterial': '130/85'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'))
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '72.50')
+        self.assertEqual(self.signos.presion_arterial, '130/85')
+        # Quien la tomo no cambia; quien la corrigio queda en modificado_por.
+        self.assertEqual(self.signos.tomado_por, self.enfermera)
+        self.assertEqual(self.signos.modificado_por, self.otra_enfermera)
+
+    def test_la_correccion_queda_en_la_bitacora_con_antes_y_despues(self):
+        self.client.force_login(self.otra_enfermera)
+
+        self.client.post(self.url, {'peso': '72', 'presion_arterial': '120/80'})
+
+        registro = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.EDITAR_PRECONSULTA)
+        self.assertEqual(registro.usuario, self.otra_enfermera)
+        self.assertEqual(registro.objetivo, 'Paciente Prueba')
+        self.assertEqual(registro.detalle, 'Peso: 70 kg → 72 kg')
+
+    def test_sin_cambios_no_guarda_ni_registra_en_bitacora(self):
+        self.client.force_login(self.otra_enfermera)
+
+        self.client.post(self.url, {'peso': '70.00', 'presion_arterial': '120/80'})
+
+        self.signos.refresh_from_db()
+        self.assertEqual(self.signos.modificado_por, self.enfermera)
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_en_un_menor_recalcula_el_imc_al_corregir_la_talla(self):
+        consulta, signos = self._preconsulta('2018-01-01', talla='1.00', imc='70.0')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:editar_preconsulta', args=[consulta.pk]), {'peso': '70', 'talla': '1.20'})
+
+        signos.refresh_from_db()
+        self.assertEqual(str(signos.imc), '48.6')  # 70 / 1.20**2 = 48.61...
+        detalle = RegistroAuditoria.objects.get().detalle
+        self.assertIn('Talla: 1 m → 1.2 m', detalle)
+        self.assertIn('IMC: 70 → 48.6', detalle)
+
+    def test_se_puede_editar_mientras_el_medico_atiende(self):
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'peso': '68', 'presion_arterial': '120/80'})
+
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '68.00')
+
+    def test_el_medico_ve_los_signos_corregidos_al_abrir_la_atencion(self):
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_expediente'),
+        )
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+        self.client.post(self.url, {'peso': '81.5', 'presion_arterial': '120/80'})
+
+        self.client.force_login(self.medico)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+
+        self.assertContains(respuesta, '81,50')  # formato local: coma decimal
+        self.assertIn('no-cache', respuesta['Cache-Control'])
+
+    def test_el_fragmento_en_vivo_trae_la_correccion_solo_al_medico_de_la_consulta(self):
+        self.rol_doctor.permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_expediente'),
+        )
+        self.consulta.inicio = timezone.now()
+        self.consulta.save()
+        url_fragmento = reverse('consultas:signos_vitales_consulta', args=[self.consulta.pk])
+        self.client.force_login(self.enfermera)
+        self.client.post(self.url, {'peso': '81.5', 'presion_arterial': '120/80'})
+
+        self.client.force_login(self.medico)
+        respuesta = self.client.get(url_fragmento)
+        self.assertContains(respuesta, '81,50')
+        self.assertContains(respuesta, 'Corregidos por')
+
+        otro = Usuario.objects.create_user(username='doctor2', password='x')
+        otro.groups.add(self.rol_doctor)
+        otro.clinicas.add(self.clinica)
+        self.client.force_login(otro)
+        self.assertEqual(self.client.get(url_fragmento).status_code, 403)
+
+    def test_no_se_edita_la_preconsulta_de_una_consulta_cerrada(self):
+        self.consulta.inicio = self.consulta.cierre = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '99', 'presion_arterial': '120/80'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'))
+        self.signos.refresh_from_db()
+        self.assertEqual(str(self.signos.peso), '70.00')
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_no_se_edita_la_preconsulta_de_un_paciente_retirado(self):
+        self.consulta.cierre = timezone.now()
+        self.consulta.nota_retiro = 'Se fue'
+        self.consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.assertRedirects(self.client.get(self.url), reverse('pacientes:cola_consultas'))
+
+    def test_valores_fuera_de_rango_no_se_guardan(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'peso': '70', 'presion_arterial': '120/80', 'temperatura': '55'})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_sin_permiso_de_edicion_da_403(self):
+        self.client.force_login(self.medico)
+
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_consulta_de_otra_clinica_da_403(self):
+        consulta, _ = self._preconsulta('1990-01-01', clinica=self.otra_clinica)
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:editar_preconsulta', args=[consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_consulta_sin_preconsulta_da_404(self):
+        consulta = Consulta.objects.create(expediente=self.consulta.expediente, doctor=self.medico, motivo='')
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:editar_preconsulta', args=[consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_la_cola_muestra_el_boton_solo_a_quien_puede_editar(self):
+        url_cola = reverse('pacientes:cola_consultas')
+        self.client.force_login(self.enfermera)
+        self.assertContains(self.client.get(url_cola), self.url)
+
+        self.rol_enfermera.permissions.remove(
+            Permission.objects.get(content_type__app_label='consultas', codename='change_signosvitales'),
+        )
+        self.assertNotContains(self.client.get(url_cola), self.url)
+
+
+class RegistrarDuiTests(PruebaCore):
+    """Paciente que cumplio 18: se registra su DUI y sus responsables pasan a contacto de referencia."""
+
+    def setUp(self):
+        def permiso(app, codename):
+            return Permission.objects.get(content_type__app_label=app, codename=codename)
+
+        self.rol_enfermera = Group.objects.create(name='Enfermera')
+        self.rol_enfermera.permissions.add(
+            permiso('pacientes', 'view_persona'), permiso('pacientes', 'change_persona'),
+            permiso('consultas', 'add_signosvitales'), permiso('consultas', 'add_consulta'),
+        )
+        self.rol_doctor = Group.objects.create(name='Doctor')
+        self.rol_doctor.permissions.add(
+            permiso('pacientes', 'view_persona'), permiso('pacientes', 'view_expediente'),
+            permiso('pacientes', 'change_persona'), permiso('consultas', 'change_consulta'),
+        )
+
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.otra_clinica = Clinica.objects.create(nombre='Estética')
+        self.enfermera = self._usuario('enfermera', self.rol_enfermera)
+        self.doctor = self._usuario('doctor', self.rol_doctor)
+
+        hoy = date.today()
+        self.paciente = Persona.objects.create(
+            nombres='Diego', apellidos='Guevara Peña', fecha_nacimiento=date(hoy.year - 18, 1, 1),
+        )
+        self.expediente = Expediente.objects.create(persona=self.paciente, clinica=self.clinica)
+        self.madre = Persona.objects.create(nombres='Marta', apellidos='Peña Díaz', telefono='7000-1111')
+        self.contacto_madre = Contacto.objects.create(
+            paciente=self.paciente, persona_contacto=self.madre,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        self.url = reverse('pacientes:registrar_dui', args=[self.expediente.id])
+
+    def _usuario(self, username, rol):
+        usuario = Usuario.objects.create_user(username=username, password='x')
+        usuario.groups.add(rol)
+        usuario.clinicas.add(self.clinica)
+        return usuario
+
+    def test_registra_el_dui_y_el_responsable_pasa_a_referencia(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.post(self.url, {'dui': '01234567-8', 'origen': 'lista'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '01234567-8')
+        self.assertEqual(self.paciente.modificado_por, self.enfermera)
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.REFERENCIA)
+        self.assertEqual(self.contacto_madre.modificado_por, self.enfermera)
+
+    def test_la_conversion_no_duplica_ni_afecta_a_otros_pacientes_a_su_cargo(self):
+        hermano = Persona.objects.create(nombres='Luis', apellidos='Guevara Peña', fecha_nacimiento='2016-05-05')
+        contacto_hermano = Contacto.objects.create(
+            paciente=hermano, persona_contacto=self.madre,
+            tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE,
+        )
+        personas_antes = Persona.objects.count()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        contacto_hermano.refresh_from_db()
+        self.madre.refresh_from_db()
+        self.assertEqual(contacto_hermano.tipo, Contacto.Tipo.RESPONSABLE)
+        self.assertEqual(Persona.objects.count(), personas_antes)
+        self.assertEqual(Contacto.objects.filter(paciente=self.paciente).count(), 1)
+        self.assertEqual((self.madre.nombres, self.madre.telefono), ('Marta', '7000-1111'))
+
+    def test_convierte_a_todos_los_responsables_activos_y_no_toca_los_desactivados(self):
+        padre = Persona.objects.create(nombres='Roberto', apellidos='Guevara', telefono='7000-2222')
+        Contacto.objects.create(paciente=self.paciente, persona_contacto=padre,
+                                tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.PADRE_MADRE)
+        abuela = Persona.objects.create(nombres='Rosa', apellidos='Díaz', telefono='7000-3333')
+        desactivado = Contacto.objects.create(paciente=self.paciente, persona_contacto=abuela, activo=False,
+                                              tipo=Contacto.Tipo.RESPONSABLE, parentesco=Contacto.Parentesco.ABUELO)
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.assertFalse(self.paciente.contactos.filter(activo=True, tipo=Contacto.Tipo.RESPONSABLE).exists())
+        desactivado.refresh_from_db()
+        self.assertEqual(desactivado.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_el_historial_previo_se_conserva(self):
+        consulta = Consulta.objects.create(expediente=self.expediente, doctor=self.doctor, motivo='Control')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.expediente, self.expediente)
+        self.assertEqual(consulta.motivo, 'Control')
+
+    def test_despues_ya_no_requiere_responsable(self):
+        self.client.force_login(self.doctor)
+        self.client.post(self.url, {'dui': '01234567-8', 'origen': 'expediente'})
+
+        self.client.post(reverse('pacientes:desactivar_contacto', args=[self.expediente.id, self.contacto_madre.id]))
+
+        self.contacto_madre.refresh_from_db()
+        self.assertFalse(self.contacto_madre.activo)
+
+    def test_adulto_sin_responsables_solo_guarda_el_dui(self):
+        self.contacto_madre.tipo = Contacto.Tipo.REFERENCIA
+        self.contacto_madre.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '01234567-8')
+
+    def test_un_menor_de_edad_no_puede_registrar_dui(self):
+        hoy = date.today()
+        self.paciente.fecha_nacimiento = date(hoy.year - 17, 12, 31)
+        self.paciente.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_dui_de_otra_persona_no_se_guarda_ni_convierte(self):
+        Persona.objects.create(nombres='Otra', apellidos='Persona', dui='01234567-8')
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.contacto_madre.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+        self.assertEqual(self.contacto_madre.tipo, Contacto.Tipo.RESPONSABLE)
+
+    def test_formato_invalido_no_se_guarda(self):
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '123'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '')
+
+    def test_si_ya_tiene_dui_no_se_reemplaza(self):
+        self.paciente.dui = '99999999-9'
+        self.paciente.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(self.url, {'dui': '01234567-8'})
+
+        self.paciente.refresh_from_db()
+        self.assertEqual(self.paciente.dui, '99999999-9')
+
+    def test_sin_permiso_da_403(self):
+        self.rol_enfermera.permissions.remove(
+            Permission.objects.get(content_type__app_label='pacientes', codename='change_persona'),
+        )
+        self.client.force_login(self.enfermera)
+
+        self.assertEqual(self.client.post(self.url, {'dui': '01234567-8'}).status_code, 403)
+
+    def test_paciente_de_otra_clinica_da_403(self):
+        self.expediente.clinica = self.otra_clinica
+        self.expediente.save()
+        self.client.force_login(self.enfermera)
+
+        self.assertEqual(self.client.post(self.url, {'dui': '01234567-8'}).status_code, 403)
+
+    def test_vuelve_a_la_pantalla_de_origen(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.post(self.url, {'dui': '01234567-8', 'origen': 'expediente'})
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+    def test_el_expediente_avisa_y_no_lo_llama_menor_de_edad(self):
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+        self.assertContains(respuesta, 'ya cumplió 18 años')
+        self.assertNotContains(respuesta, 'Sin DUI (menor de edad)')
+        self.assertContains(respuesta, self.url)
+
+    def test_la_preconsulta_avisa(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:registrar_preconsulta', args=[self.expediente.id]))
+
+        self.assertContains(respuesta, 'ya cumplió 18 años')
+
+    def test_la_lista_ofrece_el_boton_pero_no_el_aviso(self):
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(reverse('pacientes:lista_pacientes'))
+
+        self.assertContains(respuesta, self.url)
+        self.assertNotContains(respuesta, 'ya cumplió 18 años')
+
+    def test_un_menor_no_ve_boton_ni_aviso(self):
+        hoy = date.today()
+        self.paciente.fecha_nacimiento = date(hoy.year - 17, 12, 31)
+        self.paciente.save()
+        self.client.force_login(self.doctor)
+
+        respuesta = self.client.get(reverse('pacientes:ver_expediente', args=[self.expediente.id]))
+
+        self.assertNotContains(respuesta, self.url)
+        self.assertNotContains(respuesta, 'ya cumplió 18 años')
