@@ -5,7 +5,7 @@ from django.db import transaction
 
 from consultas.models import (
     Antecedente, Aplicacion, Consulta, ControlPosterior, DetalleOrdenExamen,
-    DetalleReceta, Incapacidad, OrdenExamen, Receta, ReferenciaMedica, SignosVitales,
+    DetalleReceta, Incapacidad, OrdenExamen, ReasignacionConsulta, Receta, ReferenciaMedica, SignosVitales,
 )
 from core.models import Clinica, RegistroAuditoria
 from pacientes.models import Contacto, Expediente, Persona
@@ -78,7 +78,7 @@ class Command(BaseCommand):
         for modelo in (
             DetalleReceta, DetalleOrdenExamen,
             Receta, Incapacidad, ReferenciaMedica, ControlPosterior, Aplicacion, OrdenExamen,
-            SignosVitales, Consulta, Antecedente,
+            SignosVitales, ReasignacionConsulta, Consulta, Antecedente,
         ):
             borrados, _ = modelo.objects.all().delete()
             if borrados:

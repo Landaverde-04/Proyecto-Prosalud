@@ -47,7 +47,7 @@
 {# Fuera de data-cola-resultados: si viviera adentro, el auto-refresco lo cerraria mientras se escribe. #}
 <div class="modal fade" id="modalEmergencia" tabindex="-1" aria-labelledby="tituloEmergencia" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <form method="post" class="modal-content" id="formEmergencia">
+        <form method="post" class="modal-content" data-formulario-modal>
             {% csrf_token %}
             <div class="modal-header">
                 <h5 class="modal-title h6 fw-semibold" id="tituloEmergencia">
@@ -57,16 +57,86 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-                <p class="mb-3"><span class="fw-semibold" id="nombreEmergencia"></span> pasará adelante en la cola de su médico.</p>
+                <p class="mb-3"><span class="fw-semibold" data-nombre-modal></span> pasará adelante en la cola de su médico.</p>
                 <label for="motivoEmergencia" class="form-label fw-medium">
                     Motivo <span class="text-danger">*</span>
                 </label>
-                <input type="text" name="motivo_prioridad" id="motivoEmergencia" class="form-control"
+                <input type="text" name="motivo_prioridad" id="motivoEmergencia" class="form-control" data-campo-modal
                        maxlength="255" required placeholder="Ej: dificultad para respirar">
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                 <button type="submit" class="btn btn-danger">Marcar emergencia</button>
+            </div>
+        </form>
+    </div>
+</div>
+<div class="modal fade" id="modalRetiro" tabindex="-1" aria-labelledby="tituloRetiro" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" class="modal-content" data-formulario-modal>
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloRetiro">
+                    <i class="bi bi-box-arrow-right me-1"></i>
+                    Registrar retiro
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    <span class="fw-semibold" data-nombre-modal></span> saldrá de la cola sin atenderse.
+                    Queda como constancia en su historial y no se puede deshacer.
+                </p>
+                <label for="notaRetiro" class="form-label fw-medium">
+                    Nota <span class="text-danger">*</span>
+                </label>
+                <textarea name="nota_retiro" id="notaRetiro" class="form-control" rows="3"
+                          maxlength="1000" required data-campo-modal
+                          placeholder="Ej: se fue porque tenía que regresar al trabajo"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-secondary">Registrar retiro</button>
+            </div>
+        </form>
+    </div>
+</div>
+<div class="modal fade" id="modalReasignar" tabindex="-1" aria-labelledby="tituloReasignar" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" class="modal-content" data-formulario-modal>
+            {% csrf_token %}
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloReasignar">
+                    <i class="bi bi-arrow-left-right me-1" style="color: var(--accent);"></i>
+                    Reasignar a otro médico
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    <span class="fw-semibold" data-nombre-modal></span> pasará a la cola del médico que elijas,
+                    conservando su hora de llegada.
+                </p>
+                <label for="medicoReasignar" class="form-label fw-medium">
+                    Nuevo médico <span class="text-danger">*</span>
+                </label>
+                <select name="medico" id="medicoReasignar" class="form-select mb-3" required data-campo-modal data-opciones-medico>
+                    <option value="">Elige un médico…</option>
+                    {% for cola in colas %}
+                    <option value="{{ cola.medico.pk }}" data-clinicas="{% for clinica in cola.medico.clinicas.all %}{{ clinica.pk }} {% endfor %}">
+                        {{ cola.medico.get_full_name|default:cola.medico.username }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <label for="motivoReasignar" class="form-label fw-medium">
+                    Motivo <span class="text-muted fw-normal small">(opcional)</span>
+                </label>
+                <input type="text" name="motivo" id="motivoReasignar" class="form-control" maxlength="255"
+                       data-campo-modal placeholder="Ej: el paciente pidió otro médico">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Reasignar</button>
             </div>
         </form>
     </div>

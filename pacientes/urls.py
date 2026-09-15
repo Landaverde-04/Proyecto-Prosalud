@@ -24,4 +24,6 @@ urlpatterns = [
     path('cola/', views.cola_consultas, name='cola_consultas'),
     path('cola/<int:consulta_id>/emergencia/', views.marcar_emergencia, name='marcar_emergencia'),
     path('cola/<int:consulta_id>/quitar-emergencia/', views.quitar_emergencia, name='quitar_emergencia'),
+    path('cola/<int:consulta_id>/retiro/', views.registrar_retiro, name='registrar_retiro'),
+    path('cola/<int:consulta_id>/reasignar/', views.reasignar_consulta, name='reasignar_consulta'),
 ]

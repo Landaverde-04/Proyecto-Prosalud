@@ -534,3 +534,38 @@ class MarcarEmergenciaForm(forms.Form):
         datos['es_emergencia'] = True
         validar_motivo_emergencia(self, datos)
         return datos
+
+
+class RetiroForm(forms.Form):
+    """Nota de por qué un paciente se fue de la cola sin atenderse."""
+
+    nota_retiro = forms.CharField(
+        label='Nota', max_length=1000,
+        error_messages={'required': 'Escribe la nota: queda como constancia de por qué no se atendió.'},
+    )
+
+    def clean_nota_retiro(self):
+        nota = self.cleaned_data['nota_retiro'].strip()
+        if not nota:
+            raise forms.ValidationError('Escribe la nota: queda como constancia de por qué no se atendió.')
+        return nota
+
+
+class ReasignarForm(forms.Form):
+    """Pasa a un paciente en espera a la cola de otro médico."""
+
+    medico = forms.ModelChoiceField(
+        label='Nuevo médico', queryset=None,
+        error_messages={
+            'required': 'Elige el médico que lo va a atender.',
+            'invalid_choice': 'Ese médico no está disponible para este paciente.',
+        },
+    )
+    motivo = forms.CharField(label='Motivo', max_length=255, required=False)
+
+    def __init__(self, *args, medicos, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['medico'].queryset = medicos
+
+    def clean_motivo(self):
+        return self.cleaned_data['motivo'].strip()

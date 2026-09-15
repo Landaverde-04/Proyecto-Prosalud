@@ -1469,6 +1469,135 @@ class ColaConsultasTests(PruebaCore):
         cola = respuesta.context['colas'][0]['consultas']
         self.assertEqual([c.expediente.persona.nombres for c in cola], ['EnEspera'])
 
+    def test_el_doctor_ve_su_consulta_en_atencion_para_continuarla(self):
+        otro_medico = Usuario.objects.create_user(username='doctor3', password='x')
+        otro_medico.groups.add(self.rol_doctor)
+        otro_medico.clinicas.add(self.clinica)
+        ahora = timezone.now()
+        mia = self._consulta_en_cola('Iniciada', ahora)
+        mia.inicio = ahora
+        mia.save()
+        ajena = self._consulta_en_cola('AjenaIniciada', ahora, medico=otro_medico)
+        ajena.inicio = ahora
+        ajena.save()
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.context['colas'][0]['en_atencion'], [mia])
+        self.assertContains(respuesta, reverse('consultas:atender_consulta', args=[mia.pk]))
+        self.assertNotContains(respuesta, 'AjenaIniciada')
+        self.assertEqual(respuesta.context['total_en_cola'], 0)  # no cuenta como espera
+
+    def _otro_medico(self, clinica=None):
+        otro = Usuario.objects.create_user(username='doctor3', password='x', first_name='Luis', last_name='Ramos')
+        otro.groups.add(self.rol_doctor)
+        otro.clinicas.add(clinica or self.clinica)
+        return otro
+
+    def test_la_enfermera_reasigna_y_queda_constancia(self):
+        otro = self._otro_medico()
+        llegada = timezone.now() - timedelta(minutes=40)
+        consulta = self._consulta_en_cola('Paciente', llegada)
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]),
+                         {'medico': otro.pk, 'motivo': '  Pidió otro médico  '})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.doctor, otro)
+        self.assertEqual(consulta.doctor_nombre, 'Luis Ramos')
+        self.assertEqual(consulta.hora_llegada, llegada)  # conserva su lugar
+        cambio = consulta.reasignaciones.get()
+        self.assertEqual((cambio.medico_anterior, cambio.medico_nuevo, cambio.reasignado_por, cambio.motivo),
+                         (self.medico, otro, self.enfermera, 'Pidió otro médico'))
+
+    def test_el_motivo_de_la_reasignacion_es_opcional(self):
+        otro = self._otro_medico()
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]), {'medico': otro.pk})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.doctor, otro)
+
+    def test_no_reasigna_a_un_paciente_que_ya_esta_en_consulta(self):
+        otro = self._otro_medico()
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        consulta.inicio = timezone.now()
+        consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]), {'medico': otro.pk})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.doctor, self.medico)
+        self.assertFalse(consulta.reasignaciones.exists())
+
+    def test_no_reasigna_al_mismo_medico_ni_a_uno_de_otra_clinica(self):
+        de_otra_clinica = self._otro_medico(clinica=self.otra_clinica)
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        for medico in (self.medico, de_otra_clinica):
+            self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]), {'medico': medico.pk})
+
+        consulta.refresh_from_db()
+        self.assertEqual(consulta.doctor, self.medico)
+        self.assertFalse(consulta.reasignaciones.exists())
+
+    def test_un_doctor_no_puede_reasignar(self):
+        otro = self._otro_medico()
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]), {'medico': otro.pk})
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_la_reasignacion_se_ve_en_la_cola_y_en_el_detalle(self):
+        otro = self._otro_medico()
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+        self.client.post(reverse('pacientes:reasignar_consulta', args=[consulta.pk]),
+                         {'medico': otro.pk, 'motivo': 'Doctora ausente'})
+
+        self.client.force_login(otro)
+        self.assertContains(self.client.get(self.url), 'Reasignado desde Ana Médica')
+        detalle = self.client.get(reverse('consultas:ver_consulta', args=[consulta.pk]))
+        self.assertContains(detalle, 'Cambios de médico')
+        self.assertContains(detalle, 'Motivo: Doctora ausente')
+
+    def test_con_un_paciente_en_atencion_solo_puede_iniciar_emergencias(self):
+        ahora = timezone.now()
+        iniciada = self._consulta_en_cola('Iniciada', ahora)
+        iniciada.inicio = ahora
+        iniciada.save()
+        normal = self._consulta_en_cola('Normal', ahora)
+        emergencia = self._consulta_en_cola('Urgente', ahora)
+        emergencia.es_emergencia, emergencia.motivo_prioridad = True, 'Dolor torácico'
+        emergencia.save()
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, reverse('consultas:iniciar_consulta', args=[emergencia.pk]))
+        self.assertNotContains(respuesta, reverse('consultas:iniciar_consulta', args=[normal.pk]))
+
+    def test_la_enfermera_ve_quien_esta_en_consulta_sin_poder_continuarla(self):
+        ahora = timezone.now()
+        consulta = self._consulta_en_cola('Iniciada', ahora)
+        consulta.inicio = ahora
+        consulta.save()
+        self.client.force_login(self.enfermera)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertContains(respuesta, 'En consulta:')
+        self.assertNotContains(respuesta, reverse('consultas:atender_consulta', args=[consulta.pk]))
+        self.assertNotContains(respuesta, reverse('pacientes:registrar_retiro', args=[consulta.pk]))
+
     def test_no_muestra_la_cola_de_otra_clinica(self):
         medico_ajeno = Usuario.objects.create_user(username='doctor2', password='x')
         medico_ajeno.groups.add(self.rol_doctor)
@@ -1667,3 +1796,66 @@ class ColaConsultasTests(PruebaCore):
                                      {'motivo_prioridad': 'x'})
 
         self.assertEqual(respuesta.status_code, 403)
+
+    def test_enfermera_registra_retiro_y_sale_de_la_cola(self):
+        consulta = self._consulta_en_cola('SeFue', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:registrar_retiro', args=[consulta.pk]),
+                         {'nota_retiro': 'Tenía que regresar al trabajo'})
+
+        consulta.refresh_from_db()
+        self.assertTrue(consulta.retirada)
+        self.assertEqual(consulta.nota_retiro, 'Tenía que regresar al trabajo')
+        self.assertIsNotNone(consulta.cierre)
+        self.assertIsNone(consulta.inicio)
+        self.assertEqual(consulta.modificado_por, self.enfermera)
+        # Se mira la cola y no el HTML: el mensaje de exito tambien lleva el nombre.
+        colas = self.client.get(self.url).context['colas']
+        self.assertNotIn(consulta, [c for cola in colas for c in cola['consultas']])
+
+    def test_retiro_sin_nota_no_cambia_nada(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:registrar_retiro', args=[consulta.pk]), {'nota_retiro': '   '})
+
+        consulta.refresh_from_db()
+        self.assertFalse(consulta.retirada)
+        self.assertIsNone(consulta.cierre)
+
+    def test_no_se_retira_un_paciente_que_ya_paso_a_consulta(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        consulta.inicio = timezone.now()
+        consulta.save()
+        self.client.force_login(self.enfermera)
+
+        self.client.post(reverse('pacientes:registrar_retiro', args=[consulta.pk]), {'nota_retiro': 'x'})
+
+        consulta.refresh_from_db()
+        self.assertFalse(consulta.retirada)
+        self.assertIsNone(consulta.cierre)
+
+    def test_el_doctor_no_puede_registrar_retiros(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.medico)
+
+        respuesta = self.client.post(reverse('pacientes:registrar_retiro', args=[consulta.pk]), {'nota_retiro': 'x'})
+
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_tras_retirarse_puede_volver_a_mandarse_a_consulta(self):
+        consulta = self._consulta_en_cola('Paciente', timezone.now())
+        self.client.force_login(self.enfermera)
+        self.client.post(reverse('pacientes:registrar_retiro', args=[consulta.pk]), {'nota_retiro': 'Se fue'})
+        self.enfermera.groups.first().permissions.add(
+            Permission.objects.get(content_type__app_label='pacientes', codename='view_persona'),
+        )
+
+        respuesta = self.client.post(
+            reverse('pacientes:registrar_preconsulta', args=[consulta.expediente_id]),
+            {'peso': '70', 'medico': str(self.medico.pk)},
+        )
+
+        self.assertRedirects(respuesta, reverse('pacientes:lista_pacientes'))
+        self.assertEqual(Consulta.objects.filter(expediente_id=consulta.expediente_id).count(), 2)
