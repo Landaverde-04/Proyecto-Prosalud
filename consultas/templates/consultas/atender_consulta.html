@@ -3,7 +3,7 @@
 {% block titulo %}Atender consulta - Sistema ProSalud{% endblock %}
 {% block contenido %}
 
-<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}"
+<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir
    class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
     <i class="bi bi-arrow-left"></i> Expediente de {{ consulta.expediente.persona }}
 </a>
@@ -387,7 +387,7 @@ cerraba la consulta -- esa regla se descartó el 05/09/2026.
         Lo que escriba se guarda solo.
     </output>
     <div class="d-flex gap-2">
-        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary">Salir</a>
+        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary" data-salir>Salir</a>
         <button type="button" class="btn btn-primary" data-abrir-finalizar>
             Finalizar consulta
         </button>

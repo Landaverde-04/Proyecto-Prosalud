@@ -537,3 +537,39 @@ class ConsultaSoloDeSuDoctorTests(PruebaCore):
         respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
 
         self.assertEqual(respuesta.status_code, 200)
+
+
+class VisitaRetiradaTests(PruebaCore):
+    """Una visita donde el paciente se fue sin atenderse."""
+
+    def setUp(self):
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.doctor = Usuario.objects.create_user(username='doctor', password='x', debe_cambiar_password=False)
+        self.doctor.user_permissions.add(*Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta', 'view_incapacidad', 'add_incapacidad'],
+        ))
+        self.doctor.clinicas.add(self.clinica)
+        persona = Persona.objects.create(nombres='Paciente', apellidos='Retirado')
+        self.expediente = Expediente.objects.create(persona=persona, clinica=self.clinica)
+        ahora = timezone.now()
+        self.consulta = Consulta.objects.create(
+            expediente=self.expediente, doctor=self.doctor, motivo='', hora_llegada=ahora,
+            cierre=ahora, nota_retiro='Tenía que regresar al trabajo',
+        )
+        self.client.force_login(self.doctor)
+
+    def test_el_historial_la_muestra_como_retiro_con_su_nota(self):
+        respuesta = self.client.get(reverse('consultas:historial_consultas', args=[self.expediente.pk]))
+        self.assertContains(respuesta, 'Se retiró')
+        self.assertContains(respuesta, 'Tenía que regresar al trabajo')
+        self.assertNotContains(respuesta, 'Finalizada')
+
+    def test_el_detalle_muestra_la_nota_y_no_ofrece_documentos(self):
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+        self.assertContains(respuesta, 'se retiró antes de pasar a consulta')
+        self.assertContains(respuesta, 'Tenía que regresar al trabajo')
+        self.assertNotContains(respuesta, 'Constancia de incapacidad')
+
+    def test_no_se_emiten_documentos_sobre_una_visita_retirada(self):
+        respuesta = self.client.get(reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 404)

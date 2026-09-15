@@ -45,25 +45,26 @@
             });
     }
 
-    /* ---- Modal de emergencia ----
-       Delegado en document: los botones viven dentro del fragmento que se
-       reemplaza cada 30s, asi que un listener directo se perderia. */
-    var modalEl = document.getElementById('modalEmergencia');
-    if (modalEl && window.bootstrap) {
-        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-        var form = document.getElementById('formEmergencia');
-        var motivo = document.getElementById('motivoEmergencia');
-        var nombre = document.getElementById('nombreEmergencia');
-
+    /* ---- Modales de accion (emergencia, retiro) ----
+       Cada boton dice que modal abre con data-abrir-modal. El clic se
+       escucha delegado en document: los botones viven dentro del fragmento
+       que se reemplaza cada 30s, asi que un listener directo se perderia. */
+    if (window.bootstrap) {
         document.addEventListener('click', function (e) {
-            var boton = e.target.closest('[data-marcar-emergencia]');
+            var boton = e.target.closest('[data-abrir-modal]');
             if (!boton) return;
-            form.action = boton.dataset.url;
-            nombre.textContent = boton.dataset.nombre;
-            motivo.value = '';
-            modal.show();
+            var modalEl = document.getElementById(boton.dataset.abrirModal);
+            if (!modalEl) return;
+            modalEl.querySelector('[data-formulario-modal]').action = boton.dataset.url;
+            modalEl.querySelector('[data-nombre-modal]').textContent = boton.dataset.nombre;
+            var campo = modalEl.querySelector('[data-campo-modal]');
+            campo.value = '';
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
         });
-        modalEl.addEventListener('shown.bs.modal', function () { motivo.focus(); });
+        document.addEventListener('shown.bs.modal', function (e) {
+            var campo = e.target.querySelector('[data-campo-modal]');
+            if (campo) campo.focus();
+        });
     }
 
     marcarHora();

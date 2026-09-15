@@ -17,6 +17,7 @@ from seguridad.models import Usuario
 
 from .forms import (
     AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, RegistrarPacienteForm,
+    RetiroForm,
 )
 from .models import Contacto, Expediente, Persona
 
@@ -680,15 +681,30 @@ def cola_consultas(request):
         # existiera hora_llegada la tienen vacia.
         .order_by('-es_emergencia', 'hora_llegada', 'fecha_creacion')
     )
+    # Ya iniciadas y sin finalizar: se muestran aparte para poder retomarlas
+    # si el medico salio de la pantalla de atencion.
+    en_atencion = (
+        Consulta.objects.filter(
+            inicio__isnull=False, cierre__isnull=True, activo=True,
+            expediente__clinica__in=clinicas,
+        )
+        .select_related('expediente__persona')
+        .order_by('inicio')
+    )
     if solo_la_suya:
         en_cola = en_cola.filter(doctor=request.user)
+        en_atencion = en_atencion.filter(doctor=request.user)
 
     por_medico = {}
     for consulta in en_cola:
         por_medico.setdefault(consulta.doctor_id, []).append(consulta)
+    atendiendo = {}
+    for consulta in en_atencion:
+        atendiendo.setdefault(consulta.doctor_id, []).append(consulta)
 
     colas = [
-        {'medico': medico, 'consultas': por_medico.get(medico.pk, [])}
+        {'medico': medico, 'consultas': por_medico.get(medico.pk, []),
+         'en_atencion': atendiendo.get(medico.pk, [])}
         for medico in medicos
     ]
 
@@ -760,4 +776,30 @@ def quitar_emergencia(request, consulta_id):
     consulta.modificado_por = request.user
     consulta.save(update_fields=['es_emergencia', 'motivo_prioridad', 'modificado_por', 'fecha_modificacion'])
     messages.success(request, f'{persona} volvió a su lugar en la cola.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def registrar_retiro(request, consulta_id):
+    """Saca de la cola a un paciente que se fue, dejando la nota en esa visita."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya no está en espera; el retiro solo aplica antes de pasar a consulta.')
+        return redirect('pacientes:cola_consultas')
+
+    form = RetiroForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, form.errors['nota_retiro'][0])
+        return redirect('pacientes:cola_consultas')
+
+    # Se cierra con inicio vacio: sale sola de la cola y el paciente queda
+    # libre para una preconsulta nueva si vuelve.
+    consulta.nota_retiro = form.cleaned_data['nota_retiro']
+    consulta.cierre = timezone.now()
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['nota_retiro', 'cierre', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'Se registró el retiro de {persona}.')
     return redirect('pacientes:cola_consultas')

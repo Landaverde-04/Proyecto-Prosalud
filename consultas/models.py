@@ -45,9 +45,6 @@ class Consulta(ModeloBase):
     Cuelga de Expediente, no de Persona directamente: asi obtiene su
     clinica del expediente al que pertenece, sin guardarla por separado
     (TEC-01) -- ver la propiedad `clinica` mas abajo.
-
-    De los campos de la Cola de Consulta que trae el diagrama, falta
-    nota_retiro; se agrega cuando se construya su historia.
     """
 
     expediente = models.ForeignKey(
@@ -81,6 +78,9 @@ class Consulta(ModeloBase):
     # obligatorio al marcarla (lo valida el formulario, no la base).
     es_emergencia = models.BooleanField(default=False)
     motivo_prioridad = models.CharField(max_length=255, blank=True)
+    # Con nota, la visita se cerro porque el paciente se fue sin atenderse
+    # (cierre con hora e inicio vacio). Queda como constancia en el historial.
+    nota_retiro = models.TextField(blank=True)
 
     motivo = models.TextField()
     historia_enfermedad_actual = models.TextField(blank=True)
@@ -119,6 +119,11 @@ class Consulta(ModeloBase):
     @property
     def cerrada(self):
         return self.cierre is not None
+
+    @property
+    def retirada(self):
+        """El paciente se fue antes de pasar a consulta."""
+        return bool(self.nota_retiro)
 
 
 class SignosVitales(ModeloBase):

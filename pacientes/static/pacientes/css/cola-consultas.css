@@ -25,6 +25,12 @@
     border-left-color: var(--bs-danger) !important;
 }
 
+/* Consulta iniciada y sin finalizar: se distingue de la espera. */
+.tarjeta-en-atencion {
+    border-left: 4px solid var(--bs-warning) !important;
+    background-color: var(--bs-warning-bg-subtle);
+}
+
 .icono-encabezado {
     width: 44px;
     height: 44px;

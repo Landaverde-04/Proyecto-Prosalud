@@ -7,7 +7,33 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
 
 {% if solo_la_suya %}
 {# ---- Vista del medico: su cola, con el siguiente destacado ---- #}
-{% with cola=colas.0.consultas %}
+{% with cola=colas.0.consultas atendiendo=colas.0.en_atencion %}
+{% if atendiendo %}
+<div class="mb-2 text-uppercase fw-semibold text-muted" style="font-size: 0.7rem; letter-spacing: 0.08em;">
+    En atención
+</div>
+{% for consulta in atendiendo %}
+<div class="card border-0 shadow-sm {% if forloop.last %}mb-4{% else %}mb-2{% endif %} tarjeta-en-atencion">
+    <div class="card-body px-4 py-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <div class="min-width-0">
+            <div class="fs-5 fw-semibold text-truncate">
+                {{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}
+            </div>
+            <div class="text-muted small">
+                <i class="bi bi-stopwatch me-1"></i>Iniciada a las {{ consulta.inicio|time:"H:i" }}
+                · hace {{ consulta.inicio|timesince }}
+            </div>
+        </div>
+        {% if puede_atender %}
+        <a href="{% url 'consultas:atender_consulta' consulta.pk %}" class="btn btn-warning px-4">
+            <i class="bi bi-arrow-return-right"></i> Continuar
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+
 {% if cola %}
 
 {% for consulta in cola %}
@@ -98,7 +124,7 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
 <div class="card border-0 shadow-sm">
     <div class="card-body text-center text-muted py-5">
         <i class="bi bi-check2-circle fs-1 d-block mb-3" style="color: var(--accent); opacity: 0.4;"></i>
-        <p class="mb-0">No tienes pacientes en espera.</p>
+        <p class="mb-0">No tienes {% if atendiendo %}más {% endif %}pacientes en espera.</p>
     </div>
 </div>
 {% endif %}
@@ -123,6 +149,21 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                     </span>
                 </div>
 
+                {% for consulta in cola.en_atencion %}
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2 px-2 py-1 rounded tarjeta-en-atencion small">
+                    <div class="min-width-0">
+                        <div class="text-truncate">
+                            <i class="bi bi-stopwatch me-1"></i><span class="fw-semibold">En consulta:</span>
+                            {{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}
+                        </div>
+                        <div class="text-muted">desde las {{ consulta.inicio|time:"H:i" }}</div>
+                    </div>
+                    {% if puede_atender and consulta.doctor_id == user.pk %}
+                    <a href="{% url 'consultas:atender_consulta' consulta.pk %}" class="btn btn-sm btn-warning py-0 flex-shrink-0">Continuar</a>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
                 {% for consulta in cola.consultas %}
                 <div class="{% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
                     <div class="d-flex align-items-start gap-2">
@@ -145,7 +186,14 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                             </div>
                         </div>
                         {% if puede_gestionar %}
-                        <div class="flex-shrink-0">
+                        <div class="flex-shrink-0 d-flex align-items-start gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                                    data-abrir-modal="modalRetiro"
+                                    data-url="{% url 'pacientes:registrar_retiro' consulta.pk %}"
+                                    data-nombre="{{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}"
+                                    title="Registrar que se retiró">
+                                <i class="bi bi-box-arrow-right"></i>
+                            </button>
                             {% if consulta.es_emergencia %}
                             <form method="post" action="{% url 'pacientes:quitar_emergencia' consulta.pk %}">
                                 {% csrf_token %}
@@ -155,7 +203,7 @@ Dos formas segun quien mira: el medico ve su propia cola en detalle
                             </form>
                             {% else %}
                             <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2"
-                                    data-marcar-emergencia
+                                    data-abrir-modal="modalEmergencia"
                                     data-url="{% url 'pacientes:marcar_emergencia' consulta.pk %}"
                                     data-nombre="{{ consulta.expediente.persona.nombres }} {{ consulta.expediente.persona.apellidos }}"
                                     title="Marcar como emergencia">

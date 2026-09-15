@@ -22,6 +22,9 @@
     var espera = null;
     var guardando = false;
     var pendiente = false;
+    // Cambios escritos contra cambios confirmados por el servidor.
+    var version = 0;
+    var versionGuardada = 0;
 
     function avisar(texto, error) {
         estado.textContent = texto;
@@ -34,6 +37,7 @@
         // se guarda, se encola una sola repetición al terminar.
         if (guardando) { pendiente = true; return Promise.resolve(); }
         guardando = true;
+        var enviada = version;
         avisar('Guardando…');
         return fetch(url, {
             method: 'POST',
@@ -45,6 +49,7 @@
                 return respuesta.json();
             })
             .then(function (datos) {
+                versionGuardada = Math.max(versionGuardada, enviada);
                 avisar('Guardado ' + datos.hora);
             })
             .catch(function () {
@@ -59,6 +64,7 @@
     }
 
     form.addEventListener('input', function () {
+        version++;
         clearTimeout(espera);
         avisar('Sin guardar…');
         espera = setTimeout(guardar, 1000);
@@ -98,6 +104,34 @@
                 panel.querySelector('input, select, textarea').focus();
             }
         });
+    });
+
+    // Cualquier otra salida (menú lateral, cerrar la pestaña, recargar): si
+    // queda algo sin confirmar se envía con keepalive, que el navegador
+    // completa aunque la página ya se esté descargando.
+    window.addEventListener('pagehide', function () {
+        if (version === versionGuardada) { return; }
+        clearTimeout(espera);
+        fetch(url, {
+            method: 'POST',
+            headers: {'X-CSRFToken': token, 'X-Requested-With': 'XMLHttpRequest'},
+            body: new FormData(form),
+            keepalive: true,
+        }).catch(function () { /* la página ya se fue: no hay a quién avisar */ });
+    });
+
+    // Un documento a medio llenar no tiene preguardado: existe hasta que se
+    // envía su formulario. Si se intenta salir antes, el navegador pregunta.
+    var documentoSinEnviar = null;
+    document.querySelectorAll('form[id^="panel-"]').forEach(function (panel) {
+        panel.addEventListener('input', function () { documentoSinEnviar = panel; });
+        panel.addEventListener('submit', function () { documentoSinEnviar = null; });
+    });
+    window.addEventListener('beforeunload', function (evento) {
+        if (documentoSinEnviar) {
+            evento.preventDefault();
+            evento.returnValue = '';
+        }
     });
 
     // Salir a otra pantalla no debe perder lo último escrito: se guarda

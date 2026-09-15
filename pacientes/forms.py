@@ -534,3 +534,18 @@ class MarcarEmergenciaForm(forms.Form):
         datos['es_emergencia'] = True
         validar_motivo_emergencia(self, datos)
         return datos
+
+
+class RetiroForm(forms.Form):
+    """Nota de por qué un paciente se fue de la cola sin atenderse."""
+
+    nota_retiro = forms.CharField(
+        label='Nota', max_length=1000,
+        error_messages={'required': 'Escribe la nota: queda como constancia de por qué no se atendió.'},
+    )
+
+    def clean_nota_retiro(self):
+        nota = self.cleaned_data['nota_retiro'].strip()
+        if not nota:
+            raise forms.ValidationError('Escribe la nota: queda como constancia de por qué no se atendió.')
+        return nota
