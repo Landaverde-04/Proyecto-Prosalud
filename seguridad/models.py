@@ -26,6 +26,11 @@ class Usuario(AbstractUser):
         'core.Clinica', related_name='usuarios', blank=True,
         db_table='UsuarioClinica',
     )
+    # La ultima clinica elegida en el selector: se retoma al volver a iniciar
+    # sesion, desde cualquier equipo. SET_NULL porque es solo una preferencia.
+    ultima_clinica = models.ForeignKey(
+        'core.Clinica', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
 
     class Meta:
         db_table = 'Usuario'

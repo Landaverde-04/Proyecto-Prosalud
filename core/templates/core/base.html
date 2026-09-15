@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="es">
+{# El tema de la clinica activa pinta toda la pagina (ver estilos.css). #}
+<html lang="es" data-tema="{{ clinica_activa.tema|default:'verde_salud' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,7 +33,7 @@
                         style="background: rgba(255,255,255,0.12); border: none; color: #fff;">
                     <i class="bi bi-list fs-5"></i>
                 </button>
-                <span class="fw-semibold text-truncate text-white" style="font-size: 0.9rem;">Sistema ProSalud</span>
+                <span class="fw-semibold text-truncate text-white" style="font-size: 0.9rem;">{{ clinica_activa.nombre|default:"Sistema ProSalud" }}</span>
             </header>
 
             <main class="flex-grow-1 p-4">

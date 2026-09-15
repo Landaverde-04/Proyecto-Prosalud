@@ -4,8 +4,11 @@
     <div class="px-3 py-3 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
         {% load static %}
         <a href="{% url 'core:home' %}" class="text-white text-decoration-none d-flex align-items-center gap-2 overflow-hidden">
-            <i class="bi bi-heart-pulse-fill fs-5 flex-shrink-0 sidebar-collapsed-only" style="color: var(--sidebar-item);"></i>
-            <img src="{% static 'core/img/logo_prosalud.svg' %}" alt="Clínica ProSalud" class="sidebar-label" style="max-width: 170px; height: auto;">
+            <i class="bi {% if clinica_activa.tema == 'estetica' %}bi-flower1{% else %}bi-heart-pulse-fill{% endif %} fs-5 flex-shrink-0 sidebar-collapsed-only" style="color: var(--sidebar-item);"></i>
+            {# Logo de la clinica activa; el de ProSalud mientras no haya ninguna (usuario sin clinica). #}
+            {% with ruta_logo=clinica_activa.logo|default:"core/img/logo_prosalud.svg" %}
+            <img src="{% static ruta_logo %}" alt="{{ clinica_activa.nombre|default:'Clínica ProSalud' }}" class="sidebar-label" style="max-width: 170px; height: auto;">
+            {% endwith %}
         </a>
         <button id="sidebar-toggle"
                 class="btn btn-sm d-flex align-items-center justify-content-center flex-shrink-0 ms-1"
@@ -14,6 +17,25 @@
             <i class="bi bi-x-lg d-inline d-md-none"></i>
         </button>
     </div>
+
+    {# Selector de clinica: solo para quien pertenece a mas de una #}
+    {% if clinicas_para_elegir %}
+    <form method="post" action="{% url 'core:cambiar_clinica' %}" class="px-3 pt-3 sidebar-label">
+        {% csrf_token %}
+        <div class="selector-clinica-titulo text-uppercase fw-semibold mb-1">Clínica</div>
+        <div class="selector-clinica d-flex gap-1 p-1 rounded-3" role="group" aria-label="Clínica en la que trabajas">
+            {% for clinica in clinicas_para_elegir %}
+            {% if clinica.pk == clinica_activa.pk %}
+            <span class="selector-clinica-opcion activa flex-fill text-truncate" aria-current="true">{{ clinica.nombre }}</span>
+            {% else %}
+            <button type="submit" name="clinica" value="{{ clinica.pk }}" class="selector-clinica-opcion flex-fill text-truncate">
+                {{ clinica.nombre }}
+            </button>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </form>
+    {% endif %}
 
     {# Links de navegacion #}
     <nav class="flex-grow-1 px-2 py-3">
@@ -56,7 +78,8 @@
             </li>
             {% endif %}
 
-            {% if perms.consultas.view_consulta %}
+            {# La clinica que atiende por cita no tiene cola #}
+            {% if perms.consultas.view_consulta and clinica_activa.usa_cola %}
             <li class="nav-item">
                 <a href="{% url 'pacientes:cola_consultas' %}"
                    class="nav-link sidebar-link d-flex align-items-center gap-2 rounded px-3 py-2 {% if request.resolver_match.url_name == 'cola_consultas' %}active{% endif %}"

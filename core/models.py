@@ -58,10 +58,22 @@ class Clinica(ModeloBase):
     opera ProSalud.
     """
 
+    class Tipo(models.TextChoices):
+        MEDICA = 'medica', 'Clínica médica'
+        ESTETICA = 'estetica', 'Clínica estética'
+
+    class Tema(models.TextChoices):
+        # Cada valor es una paleta completa definida en estilos.css.
+        VERDE_SALUD = 'verde_salud', 'Verde salud'
+        ESTETICA = 'estetica', 'Estética'
+
     nombre = models.CharField(max_length=150)
     direccion = models.CharField(max_length=255, blank=True)
     telefono = models.CharField(max_length=20, blank=True)
+    # Ruta dentro de los estaticos, ej. 'core/img/logo_prosalud.svg'.
     logo = models.CharField(max_length=255, blank=True)
+    tipo = models.CharField(max_length=20, choices=Tipo.choices, default=Tipo.MEDICA)
+    tema = models.CharField(max_length=20, choices=Tema.choices, default=Tema.VERDE_SALUD)
 
     class Meta:
         db_table = 'Clinica'
@@ -70,6 +82,11 @@ class Clinica(ModeloBase):
 
     def __str__(self):
         return self.nombre
+
+    @property
+    def usa_cola(self):
+        """Solo la clinica medica trabaja con preconsulta y cola; la estetica atiende por cita."""
+        return self.tipo == self.Tipo.MEDICA
 
 
 class RegistroAuditoria(models.Model):

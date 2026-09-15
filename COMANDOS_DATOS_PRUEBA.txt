@@ -45,11 +45,11 @@ Secciones y qué tablas toca cada una
    reales del sistema, no datos de ejemplo.
 
 2) Seguridad
-   Tablas: auth_group (Roles), Usuario (solo los 5 de prueba),
+   Tablas: auth_group (Roles), Usuario (solo los 9 de prueba),
    UsuarioClinica
-   Crea los 5 roles del sistema si no existen: Doctora Administradora,
-   Doctor, Enfermera, Laboratorio, Regente. Además crea (o corrige, si
-   ya existían) 5 cuentas de prueba, una por rol, cada una con su
+   Crea los 6 roles del sistema si no existen: Doctora Administradora,
+   Doctor, Enfermera, Secretaria, Laboratorio, Regente. Además crea (o
+   corrige, si ya existían) 9 cuentas de prueba, una por rol, cada una con su
    clínica asignada — para poder probar cualquier pantalla (ej.
    HU-EXP-05, que exige el permiso view_expediente + pertenecer a la
    clínica) sin tener que crear una cuenta a mano después de clonar el
@@ -63,14 +63,17 @@ Secciones y qué tablas toca cada una
        doctor3         Doctor                     ProSalud
        enfermera1      Enfermera                  ProSalud
        enfermera2      Enfermera                  ProSalud
+       secretaria1     Secretaria                 Estética
        laboratorio1    Laboratorio                ProSalud
        regente1        Regente                    ProSalud
 
-   Contraseña de las 8: admin
+   Contraseña de las 9: admin
 
    Son 3 doctores y 2 enfermeras a propósito: es el personal real de la
    clínica, y hace falta más de un médico para probar la cola de
-   consulta (asignar, comparar colas, reasignar).
+   consulta (asignar, comparar colas, reasignar). La secretaria es la
+   única cuenta de la clínica estética: sirve para ver el sistema desde
+   una clínica que atiende por cita, sin cola ni expediente.
 
    IMPORTANTE: --limpiar NUNCA borra esta sección; para eso está
    --limpiar-usuarios. Sí es seguro volver a correr el comando normal:

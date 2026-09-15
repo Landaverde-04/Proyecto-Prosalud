@@ -68,6 +68,9 @@ class RegistrarPacienteForm(forms.Form):
 
     SEXO_CHOICES = [('', 'Prefiero no decirlo'), ('F', 'Femenino'), ('M', 'Masculino')]
 
+    # El paciente que se intentaba registrar y ya existia (por DUI o por nombre y telefono).
+    persona_existente = None
+
     # Paciente
     nombres = forms.CharField(max_length=100, label='Nombres', validators=[validador_nombre])
     apellidos = forms.CharField(max_length=100, label='Apellidos', validators=[validador_nombre])
@@ -116,7 +119,10 @@ class RegistrarPacienteForm(forms.Form):
         # este chequeo aqui el usuario veria un error tecnico feo en vez
         # de un mensaje entendible.
         dui = self.cleaned_data.get('dui')
-        if dui and Persona.objects.filter(dui=dui).exists():
+        existente = Persona.objects.filter(dui=dui).first() if dui else None
+        if existente:
+            # La vista ofrece abrirle expediente en la clinica activa en vez de duplicarla.
+            self.persona_existente = existente
             raise forms.ValidationError('Ya existe una persona registrada con este DUI.')
         return dui
 
@@ -166,11 +172,13 @@ class RegistrarPacienteForm(forms.Form):
         # telefono daria un falso positivo (nombres comunes son
         # frecuentes, sobre todo entre hermanos).
         if datos.get('nombres') and datos.get('apellidos') and datos.get('telefono'):
-            if Persona.objects.filter(
+            existente = Persona.objects.filter(
                 nombres__iexact=datos['nombres'],
                 apellidos__iexact=datos['apellidos'],
                 telefono=datos['telefono'],
-            ).exists():
+            ).first()
+            if existente:
+                self.persona_existente = existente
                 raise forms.ValidationError(
                     f"Ya existe una persona registrada como \"{datos['nombres']} {datos['apellidos']}\" "
                     f"con el teléfono {datos['telefono']} -- verifica que no sea la misma persona."
@@ -435,7 +443,10 @@ class RegistrarDuiForm(forms.Form):
     def clean_dui(self):
         dui = self.cleaned_data['dui']
         if Persona.objects.filter(dui=dui).exclude(pk=self.persona.pk).exists():
-            raise forms.ValidationError('Ya existe otra persona registrada con este DUI.')
+            raise forms.ValidationError(
+                'Este DUI ya pertenece a otra persona registrada. Si es la misma persona, '
+                'pide a la administración que unifique sus registros.'
+            )
         return dui
 
     def clean(self):
