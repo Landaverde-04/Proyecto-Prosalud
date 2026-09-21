@@ -13,17 +13,21 @@
         <div class="text-muted small">
             {% if consulta.inicio %}
                 Atención del {{ consulta.inicio|date:'d/m/Y' }} a las {{ consulta.inicio|date:'H:i' }}
+            {% elif consulta.retirada %}
+                Visita del {{ consulta.hora_llegada|default:consulta.fecha_creacion|date:'d/m/Y' }}
             {% else %}
                 Consulta sin iniciar
             {% endif %}
-            {% if consulta.cierre %} · finalizada el {{ consulta.cierre|date:'d/m/Y' }} a las {{ consulta.cierre|date:'H:i' }}{% endif %}
+            {% if consulta.cierre and not consulta.retirada %} · finalizada el {{ consulta.cierre|date:'d/m/Y' }} a las {{ consulta.cierre|date:'H:i' }}{% endif %}
         </div>
         <div class="text-muted small">
-            Atendida por {{ consulta.doctor_nombre|default:consulta.doctor.get_full_name|default:consulta.doctor.username }}
+            {% if consulta.retirada %}Asignada a{% else %}Atendida por{% endif %} {{ consulta.doctor_nombre|default:consulta.doctor.get_full_name|default:consulta.doctor.username }}
             · {{ consulta.expediente.clinica }}
         </div>
     </div>
-    {% if consulta.cerrada %}
+    {% if consulta.retirada %}
+        <span class="badge rounded-pill text-bg-light text-muted border align-self-center">Se retiró</span>
+    {% elif consulta.cerrada %}
         <span class="badge rounded-pill text-bg-success align-self-center">Finalizada</span>
     {% elif consulta.en_atencion %}
         <span class="badge rounded-pill text-bg-warning align-self-center">En atención</span>
@@ -39,6 +43,37 @@
 </div>
 {% endif %}
 
+{% if reasignaciones %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body px-4 py-3">
+        <div class="text-muted small fw-semibold text-uppercase mb-2" style="font-size: 0.7rem; letter-spacing: 0.03em;">
+            <i class="bi bi-arrow-left-right me-1"></i>Cambios de médico
+        </div>
+        <div class="vstack gap-2">
+            {% for cambio in reasignaciones %}
+            <div class="small">
+                De <span class="fw-semibold">{{ cambio.medico_anterior.get_full_name|default:cambio.medico_anterior.username }}</span>
+                a <span class="fw-semibold">{{ cambio.medico_nuevo.get_full_name|default:cambio.medico_nuevo.username }}</span>
+                <span class="text-muted">
+                    · por {{ cambio.reasignado_por.get_full_name|default:cambio.reasignado_por.username }}
+                    el {{ cambio.fecha_creacion|date:'d/m/Y' }} a las {{ cambio.fecha_creacion|date:'H:i' }}
+                </span>
+                {% if cambio.motivo %}<div class="text-muted">Motivo: {{ cambio.motivo }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if consulta.retirada %}
+{# Visita sin atencion: no hay campos clinicos ni documentos que mostrar. #}
+<div class="alert alert-secondary">
+    <div class="fw-semibold mb-1"><i class="bi bi-box-arrow-right me-1"></i>El paciente se retiró antes de pasar a consulta</div>
+    <div style="white-space: pre-wrap;">{{ consulta.nota_retiro }}</div>
+    <div class="small text-muted mt-2">Registrado el {{ consulta.cierre|date:'d/m/Y' }} a las {{ consulta.cierre|date:'H:i' }}.</div>
+</div>
+{% else %}
 <div class="card shadow-sm border-0 mb-3">
     <div class="card-body p-4">
         <div class="row g-4">
@@ -145,5 +180,6 @@
         </p>
     </div>
 </div>
+{% endif %}
 
 {% endblock %}

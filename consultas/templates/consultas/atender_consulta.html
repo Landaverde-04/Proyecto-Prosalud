@@ -3,7 +3,7 @@
 {% block titulo %}Atender consulta - Sistema ProSalud{% endblock %}
 {% block contenido %}
 
-<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}"
+<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir
    class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
     <i class="bi bi-arrow-left"></i> Expediente de {{ consulta.expediente.persona }}
 </a>
@@ -59,26 +59,14 @@ final de la pantalla, donde ya no servían para nada. Los toma enfermería en
 la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
 {% endcomment %}
 <div class="card shadow-sm border-0 mb-3">
-    <div class="card-body p-3">
+    <div class="card-body p-3" data-signos-vivos data-url="{% url 'consultas:signos_vitales_consulta' consulta.pk %}">
         <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
             <i class="bi bi-activity me-1"></i>SIGNOS VITALES
+            <span class="badge text-bg-warning fw-normal ms-2" data-signos-aviso hidden>Actualizados por enfermería</span>
         </h6>
-        {% if signos %}
-        <div class="d-flex flex-wrap gap-4 small">
-            <div><div class="text-muted">P/A</div><div class="fw-medium">{{ signos.presion_arterial|default:"—" }}</div></div>
-            <div><div class="text-muted">FC</div><div class="fw-medium">{{ signos.frecuencia_cardiaca|default:"—" }}</div></div>
-            <div><div class="text-muted">Temp.</div><div class="fw-medium">{{ signos.temperatura|default:"—" }}</div></div>
-            <div><div class="text-muted">Sat O₂</div><div class="fw-medium">{{ signos.saturacion|default:"—" }}</div></div>
-            <div><div class="text-muted">Peso</div><div class="fw-medium">{{ signos.peso|default:"—" }}</div></div>
-            <div><div class="text-muted">Talla</div><div class="fw-medium">{{ signos.talla|default:"—" }}</div></div>
-            <div><div class="text-muted">IMC</div><div class="fw-medium">{{ signos.imc|default:"—" }}</div></div>
+        <div data-signos-contenido>
+            {% include "consultas/signos_vitales.html" %}
         </div>
-        {% else %}
-        <p class="text-muted small mb-0">
-            Sin preconsulta registrada. Los toma enfermería antes de la consulta,
-            cuando esté construida esa parte.
-        </p>
-        {% endif %}
     </div>
 </div>
 
@@ -387,7 +375,7 @@ cerraba la consulta -- esa regla se descartó el 05/09/2026.
         Lo que escriba se guarda solo.
     </output>
     <div class="d-flex gap-2">
-        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary">Salir</a>
+        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary" data-salir>Salir</a>
         <button type="button" class="btn btn-primary" data-abrir-finalizar>
             Finalizar consulta
         </button>
@@ -520,4 +508,5 @@ costaba abandonar la atención.
 
 {% block scripts_extra %}
 <script src="{% static 'consultas/js/consulta.js' %}"></script>
+<script src="{% static 'consultas/js/signos-vivos.js' %}"></script>
 {% endblock %}

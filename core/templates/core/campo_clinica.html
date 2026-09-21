@@ -1,0 +1,6 @@
+{% comment %}
+Clinica con la que se dibujo el formulario. El servidor rechaza el envio si
+ya no coincide con la activa -- pasa cuando se cambia de clinica en otra
+pestaña, porque la sesion es la misma para todas.
+{% endcomment %}
+{% if clinica_activa %}<input type="hidden" name="clinica_formulario" value="{{ clinica_activa.pk }}">{% endif %}

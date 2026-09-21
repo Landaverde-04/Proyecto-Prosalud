@@ -1,18 +1,35 @@
+from decimal import Decimal
+from urllib.parse import urlencode
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.models import Permission
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
-from django.db.models import CharField, Exists, OuterRef, Q, Value
+from django.db import IntegrityError, transaction
+from django.db.models import CharField, Exists, OuterRef, Prefetch, Q, Value
 from django.db.models.functions import Concat, Replace
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.models import Clinica
+from consultas.models import Consulta, ReasignacionConsulta, SignosVitales
+from core.auditoria import registrar
+from core.clinica_activa import clinica_activa, formulario_de_otra_clinica
+from core.models import RegistroAuditoria
 from core.paginacion import es_ajax, paginar
+from seguridad.models import Usuario
 
-from .forms import AgregarContactoForm, EditarContactoForm, RegistrarPacienteForm
+from .forms import (
+    AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, ReasignarForm,
+    RegistrarDuiForm, RegistrarPacienteForm, RetiroForm, SignosVitalesForm, calcular_imc,
+)
 from .models import Contacto, Expediente, Persona
+
+# Lo que hace enfermeria sobre la cola: tomar preconsulta y gestionar la
+# espera. Se usa el mismo par en la preconsulta y en marcar emergencias.
+PERMISOS_ENFERMERIA = ('consultas.add_signosvitales', 'consultas.add_consulta')
 
 
 def _condiciones_busqueda_persona(consulta):
@@ -71,9 +88,20 @@ def registrar_paciente(request):
     responsable, nueva o reutilizada), Contacto y Expediente -- los
     cuatro juntos o ninguno (transaction.atomic).
     """
+    # El expediente nace en la clinica en la que se esta trabajando.
+    clinica = clinica_activa(request)
+    if clinica is None:
+        raise PermissionDenied
     if request.method == 'POST':
         form = RegistrarPacienteForm(request.POST)
-        if form.is_valid():
+        # Nada se guarda en una clinica distinta a la que se eligio al abrir el formulario.
+        if formulario_de_otra_clinica(request, clinica):
+            messages.warning(
+                request,
+                f'Cambiaste de clínica en otra pestaña. Ahora trabajas en {clinica.nombre}: '
+                'revisa los datos y vuelve a guardar.',
+            )
+        elif form.is_valid():
             datos = form.cleaned_data
             tipo_contacto = Contacto.Tipo.RESPONSABLE if form.es_menor else Contacto.Tipo.REFERENCIA
 
@@ -116,10 +144,6 @@ def registrar_paciente(request):
                         modificado_por=request.user,
                     )
 
-                # Unica clinica que opera en la entrega de agosto.
-                # get_or_create como red de seguridad si nadie ha
-                # corrido sembrar_datos todavia.
-                clinica, _ = Clinica.objects.get_or_create(nombre='ProSalud')
                 Expediente.objects.create(
                     persona=paciente,
                     clinica=clinica,
@@ -143,10 +167,14 @@ def registrar_paciente(request):
     es_menor = getattr(form, 'es_menor', False)
     contacto_abierto = es_menor or bool(form.non_field_errors()) or any(form[campo].errors for campo in campos_contacto)
 
+    # El paciente ya estaba registrado: se ofrece abrirle expediente aqui (o buscarlo, si ya lo tiene).
+    existente = form.persona_existente
     return render(request, 'pacientes/registrar_paciente.html', {
         'form': form,
         'contacto_abierto': contacto_abierto,
         'es_menor': es_menor,
+        'persona_existente': existente,
+        'existente_ya_es_paciente_aqui': bool(existente) and existente.expedientes.filter(clinica=clinica).exists(),
     })
 
 
@@ -211,14 +239,24 @@ def lista_pacientes(request):
       usuario" que tampoco existe todavia (hoy solo opera una clinica
       real, ProSalud).
     """
+    # Solo pacientes con expediente en la clinica activa, y de sus relaciones
+    # solo lo de esa clinica: ni su expediente ni los pacientes de los que es
+    # contacto en la otra clinica se muestran aqui.
+    clinica = clinica_activa(request)
     personas = (
-        Persona.objects.filter(expedientes__isnull=False)
+        Persona.objects.filter(expedientes__clinica=clinica)
         .annotate(
             nombre_completo=Concat('nombres', Value(' '), 'apellidos', output_field=CharField()),
             dui_sin_guion=Replace('dui', Value('-'), Value('')),
             telefono_sin_guion=Replace('telefono', Value('-'), Value('')),
         )
-        .prefetch_related('es_contacto_de__paciente', 'expedientes')
+        .prefetch_related(
+            Prefetch('es_contacto_de', to_attr='contactos_en_la_clinica',
+                     queryset=Contacto.objects.filter(paciente__expedientes__clinica=clinica)
+                     .select_related('paciente')),
+            Prefetch('expedientes', to_attr='expedientes_en_la_clinica',
+                     queryset=Expediente.objects.filter(clinica=clinica)),
+        )
         .distinct()
     )
 
@@ -253,16 +291,80 @@ def lista_pacientes(request):
     # veria a "Marta" en la lista sin saber que tambien es la
     # responsable de otros dos pacientes ya registrados.
     for persona in pagina.object_list:
-        persona.tambien_contacto_de = [c.paciente for c in persona.es_contacto_de.all()]
-        # Hoy una Persona tiene a lo sumo un expediente real (solo opera
-        # ProSalud) -- cuando exista "clinica activa del usuario" esto se
-        # filtra por esa clinica en vez de tomar el primero sin mas.
-        expedientes = persona.expedientes.all()
+        persona.tambien_contacto_de = [c.paciente for c in persona.contactos_en_la_clinica]
+        # Una persona tiene a lo sumo un expediente por clinica.
+        expedientes = persona.expedientes_en_la_clinica
         persona.expediente_id = expedientes[0].id if expedientes else None
 
-    contexto = {'pagina': pagina, 'consulta': consulta, 'total': total}
+    contexto = {
+        'pagina': pagina, 'consulta': consulta, 'total': total,
+        'personas_sin_expediente_aqui': _personas_sin_expediente_aqui(request, clinica, consulta),
+    }
     plantilla = 'pacientes/resultados_pacientes.html' if es_ajax(request) else 'pacientes/lista_pacientes.html'
     return render(request, plantilla, contexto)
+
+
+LIMITE_SIN_EXPEDIENTE_AQUI = 5
+
+
+def _personas_sin_expediente_aqui(request, clinica, consulta):
+    """
+    Personas ya registradas que coinciden con la busqueda pero no tienen
+    expediente en esta clinica (pacientes de otra clinica o solo contactos).
+    Solo con una busqueda escrita, para no listar a toda la otra clinica, y
+    solo para quien puede registrar pacientes.
+    """
+    if not consulta or clinica is None or not request.user.has_perm('pacientes.add_persona'):
+        return []
+    condiciones, _ = _condiciones_busqueda_persona(consulta)
+    return list(
+        Persona.objects.filter(activo=True)
+        .exclude(expedientes__clinica=clinica)
+        .annotate(
+            nombre_completo=Concat('nombres', Value(' '), 'apellidos', output_field=CharField()),
+            dui_sin_guion=Replace('dui', Value('-'), Value('')),
+            telefono_sin_guion=Replace('telefono', Value('-'), Value('')),
+        )
+        .filter(condiciones)
+        .distinct()
+        .order_by('apellidos', 'nombres')[:LIMITE_SIN_EXPEDIENTE_AQUI]
+    )
+
+
+@require_POST
+@login_required
+@permission_required('pacientes.add_persona', raise_exception=True)
+def abrir_expediente(request, persona_id):
+    """Abre expediente en la clinica activa a una persona ya registrada, sin tocar sus datos ni contactos."""
+    clinica = clinica_activa(request)
+    if clinica is None:
+        raise PermissionDenied
+    if formulario_de_otra_clinica(request, clinica):
+        messages.warning(
+            request,
+            f'Cambiaste de clínica en otra pestaña. Ahora trabajas en {clinica.nombre}: '
+            'busca de nuevo a la persona si quieres abrirle expediente aquí.',
+        )
+        return redirect('pacientes:lista_pacientes')
+    persona = get_object_or_404(Persona, pk=persona_id, activo=True)
+    try:
+        # Savepoint: si otra peticion lo abrio al mismo tiempo, choca con expediente_unico_por_clinica.
+        with transaction.atomic():
+            expediente, creado = Expediente.objects.get_or_create(
+                persona=persona, clinica=clinica,
+                defaults={'creado_por': request.user, 'modificado_por': request.user},
+            )
+    except IntegrityError:
+        expediente, creado = Expediente.objects.get(persona=persona, clinica=clinica), False
+
+    if creado:
+        messages.success(request, f'Expediente de {persona} abierto en {clinica.nombre}.')
+    else:
+        messages.info(request, f'{persona} ya tenía expediente en {clinica.nombre}.')
+    if request.user.has_perm('pacientes.view_expediente'):
+        return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
+    # Sin acceso al expediente (enfermeria, secretaria): de vuelta a la lista, ya con la persona encontrada.
+    return redirect(f"{reverse('pacientes:lista_pacientes')}?{urlencode({'q': f'{persona.nombres} {persona.apellidos}'})}")
 
 
 def _expediente_para_usuario(request, expediente_id):
@@ -350,6 +452,10 @@ def _contexto_ver_expediente(expediente):
         'persona': persona,
         'es_menor': es_menor,
         'responsable': responsable,
+        # Ya cumplio 18 y sigue con responsable: se avisa al abrir el expediente.
+        'responsables_por_convertir': (
+            list(_responsables_activos(persona)) if persona.puede_registrar_dui else []
+        ),
         'antecedentes': antecedentes,
         'controles_pendientes': controles_pendientes,
         # Todos los contactos ACTIVOS del paciente (HU-EXP-02: "un
@@ -387,7 +493,15 @@ def ver_expediente(request, expediente_id):
     doctores pueden abrir el expediente completo").
     """
     expediente = _expediente_para_usuario(request, expediente_id)
+    if _es_de_otra_clinica(request, expediente):
+        return render(request, 'pacientes/expediente_otra_clinica.html', {'expediente': expediente})
     return render(request, 'pacientes/ver_expediente.html', _contexto_ver_expediente(expediente))
+
+
+def _es_de_otra_clinica(request, expediente):
+    """El expediente es de una clinica del usuario, pero no de la que tiene activa."""
+    activa = clinica_activa(request)
+    return activa is not None and expediente.clinica_id != activa.pk
 
 
 @require_POST
@@ -424,16 +538,30 @@ def agregar_contacto(request, expediente_id):
                     creado_por=request.user,
                     modificado_por=request.user,
                 )
-            Contacto.objects.create(
-                paciente=paciente,
-                persona_contacto=persona_contacto,
-                tipo=datos['tipo'],
-                parentesco=datos['parentesco'],
-                parentesco_otro=datos['parentesco_otro'],
-                creado_por=request.user,
-                modificado_por=request.user,
-            )
-        messages.success(request, f'{persona_contacto} agregado como contacto de {paciente}.')
+            contacto = form.contacto_desactivado
+            if contacto:
+                # Misma fila de antes: conserva quien la creo y cuando; toma
+                # el tipo y parentesco que se eligieron ahora.
+                contacto.tipo = datos['tipo']
+                contacto.parentesco = datos['parentesco']
+                contacto.parentesco_otro = datos['parentesco_otro']
+                contacto.activo = True
+                contacto.modificado_por = request.user
+                contacto.save()
+            else:
+                Contacto.objects.create(
+                    paciente=paciente,
+                    persona_contacto=persona_contacto,
+                    tipo=datos['tipo'],
+                    parentesco=datos['parentesco'],
+                    parentesco_otro=datos['parentesco_otro'],
+                    creado_por=request.user,
+                    modificado_por=request.user,
+                )
+        if contacto:
+            messages.success(request, f'{persona_contacto} vuelve a ser contacto de {paciente} (estaba desactivado).')
+        else:
+            messages.success(request, f'{persona_contacto} agregado como contacto de {paciente}.')
         # Post/redirect/get, igual que registrar_paciente: evita volver a
         # crear el mismo contacto si se recarga la pagina despues.
         return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
@@ -547,3 +675,497 @@ def desactivar_contacto(request, expediente_id, contacto_id):
         messages.success(request, f'{contacto.persona_contacto} ya no es contacto de {paciente}.')
 
     return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
+
+
+def _responsables_activos(persona):
+    return persona.contactos.filter(tipo=Contacto.Tipo.RESPONSABLE, activo=True).select_related('persona_contacto')
+
+
+def _volver_tras_registrar_dui(origen, expediente):
+    """A la pantalla desde donde se abrio el modal; nunca a una URL que llegue en el POST."""
+    if origen == 'expediente':
+        return redirect('pacientes:ver_expediente', expediente_id=expediente.id)
+    if origen == 'preconsulta':
+        return redirect('pacientes:registrar_preconsulta', expediente_id=expediente.id)
+    return redirect('pacientes:lista_pacientes')
+
+
+@require_POST
+@login_required
+@permission_required('pacientes.change_persona', raise_exception=True)
+def registrar_dui(request, expediente_id):
+    """Registra el DUI de un paciente que ya cumplio 18; sus responsables pasan a contacto de referencia."""
+    expediente = _expediente_para_usuario(request, expediente_id)
+    volver = _volver_tras_registrar_dui(request.POST.get('origen'), expediente)
+
+    form = RegistrarDuiForm(request.POST, persona=expediente.persona)
+    if not form.is_valid():
+        messages.error(request, next(iter(form.errors.values()))[0])
+        return volver
+
+    with transaction.atomic():
+        # Bloquea a la persona: dos registros simultaneos no convierten dos veces.
+        persona = Persona.objects.select_for_update().get(pk=expediente.persona_id)
+        if persona.dui:
+            messages.info(request, f'{persona} ya tiene DUI registrado.')
+            return volver
+        persona.dui = form.cleaned_data['dui']
+        persona.modificado_por = request.user
+        try:
+            # Savepoint: si otra persona tomo el DUI entre la validacion y el guardado.
+            with transaction.atomic():
+                persona.save(update_fields=['dui', 'modificado_por', 'fecha_modificacion'])
+        except IntegrityError:
+            messages.error(
+                request,
+                'Este DUI ya pertenece a otra persona registrada. Si es la misma persona, '
+                'pide a la administración que unifique sus registros.',
+            )
+            return volver
+
+        # Solo cambia el tipo de SU relacion: la Persona del responsable y sus
+        # otros pacientes no se tocan.
+        convertidos = list(_responsables_activos(persona))
+        for contacto in convertidos:
+            contacto.tipo = Contacto.Tipo.REFERENCIA
+            contacto.modificado_por = request.user
+            contacto.save(update_fields=['tipo', 'modificado_por', 'fecha_modificacion'])
+
+    mensaje = f'DUI de {persona} registrado.'
+    if convertidos:
+        nombres = ', '.join(str(c.persona_contacto) for c in convertidos)
+        mensaje += f' Ya se maneja como adulto: {nombres} pasó a contacto de referencia.'
+    messages.success(request, mensaje)
+    return volver
+
+
+def _medicos_disponibles(clinicas):
+    """Usuarios de esas clinicas con permiso para atender consultas, vía su Rol."""
+    permiso = Permission.objects.get(content_type__app_label='consultas', codename='change_consulta')
+    return (
+        Usuario.objects.filter(is_active=True, clinicas__in=clinicas, groups__permissions=permiso)
+        .distinct()
+        .order_by('first_name', 'last_name')
+    )
+
+
+def _con_conteo_de_cola(medicos, clinica):
+    """Materializa el queryset y le agrega 'pacientes_en_cola' (solo de esa clinica) a cada medico."""
+    lista = list(medicos)
+    for medico in lista:
+        medico.pacientes_en_cola = Consulta.objects.filter(
+            doctor=medico, inicio__isnull=True, cierre__isnull=True, activo=True,
+            expediente__clinica=clinica,
+        ).count()
+    return lista
+
+
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def registrar_preconsulta(request, expediente_id):
+    """Registra signos vitales y asigna medico en un solo envio; crea la Consulta y su SignosVitales."""
+    expediente = get_object_or_404(
+        Expediente.objects.select_related('persona', 'clinica'), pk=expediente_id,
+    )
+    if not request.user.clinicas.filter(pk=expediente.clinica_id).exists():
+        raise PermissionDenied
+    sin_cola = _sin_cola(request, expediente.clinica, 'pacientes:lista_pacientes')
+    if sin_cola:
+        return sin_cola
+    persona = expediente.persona
+    if _es_de_otra_clinica(request, expediente):
+        messages.info(request, f'{persona} es paciente de {expediente.clinica.nombre}: cambia a esa clínica para enviarlo a consulta.')
+        return redirect('pacientes:lista_pacientes')
+
+    # No se registra una segunda preconsulta si ya hay una consulta sin cerrar.
+    abierta = Consulta.objects.filter(expediente=expediente, cierre__isnull=True, activo=True).first()
+    if abierta:
+        estado = 'en atención' if abierta.en_atencion else 'en la cola'
+        messages.info(request, f'{persona} ya tiene una consulta {estado} -- no se registra otra preconsulta.')
+        return redirect('pacientes:lista_pacientes')
+
+    medicos = _medicos_disponibles([expediente.clinica])
+    form = PreconsultaForm(request.POST or None, medicos=medicos)
+
+    if request.method == 'POST' and form.is_valid():
+        datos = form.cleaned_data
+        medico = datos['medico']
+        with transaction.atomic():
+            consulta = Consulta.objects.create(
+                expediente=expediente,
+                doctor=medico,
+                # Nombre congelado: si el medico edita su perfil despues, esta fila no cambia.
+                doctor_nombre=medico.get_full_name() or medico.username,
+                motivo='',
+                hora_llegada=timezone.now(),
+                es_emergencia=datos['es_emergencia'],
+                motivo_prioridad=datos['motivo_prioridad'],
+                creado_por=request.user,
+                modificado_por=request.user,
+            )
+            SignosVitales.objects.create(
+                consulta=consulta,
+                tomado_por=request.user,
+                peso=datos['peso'],
+                talla=datos['talla'],
+                presion_arterial=datos['presion_arterial'],
+                temperatura=datos['temperatura'],
+                saturacion=datos['saturacion'],
+                frecuencia_cardiaca=datos['frecuencia_cardiaca'],
+                imc=datos['imc'],
+                creado_por=request.user,
+                modificado_por=request.user,
+            )
+        messages.success(
+            request,
+            f'Preconsulta de {persona} registrada -- enviado a la cola de '
+            f'{medico.get_full_name() or medico.username}.',
+        )
+        return redirect('pacientes:lista_pacientes')
+
+    return render(request, 'pacientes/registrar_preconsulta.html', {
+        'expediente': expediente,
+        'persona': persona,
+        'form': form,
+        'medicos': _con_conteo_de_cola(medicos, expediente.clinica),
+        'es_menor': persona.edad is not None and persona.edad < 18,
+        'responsables_por_convertir': (
+            list(_responsables_activos(persona)) if persona.puede_registrar_dui else []
+        ),
+    })
+
+
+# Etiqueta y unidad de cada signo vital, para el detalle legible de la bitacora.
+ETIQUETAS_SIGNOS = {
+    'peso': ('Peso', 'kg'),
+    'talla': ('Talla', 'm'),
+    'presion_arterial': ('Presión arterial', ''),
+    'temperatura': ('Temperatura', '°C'),
+    'saturacion': ('Saturación', '%'),
+    'frecuencia_cardiaca': ('Frecuencia cardíaca', 'lpm'),
+    'imc': ('IMC', ''),
+}
+
+
+def _campos_de_preconsulta(es_menor):
+    """Campos que muestra la preconsulta segun la edad: talla a menores, presion a adultos."""
+    por_edad = ['talla'] if es_menor else ['presion_arterial']
+    return ['peso', *por_edad, 'temperatura', 'frecuencia_cardiaca', 'saturacion']
+
+
+def _valor_legible(campo, valor):
+    if valor in (None, ''):
+        return 'vacío'
+    if isinstance(valor, Decimal):
+        # 70.00 -> 70; 1.20 -> 1.2
+        valor = f'{valor.normalize():f}'
+    unidad = ETIQUETAS_SIGNOS[campo][1]
+    return f'{valor} {unidad}'.strip()
+
+
+@login_required
+@permission_required('consultas.change_signosvitales', raise_exception=True)
+def editar_preconsulta(request, consulta_id):
+    """Corrige los signos vitales de una consulta que todavia no se cierra."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    signos = (
+        SignosVitales.objects.select_related('tomado_por', 'modificado_por')
+        .filter(consulta=consulta).first()
+    )
+    # Consulta creada directo por la doctora: no paso por preconsulta.
+    if signos is None:
+        raise Http404
+    if consulta.cerrada:
+        messages.info(request, f'La consulta de {persona} ya se cerró; su preconsulta ya no se puede editar.')
+        return redirect('pacientes:cola_consultas')
+
+    es_menor = persona.edad is not None and persona.edad < 18
+    campos = _campos_de_preconsulta(es_menor)
+    form = SignosVitalesForm(request.POST or None, initial={c: getattr(signos, c) for c in campos})
+
+    if request.method == 'POST' and form.is_valid():
+        with transaction.atomic():
+            # Bloquea la fila: si el medico finaliza al mismo tiempo, se respeta el cierre.
+            consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+            if consulta.cerrada:
+                messages.info(request, f'La consulta de {persona} se cerró mientras se editaba; no se guardaron los cambios.')
+                return redirect('pacientes:cola_consultas')
+
+            # Releida bajo el bloqueo: el antes -> despues compara contra lo guardado ahora.
+            signos = SignosVitales.objects.get(pk=signos.pk)
+            cambios = []
+            for campo in campos:
+                anterior, nuevo = getattr(signos, campo), form.cleaned_data[campo]
+                # '' y None son el mismo "vacio"; Decimal compara por valor (70.00 == 70).
+                if (None if anterior == '' else anterior) != (None if nuevo == '' else nuevo):
+                    cambios.append((campo, anterior, nuevo))
+                    setattr(signos, campo, nuevo)
+            if not cambios:
+                messages.info(request, 'No se cambió ningún dato de la preconsulta.')
+                return redirect('pacientes:cola_consultas')
+
+            imc_anterior = signos.imc
+            signos.imc = calcular_imc(signos.peso, signos.talla)
+            if imc_anterior != signos.imc:
+                cambios.append(('imc', imc_anterior, signos.imc))
+
+            signos.modificado_por = request.user
+            signos.save()
+            registrar(
+                request, RegistroAuditoria.Accion.EDITAR_PRECONSULTA,
+                objetivo=f'{persona.nombres} {persona.apellidos}',
+                detalle='; '.join(
+                    f'{ETIQUETAS_SIGNOS[c][0]}: {_valor_legible(c, a)} → {_valor_legible(c, n)}'
+                    for c, a, n in cambios
+                ),
+            )
+        messages.success(request, f'Preconsulta de {persona} corregida.')
+        return redirect('pacientes:cola_consultas')
+
+    return render(request, 'pacientes/editar_preconsulta.html', {
+        'consulta': consulta,
+        'persona': persona,
+        'signos': signos,
+        'form': form,
+        'es_menor': es_menor,
+    })
+
+
+def _solo_su_propia_cola(usuario):
+    """
+    Un medico ve unicamente los pacientes que le asignaron. Enfermeria
+    (que reasigna y retira) y quien administra el sistema ven todas las
+    colas.
+    """
+    return (
+        usuario.has_perm('consultas.change_consulta')
+        and not usuario.has_perm('auth.change_group')
+    )
+
+
+def _puede_elegir_vista_de_cola(usuario):
+    """Quien administra y ademas atiende alterna entre el tablero de todas las colas y la suya."""
+    return usuario.has_perm('consultas.change_consulta') and usuario.has_perm('auth.change_group')
+
+
+VISTAS_COLA = ('enfermeria', 'medico')
+
+
+@login_required
+@permission_required('consultas.view_consulta', raise_exception=True)
+def cola_consultas(request):
+    """Cola de espera agrupada por medico, ordenada por hora de llegada."""
+    # Solo la cola y los medicos de la clinica en la que se esta trabajando.
+    clinica = clinica_activa(request)
+    sin_cola = _sin_cola(request, clinica, 'core:home')
+    if sin_cola:
+        return sin_cola
+    clinicas = [clinica] if clinica else []
+    puede_elegir_vista = _puede_elegir_vista_de_cola(request.user)
+    if puede_elegir_vista:
+        # La eleccion se recuerda en la sesion: sobrevive a las redirecciones
+        # de las acciones de la cola y al auto-refresco.
+        if request.GET.get('vista') in VISTAS_COLA:
+            request.session['vista_cola'] = request.GET['vista']
+        solo_la_suya = request.session.get('vista_cola') == 'medico'
+    else:
+        solo_la_suya = _solo_su_propia_cola(request.user)
+    # Solo las que pasaron por preconsulta tienen signos vitales que corregir.
+    tiene_preconsulta = Exists(SignosVitales.objects.filter(consulta=OuterRef('pk')))
+
+    medicos = (
+        Usuario.objects.filter(pk=request.user.pk) if solo_la_suya
+        else _medicos_disponibles(clinicas).prefetch_related('clinicas')
+    )
+
+    en_cola = (
+        Consulta.objects.filter(
+            inicio__isnull=True, cierre__isnull=True, activo=True,
+            expediente__clinica__in=clinicas,
+        )
+        .select_related('expediente__persona', 'expediente__clinica')
+        .prefetch_related('reasignaciones__medico_anterior')
+        .annotate(tiene_preconsulta=tiene_preconsulta)
+        # Emergencias primero; dentro de cada grupo, por hora de llegada.
+        # fecha_creacion como desempate: las consultas anteriores a que
+        # existiera hora_llegada la tienen vacia.
+        .order_by('-es_emergencia', 'hora_llegada', 'fecha_creacion')
+    )
+    # Ya iniciadas y sin finalizar: se muestran aparte para poder retomarlas
+    # si el medico salio de la pantalla de atencion.
+    en_atencion = (
+        Consulta.objects.filter(
+            inicio__isnull=False, cierre__isnull=True, activo=True,
+            expediente__clinica__in=clinicas,
+        )
+        .select_related('expediente__persona')
+        .annotate(tiene_preconsulta=tiene_preconsulta)
+        .order_by('inicio')
+    )
+    if solo_la_suya:
+        en_cola = en_cola.filter(doctor=request.user)
+        en_atencion = en_atencion.filter(doctor=request.user)
+
+    por_medico = {}
+    for consulta in en_cola:
+        por_medico.setdefault(consulta.doctor_id, []).append(consulta)
+    atendiendo = {}
+    for consulta in en_atencion:
+        atendiendo.setdefault(consulta.doctor_id, []).append(consulta)
+
+    colas = [
+        {'medico': medico, 'consultas': por_medico.get(medico.pk, []),
+         'en_atencion': atendiendo.get(medico.pk, [])}
+        for medico in medicos
+    ]
+
+    contexto = {
+        'colas': colas,
+        'total_en_cola': len(en_cola),
+        'solo_la_suya': solo_la_suya,
+        'puede_elegir_vista': puede_elegir_vista,
+        # Los dos permisos que exige iniciar_consulta: si se pidiera solo
+        # uno, el boton se veria pero el clic daria 403. La enfermera
+        # entra a la misma pantalla, unicamente a mirar.
+        'puede_atender': request.user.has_perms(
+            ['pacientes.view_expediente', 'consultas.change_consulta'],
+        ),
+        'puede_gestionar': request.user.has_perms(PERMISOS_ENFERMERIA),
+        'puede_editar_preconsulta': request.user.has_perm('consultas.change_signosvitales'),
+    }
+    plantilla = 'pacientes/resultados_cola.html' if es_ajax(request) else 'pacientes/cola_consultas.html'
+    return render(request, plantilla, contexto)
+
+
+def _consulta_de_mi_clinica(request, consulta_id):
+    """
+    Consulta sobre la que actua la cola. 404 si no existe o si su clinica no
+    usa cola (nunca estuvo en una); 403 si es de una clinica ajena al usuario.
+    """
+    consulta = get_object_or_404(
+        Consulta.objects.select_related('expediente__persona', 'expediente__clinica'), pk=consulta_id, activo=True,
+    )
+    if not request.user.clinicas.filter(pk=consulta.expediente.clinica_id).exists():
+        raise PermissionDenied
+    if not consulta.expediente.clinica.usa_cola:
+        raise Http404
+    return consulta
+
+
+def _sin_cola(request, clinica, volver):
+    """Si la clinica atiende por cita (sin preconsulta ni cola), avisa y devuelve la redireccion; si no, None."""
+    if clinica is None or clinica.usa_cola:
+        return None
+    messages.info(request, f'{clinica.nombre} atiende por cita: no usa preconsulta ni cola de consulta.')
+    return redirect(volver)
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def marcar_emergencia(request, consulta_id):
+    """Pasa adelante en la cola a un paciente que sigue esperando."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    # La pantalla se refresca cada 30s: el boton pudo quedar viejo si el
+    # doctor ya lo llamo. Se avisa en vez de mostrar un error.
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya pasó a consulta; la prioridad ya no aplica.')
+        return redirect('pacientes:cola_consultas')
+
+    form = MarcarEmergenciaForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Falta el motivo: al marcar emergencia, el médico necesita saber qué le pasa al paciente.')
+        return redirect('pacientes:cola_consultas')
+
+    consulta.es_emergencia = True
+    consulta.motivo_prioridad = form.cleaned_data['motivo_prioridad']
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['es_emergencia', 'motivo_prioridad', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} quedó como emergencia.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def quitar_emergencia(request, consulta_id):
+    """Devuelve al paciente a su lugar por hora de llegada."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya pasó a consulta; la prioridad ya no aplica.')
+        return redirect('pacientes:cola_consultas')
+
+    consulta.es_emergencia = False
+    consulta.motivo_prioridad = ''
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['es_emergencia', 'motivo_prioridad', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} volvió a su lugar en la cola.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def registrar_retiro(request, consulta_id):
+    """Saca de la cola a un paciente que se fue, dejando la nota en esa visita."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya no está en espera; el retiro solo aplica antes de pasar a consulta.')
+        return redirect('pacientes:cola_consultas')
+
+    form = RetiroForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, form.errors['nota_retiro'][0])
+        return redirect('pacientes:cola_consultas')
+
+    # Se cierra con inicio vacio: sale sola de la cola y el paciente queda
+    # libre para una preconsulta nueva si vuelve.
+    consulta.nota_retiro = form.cleaned_data['nota_retiro']
+    consulta.cierre = timezone.now()
+    consulta.modificado_por = request.user
+    consulta.save(update_fields=['nota_retiro', 'cierre', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'Se registró el retiro de {persona}.')
+    return redirect('pacientes:cola_consultas')
+
+
+@require_POST
+@login_required
+@permission_required(PERMISOS_ENFERMERIA, raise_exception=True)
+def reasignar_consulta(request, consulta_id):
+    """Pasa a un paciente en espera a otro medico, dejando constancia del cambio."""
+    consulta = _consulta_de_mi_clinica(request, consulta_id)
+    persona = consulta.expediente.persona
+    if not consulta.en_cola:
+        messages.info(request, f'{persona} ya no está en espera; solo se reasigna antes de pasar a consulta.')
+        return redirect('pacientes:cola_consultas')
+
+    medicos = _medicos_disponibles([consulta.expediente.clinica]).exclude(pk=consulta.doctor_id)
+    form = ReasignarForm(request.POST, medicos=medicos)
+    if not form.is_valid():
+        messages.error(request, next(iter(form.errors.values()))[0])
+        return redirect('pacientes:cola_consultas')
+
+    nuevo = form.cleaned_data['medico']
+    with transaction.atomic():
+        # Bloquea la fila: dos reasignaciones simultaneas no pisan el historial.
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if not consulta.en_cola:
+            messages.info(request, f'{persona} ya no está en espera; solo se reasigna antes de pasar a consulta.')
+            return redirect('pacientes:cola_consultas')
+        ReasignacionConsulta.objects.create(
+            consulta=consulta, medico_anterior_id=consulta.doctor_id, medico_nuevo=nuevo,
+            reasignado_por=request.user, motivo=form.cleaned_data['motivo'],
+            creado_por=request.user, modificado_por=request.user,
+        )
+        # hora_llegada no se toca: conserva su lugar por orden de llegada.
+        consulta.doctor = nuevo
+        # Aun no se atiende: el nombre congelado debe ser el de quien atendera.
+        consulta.doctor_nombre = nuevo.get_full_name() or nuevo.username
+        consulta.modificado_por = request.user
+        consulta.save(update_fields=['doctor', 'doctor_nombre', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, f'{persona} pasó a la cola de {consulta.doctor_nombre}.')
+    return redirect('pacientes:cola_consultas')

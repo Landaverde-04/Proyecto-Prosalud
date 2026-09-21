@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 210" width="480" height="210" role="img" aria-label="Medicina Estética y Longevidad Saludable">
+  <rect x="4" y="4" width="472" height="202" rx="10" ry="10" fill="#FFFFFF" stroke="#1E251F" stroke-width="2"/>
+  <circle cx="240" cy="62" r="28" fill="none" stroke="#7A5AA0" stroke-width="3"/>
+  <text x="240" y="76" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="34" fill="#7A5AA0">&#10047;</text>
+  <text x="240" y="122" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="1.5" fill="#8E5AA0">MEDICINA ESTÉTICA</text>
+  <text x="240" y="152" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" letter-spacing="1.5" fill="#8E5AA0">Y LONGEVIDAD SALUDABLE</text>
+  <text x="240" y="182" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#1E251F">DRA. CECILIA MIRANDA</text>
+</svg>

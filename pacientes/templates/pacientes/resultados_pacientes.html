@@ -14,11 +14,12 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0 tabla-ancho-fijo">
             <colgroup>
-                <col style="width: 34%;">
-                <col style="width: 10%;">
+                <col style="width: 28%;">
+                <col style="width: 8%;">
+                <col style="width: 15%;">
+                <col style="width: 13%;">
                 <col style="width: 18%;">
-                <col style="width: 16%;">
-                <col style="width: 22%;">
+                <col style="width: 18%;">
             </colgroup>
             <thead class="table-dark">
                 <tr>
@@ -27,11 +28,13 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                     <th>DUI</th>
                     <th>Teléfono</th>
                     <th>También es contacto de</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
                 {% for persona in pagina %}
-                <tr{% if perms.pacientes.view_expediente and persona.expediente_id %} class="cursor-pointer" onclick="window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
+                {# El clic en un boton de la fila (abre un modal) no debe abrir tambien el expediente. #}
+                <tr{% if perms.pacientes.view_expediente and persona.expediente_id %} class="cursor-pointer" onclick="if (!event.target.closest('button')) window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
                     <td class="fw-medium">{{ persona.nombres }} {{ persona.apellidos }}</td>
                     <td>{% if persona.edad is not None %}{{ persona.edad }} años{% else %}—{% endif %}</td>
                     <td class="text-muted small">{{ persona.dui|default:"—" }}</td>
@@ -42,6 +45,19 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                         {% empty %}
                             —
                         {% endfor %}
+                    </td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% if perms.consultas.add_signosvitales and persona.expediente_id and clinica_activa.usa_cola %}
+                            <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
+                               class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation()">
+                                <i class="bi bi-heart-pulse"></i> Enviar a consulta
+                            </a>
+                            {% endif %}
+                            {% if perms.pacientes.change_persona and persona.expediente_id and persona.puede_registrar_dui %}
+                            {% include "pacientes/boton_registrar_dui.html" %}
+                            {% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -54,7 +70,7 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
 <div class="d-md-none vstack gap-2">
     {% for persona in pagina %}
     <div class="card shadow-sm{% if perms.pacientes.view_expediente and persona.expediente_id %} cursor-pointer{% endif %}"
-         {% if perms.pacientes.view_expediente and persona.expediente_id %}onclick="window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
+         {% if perms.pacientes.view_expediente and persona.expediente_id %}onclick="if (!event.target.closest('button')) window.location='{% url 'pacientes:ver_expediente' persona.expediente_id %}'"{% endif %}>
         <div class="card-body p-3">
             <div class="fw-semibold">{{ persona.nombres }} {{ persona.apellidos }}</div>
             <div class="text-muted small">
@@ -69,6 +85,17 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
                 {% endfor %}
             </div>
             {% endif %}
+            <div class="d-flex flex-wrap gap-1 mt-2">
+                {% if perms.consultas.add_signosvitales and persona.expediente_id and clinica_activa.usa_cola %}
+                <a href="{% url 'pacientes:registrar_preconsulta' persona.expediente_id %}"
+                   class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation()">
+                    <i class="bi bi-heart-pulse"></i> Enviar a consulta
+                </a>
+                {% endif %}
+                {% if perms.pacientes.change_persona and persona.expediente_id and persona.puede_registrar_dui %}
+                {% include "pacientes/boton_registrar_dui.html" %}
+                {% endif %}
+            </div>
         </div>
     </div>
     {% endfor %}
@@ -76,7 +103,11 @@ AJAX de listado-vivo.js, sin repetir el formulario ni el encabezado.
 
 {% include "core/paginacion.html" %}
 
+{% include "pacientes/personas_sin_expediente_aqui.html" %}
+
 {% else %}
+{# Antes del "registrar nuevo": si ya existe en el sistema, se ofrece primero abrirle expediente. #}
+{% include "pacientes/personas_sin_expediente_aqui.html" %}
 <div class="text-center py-5 text-muted">
     <i class="bi bi-people fs-1 d-block mb-3 opacity-25"></i>
     {% if consulta %}

@@ -17,6 +17,43 @@
 <div class="card shadow-sm mx-auto" style="max-width: 720px;">
     <div class="card-body p-4">
 
+        {% comment %}
+        El paciente ya estaba registrado: en vez de solo el error, se ofrece el
+        camino correcto. Va fuera del formulario principal (no se anidan formularios).
+        {% endcomment %}
+        {% if persona_existente %}
+        <div class="alert {% if existente_ya_es_paciente_aqui %}alert-warning{% else %}alert-info{% endif %} d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <div class="fw-semibold">{{ persona_existente.nombres }} {{ persona_existente.apellidos }}</div>
+                <div class="small">
+                    {% if persona_existente.edad is not None %}{{ persona_existente.edad }} años · {% endif %}
+                    {{ persona_existente.dui|default:"Sin DUI" }} · {{ persona_existente.telefono|default:"Sin teléfono" }}
+                </div>
+                <div class="small mt-1">
+                    {% if existente_ya_es_paciente_aqui %}
+                        Ya es paciente de esta clínica: búscala en la lista en vez de registrarla.
+                    {% else %}
+                        Ya está registrada en el sistema, pero sin expediente aquí.
+                    {% endif %}
+                </div>
+            </div>
+            {% if existente_ya_es_paciente_aqui %}
+            <a href="{% url 'pacientes:lista_pacientes' %}?q={{ persona_existente.nombres|urlencode }}%20{{ persona_existente.apellidos|urlencode }}"
+               class="btn btn-sm btn-warning flex-shrink-0">
+                <i class="bi bi-search"></i> Ver en la lista
+            </a>
+            {% else %}
+            <form method="post" action="{% url 'pacientes:abrir_expediente' persona_existente.pk %}" class="flex-shrink-0">
+                {% csrf_token %}
+                {% include "core/campo_clinica.html" %}
+                <button type="submit" class="btn btn-sm btn-primary">
+                    <i class="bi bi-folder-plus"></i> Abrir expediente aquí
+                </button>
+            </form>
+            {% endif %}
+        </div>
+        {% endif %}
+
         {% if form.non_field_errors %}
             <div class="alert alert-danger">
                 {% for error in form.non_field_errors %}{{ error }}{% endfor %}
@@ -26,6 +63,7 @@
         <form method="post" id="form-registrar-paciente" novalidate
               data-buscar-persona-url="{% url 'pacientes:buscar_persona' %}">
             {% csrf_token %}
+            {% include "core/campo_clinica.html" %}
             {{ form.contacto_persona_id }}
 
             <div class="mb-4">
@@ -209,6 +247,7 @@
 {% endblock %}
 
 {% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
 <script src="{% static 'pacientes/js/buscador-contacto.js' %}"></script>
 <script src="{% static 'pacientes/js/registrar-paciente.js' %}"></script>
 {% endblock %}

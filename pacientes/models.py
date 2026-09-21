@@ -67,6 +67,11 @@ class Persona(ModeloBase):
         """None si no hay fecha de nacimiento (los contactos no siempre la tienen)."""
         return calcular_edad(self.fecha_nacimiento)
 
+    @property
+    def puede_registrar_dui(self):
+        """Mayor de edad y todavia sin DUI: se le puede registrar."""
+        return not self.dui and self.edad is not None and self.edad >= 18
+
 
 class Contacto(ModeloBase):
     """

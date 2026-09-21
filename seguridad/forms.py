@@ -1,6 +1,5 @@
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import Group, Permission
-from django.contrib.auth.password_validation import validate_password
 from django.db.models import Q
 from django import forms
 
@@ -152,13 +151,15 @@ class UsuarioCrearForm(UserCreationForm):
 
 
 class ResetearPasswordForm(forms.Form):
+    """
+    Sin validate_password() a proposito (decision de Kevin, 10/09/2026,
+    ver AUTH_PASSWORD_VALIDATORS en settings.py): esta contrasena es
+    temporal -- Usuario.debe_cambiar_password obliga a cambiarla en el
+    primer login -- asi que exigir que sea "dificil" aqui no protege
+    nada real.
+    """
     password1 = forms.CharField(label='Nueva contraseña', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Confirmar contraseña', widget=forms.PasswordInput)
-
-    def clean_password1(self):
-        password1 = self.cleaned_data.get('password1')
-        validate_password(password1)
-        return password1
 
     def clean(self):
         cleaned_data = super().clean()

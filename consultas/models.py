@@ -45,11 +45,6 @@ class Consulta(ModeloBase):
     Cuelga de Expediente, no de Persona directamente: asi obtiene su
     clinica del expediente al que pertenece, sin guardarla por separado
     (TEC-01) -- ver la propiedad `clinica` mas abajo.
-
-    Los campos de la Cola de Consulta (es_emergencia, hora_llegada,
-    motivo_prioridad, nota_retiro) NO estan todavia: la Cola es
-    HU-EXP-12 a HU-EXP-16, agendada despues de la entrega de agosto.
-    Se agregan con esas historias, via una migracion nueva.
     """
 
     expediente = models.ForeignKey(
@@ -75,6 +70,17 @@ class Consulta(ModeloBase):
     # registrar a mano una atencion que ya ocurrio (corte de energia).
     inicio = models.DateTimeField(null=True, blank=True)
     cierre = models.DateTimeField(null=True, blank=True)
+
+    # Momento en que el paciente entro a la cola. Vacio en las consultas
+    # que la doctora crea directamente, que nunca pasaron por la cola.
+    hora_llegada = models.DateTimeField(null=True, blank=True)
+    # Una emergencia pasa adelante en la cola de su medico; el motivo es
+    # obligatorio al marcarla (lo valida el formulario, no la base).
+    es_emergencia = models.BooleanField(default=False)
+    motivo_prioridad = models.CharField(max_length=255, blank=True)
+    # Con nota, la visita se cerro porque el paciente se fue sin atenderse
+    # (cierre con hora e inicio vacio). Queda como constancia en el historial.
+    nota_retiro = models.TextField(blank=True)
 
     motivo = models.TextField()
     historia_enfermedad_actual = models.TextField(blank=True)
@@ -113,6 +119,11 @@ class Consulta(ModeloBase):
     @property
     def cerrada(self):
         return self.cierre is not None
+
+    @property
+    def retirada(self):
+        """El paciente se fue antes de pasar a consulta."""
+        return bool(self.nota_retiro)
 
 
 class SignosVitales(ModeloBase):
@@ -155,6 +166,45 @@ class SignosVitales(ModeloBase):
 
     def __str__(self):
         return f'Signos vitales · {self.consulta}'
+
+    @property
+    def fue_corregida(self):
+        """Se volvio a guardar despues de tomarse: al crear, las dos fechas difieren en microsegundos."""
+        return self.fecha_modificacion - self.fecha_creacion > timedelta(seconds=1)
+
+
+class ReasignacionConsulta(ModeloBase):
+    """
+    Cambio de medico de una consulta en espera. Consulta.doctor guarda solo
+    el medico actual; cada cambio queda aqui, porque una visita puede
+    reasignarse mas de una vez. La fecha es fecha_creacion.
+    """
+
+    consulta = models.ForeignKey(
+        Consulta, on_delete=models.PROTECT, related_name='reasignaciones',
+    )
+    medico_anterior = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_cedidas',
+    )
+    medico_nuevo = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_recibidas',
+    )
+    reasignado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='reasignaciones_hechas',
+    )
+    motivo = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = 'ReasignacionConsulta'
+        verbose_name = 'reasignación de consulta'
+        verbose_name_plural = 'reasignaciones de consulta'
+        ordering = ['fecha_creacion']
+
+    def __str__(self):
+        return f'{self.consulta} · {self.medico_anterior} → {self.medico_nuevo}'
 
 
 class Receta(ModeloBase):

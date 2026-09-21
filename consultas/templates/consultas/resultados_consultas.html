@@ -16,15 +16,21 @@ de listado-vivo.js, sin repetir el buscador ni el encabezado.
             <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
                 <div class="min-w-0">
                     <div class="fw-semibold">
-                        {% if atencion.inicio %}{{ atencion.inicio|date:'d/m/Y' }}{% else %}Sin iniciar{% endif %}
+                        {% if atencion.inicio %}{{ atencion.inicio|date:'d/m/Y' }}{% elif atencion.retirada %}{{ atencion.hora_llegada|default:atencion.fecha_creacion|date:'d/m/Y' }}{% else %}Sin iniciar{% endif %}
                         <span class="text-muted fw-normal small">
                             {% if atencion.inicio %}· {{ atencion.inicio|date:'H:i' }}{% endif %}
                             · {{ atencion.doctor_nombre|default:atencion.doctor.get_full_name|default:atencion.doctor.username }}
                         </span>
                     </div>
+                    {% if atencion.retirada %}
+                    <div class="text-muted small mt-1">
+                        <span class="fw-medium">Se retiró sin atenderse:</span> {{ atencion.nota_retiro|truncatechars:160 }}
+                    </div>
+                    {% else %}
                     <div class="text-muted small mt-1">
                         <span class="fw-medium">Motivo:</span> {{ atencion.motivo|default:"—"|truncatechars:120 }}
                     </div>
+                    {% endif %}
                     {% if atencion.diagnostico %}
                     <div class="text-muted small">
                         <span class="fw-medium">Diagnóstico:</span> {{ atencion.diagnostico|truncatechars:120 }}
@@ -32,7 +38,9 @@ de listado-vivo.js, sin repetir el buscador ni el encabezado.
                     {% endif %}
                 </div>
                 <div class="text-end">
-                    {% if atencion.cerrada %}
+                    {% if atencion.retirada %}
+                        <span class="badge rounded-pill text-bg-light text-muted border">Se retiró</span>
+                    {% elif atencion.cerrada %}
                         <span class="badge rounded-pill text-bg-success">Finalizada</span>
                     {% elif atencion.en_atencion %}
                         <span class="badge rounded-pill text-bg-warning">En atención</span>
@@ -40,7 +48,8 @@ de listado-vivo.js, sin repetir el buscador ni el encabezado.
                         <span class="badge rounded-pill text-bg-secondary">En espera</span>
                     {% endif %}
                     <div class="mt-2">
-                        {% if atencion.cerrada %}
+                        {% if atencion.retirada %}
+                        {% elif atencion.cerrada %}
                             <a href="{% url 'consultas:ver_consulta' atencion.pk %}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
                         {% elif perms.consultas.change_consulta %}
                             <a href="{% url 'consultas:atender_consulta' atencion.pk %}" class="btn btn-sm btn-primary">Continuar</a>

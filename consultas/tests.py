@@ -453,3 +453,180 @@ class AntecedenteTests(PruebaCore):
         self.assertNotIn('alergias', campos)
         self.assertEqual(list(campos), ['motivo', 'historia_enfermedad_actual', 'examen_fisico',
                                         'diagnostico', 'tratamiento', 'indicaciones'])
+
+
+class ConsultaSoloDeSuDoctorTests(PruebaCore):
+    """Un doctor no puede escribir en la consulta de otro; la administradora sí."""
+
+    def setUp(self):
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        permisos_medico = Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta'],
+        )
+
+        self.doctor1 = Usuario.objects.create_user(
+            username='doctor1', password='x', first_name='Uno', last_name='Medico',
+            debe_cambiar_password=False,
+        )
+        self.doctor2 = Usuario.objects.create_user(
+            username='doctor2', password='x', first_name='Dos', last_name='Medico',
+            debe_cambiar_password=False,
+        )
+        self.administradora = Usuario.objects.create_user(
+            username='doctora', password='x', first_name='Elsa', last_name='Miranda',
+            debe_cambiar_password=False,
+        )
+        for usuario in (self.doctor1, self.doctor2, self.administradora):
+            usuario.user_permissions.add(*permisos_medico)
+            usuario.clinicas.add(self.clinica)
+        # "Administradora" se define por poder editar roles, igual que en seguridad.
+        self.administradora.user_permissions.add(
+            Permission.objects.get(content_type__app_label='auth', codename='change_group'),
+        )
+
+        persona = Persona.objects.create(nombres='Paciente', apellidos='De Uno')
+        self.expediente = Expediente.objects.create(persona=persona, clinica=self.clinica)
+        self.consulta = Consulta.objects.create(
+            expediente=self.expediente, doctor=self.doctor1, motivo='Atención de prueba',
+        )
+
+    def test_su_propio_doctor_si_puede_atender(self):
+        self.client.force_login(self.doctor1)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_otro_doctor_no_puede_abrir_la_consulta(self):
+        self.client.force_login(self.doctor2)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_otro_doctor_no_puede_iniciarla_desde_la_cola(self):
+        self.client.force_login(self.doctor2)
+        respuesta = self.client.post(reverse('consultas:iniciar_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+        self.consulta.refresh_from_db()
+        self.assertIsNone(self.consulta.inicio)
+
+    def test_otro_doctor_no_puede_escribir_ni_finalizar(self):
+        self.client.force_login(self.doctor2)
+
+        borrador = self.client.post(
+            reverse('consultas:guardar_borrador', args=[self.consulta.pk]), {'motivo': 'Texto ajeno'},
+        )
+        self.assertEqual(borrador.status_code, 403)
+
+        finalizar = self.client.post(reverse('consultas:finalizar_consulta', args=[self.consulta.pk]))
+        self.assertEqual(finalizar.status_code, 403)
+
+        self.consulta.refresh_from_db()
+        self.assertEqual(self.consulta.motivo, 'Atención de prueba')
+        self.assertIsNone(self.consulta.cierre)
+
+    def test_la_administradora_si_puede_sobre_cualquier_consulta(self):
+        self.client.force_login(self.administradora)
+        respuesta = self.client.get(reverse('consultas:atender_consulta', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_otro_doctor_si_puede_leer_el_historial(self):
+        """Leer no se restringe: el expediente es de la clinica, no del medico."""
+        self.consulta.inicio = timezone.now()
+        self.consulta.cierre = timezone.now()
+        self.consulta.save()
+        self.client.force_login(self.doctor2)
+
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+
+        self.assertEqual(respuesta.status_code, 200)
+
+
+class UnPacienteALaVezTests(PruebaCore):
+    """Con una consulta en atencion, el medico no inicia otra salvo emergencia."""
+
+    def setUp(self):
+        clinica = Clinica.objects.create(nombre='ProSalud')
+        self.doctor = Usuario.objects.create_user(username='doctor1', password='x', debe_cambiar_password=False)
+        self.doctor.user_permissions.add(*Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta', 'add_consulta'],
+        ))
+        self.doctor.clinicas.add(clinica)
+        self.expedientes = [
+            Expediente.objects.create(persona=Persona.objects.create(nombres=nombre, apellidos='Prueba'),
+                                      clinica=clinica)
+            for nombre in ('Atendiendo', 'Esperando')
+        ]
+        self.en_curso = Consulta.objects.create(
+            expediente=self.expedientes[0], doctor=self.doctor, motivo='', inicio=timezone.now(),
+        )
+        self.en_espera = Consulta.objects.create(expediente=self.expedientes[1], doctor=self.doctor, motivo='')
+        self.client.force_login(self.doctor)
+
+    def test_no_inicia_otro_paciente_con_uno_en_atencion(self):
+        respuesta = self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.assertRedirects(respuesta, reverse('pacientes:cola_consultas'), fetch_redirect_response=False)
+        self.en_espera.refresh_from_db()
+        self.assertIsNone(self.en_espera.inicio)
+
+    def test_una_emergencia_si_se_puede_iniciar(self):
+        self.en_espera.es_emergencia = True
+        self.en_espera.save()
+
+        self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.en_espera.refresh_from_db()
+        self.assertIsNotNone(self.en_espera.inicio)
+
+    def test_al_finalizar_ya_puede_iniciar_el_siguiente(self):
+        self.en_curso.cierre = timezone.now()
+        self.en_curso.save()
+
+        self.client.post(reverse('consultas:iniciar_consulta', args=[self.en_espera.pk]))
+
+        self.en_espera.refresh_from_db()
+        self.assertIsNotNone(self.en_espera.inicio)
+
+    def test_no_registra_consulta_manual_con_una_en_atencion(self):
+        otro = Expediente.objects.create(
+            persona=Persona.objects.create(nombres='Manual', apellidos='Prueba'),
+            clinica=self.expedientes[0].clinica,
+        )
+        respuesta = self.client.get(reverse('consultas:nueva_consulta', args=[otro.pk]))
+
+        self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[otro.pk]),
+                             fetch_redirect_response=False)
+
+
+class VisitaRetiradaTests(PruebaCore):
+    """Una visita donde el paciente se fue sin atenderse."""
+
+    def setUp(self):
+        self.clinica = Clinica.objects.create(nombre='ProSalud')
+        self.doctor = Usuario.objects.create_user(username='doctor', password='x', debe_cambiar_password=False)
+        self.doctor.user_permissions.add(*Permission.objects.filter(
+            codename__in=['view_expediente', 'view_consulta', 'change_consulta', 'view_incapacidad', 'add_incapacidad'],
+        ))
+        self.doctor.clinicas.add(self.clinica)
+        persona = Persona.objects.create(nombres='Paciente', apellidos='Retirado')
+        self.expediente = Expediente.objects.create(persona=persona, clinica=self.clinica)
+        ahora = timezone.now()
+        self.consulta = Consulta.objects.create(
+            expediente=self.expediente, doctor=self.doctor, motivo='', hora_llegada=ahora,
+            cierre=ahora, nota_retiro='Tenía que regresar al trabajo',
+        )
+        self.client.force_login(self.doctor)
+
+    def test_el_historial_la_muestra_como_retiro_con_su_nota(self):
+        respuesta = self.client.get(reverse('consultas:historial_consultas', args=[self.expediente.pk]))
+        self.assertContains(respuesta, 'Se retiró')
+        self.assertContains(respuesta, 'Tenía que regresar al trabajo')
+        self.assertNotContains(respuesta, 'Finalizada')
+
+    def test_el_detalle_muestra_la_nota_y_no_ofrece_documentos(self):
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+        self.assertContains(respuesta, 'se retiró antes de pasar a consulta')
+        self.assertContains(respuesta, 'Tenía que regresar al trabajo')
+        self.assertNotContains(respuesta, 'Constancia de incapacidad')
+
+    def test_no_se_emiten_documentos_sobre_una_visita_retirada(self):
+        respuesta = self.client.get(reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 404)

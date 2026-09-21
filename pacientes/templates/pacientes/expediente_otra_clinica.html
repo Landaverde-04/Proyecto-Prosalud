@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}Expediente de otra clínica - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+{% comment %}
+Quien pertenece a varias clinicas abrio el expediente de una en la que no
+esta trabajando: no se muestra nada clinico, solo se ofrece cambiar.
+{% endcomment %}
+<div class="card shadow-sm border-0 mx-auto mt-4" style="max-width: 520px;">
+    <div class="card-body p-4 text-center">
+        <i class="bi bi-arrow-left-right fs-1 d-block mb-3" style="color: var(--accent);"></i>
+        <h5 class="fw-semibold mb-2">Este expediente es de {{ expediente.clinica.nombre }}</h5>
+        <p class="text-muted mb-4">
+            Estás trabajando en <span class="fw-semibold">{{ clinica_activa.nombre }}</span>.
+            Para ver el expediente de {{ expediente.persona.nombres }} {{ expediente.persona.apellidos }},
+            cambia a {{ expediente.clinica.nombre }}.
+        </p>
+        <div class="d-flex flex-wrap justify-content-center gap-2">
+            <form method="post" action="{% url 'core:cambiar_clinica' %}">
+                {% csrf_token %}
+                <input type="hidden" name="clinica" value="{{ expediente.clinica_id }}">
+                <input type="hidden" name="siguiente" value="{{ request.get_full_path }}">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-arrow-left-right"></i> Cambiar a {{ expediente.clinica.nombre }}
+                </button>
+            </form>
+            <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary">Volver a pacientes</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

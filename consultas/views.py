@@ -21,7 +21,7 @@ from .forms import (AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
                     ConsultaManualForm, ControlPosteriorForm, DocumentoMedicoForm,
                     ReferenciaMedicaForm, ReprogramarControlForm)
 from .models import (Antecedente, Aplicacion, Consulta, ControlPosterior,
-                     Incapacidad, ReferenciaMedica)
+                     Incapacidad, ReferenciaMedica, SignosVitales)
 
 
 def expediente_autorizado(request, expediente_id):
@@ -36,6 +36,29 @@ def consulta_autorizada(request, consulta_id):
     consulta = get_object_or_404(Consulta.objects.select_related('doctor', 'expediente__persona',
                                                                'expediente__clinica'), pk=consulta_id, activo=True)
     expediente_autorizado(request, consulta.expediente_id)
+    return consulta
+
+
+def consulta_propia(request, consulta_id):
+    """
+    Consulta que este usuario puede atender. Leerla la puede cualquiera
+    de la clinica (consulta_autorizada); escribir en ella solo su propio
+    doctor, o quien administra el sistema. Sin esto, un doctor podria
+    escribir en la consulta de otro y emitir documentos que salen
+    firmados con el nombre del otro. Pasar un paciente a otro medico se
+    hace reasignando, no entrando a su consulta.
+    """
+    consulta = consulta_autorizada(request, consulta_id)
+    if consulta.doctor_id != request.user.pk and not request.user.has_perm('auth.change_group'):
+        raise PermissionDenied
+    return consulta
+
+
+def consulta_para_documento(request, consulta_id):
+    """Consulta sobre la que se puede emitir un documento: no, si el paciente se retiró sin atenderse."""
+    consulta = consulta_autorizada(request, consulta_id)
+    if consulta.retirada:
+        raise Http404('El paciente se retiró sin atenderse; no se emiten documentos sobre esta visita.')
     return consulta
 
 
@@ -80,7 +103,7 @@ def lista_documentos(request, expediente_id):
 @login_required
 @permission_required(('pacientes.view_expediente', 'consultas.view_incapacidad', 'consultas.add_incapacidad'), raise_exception=True)
 def nuevo_documento(request, consulta_id):
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_para_documento(request, consulta_id)
     inicial = {'motivo': consulta.diagnostico or consulta.motivo,
                'inicio_opcion': 'hoy', 'fecha_inicio_incapacidad': timezone.localdate()}
     editar = request.GET.get('previa')
@@ -192,9 +215,15 @@ def pdf_documento(request, documento_id):
 # La consulta es el molde: todos los documentos cuelgan de ella.
 # --------------------------------------------------------------------------
 
+def consulta_en_curso(usuario, excepto=None):
+    """Consulta que el medico ya inicio y no ha finalizado: atiende uno a la vez."""
+    return (Consulta.objects.filter(doctor=usuario, inicio__isnull=False, cierre__isnull=True, activo=True)
+            .exclude(pk=excepto).select_related('expediente__persona').first())
+
+
 def consulta_editable(request, consulta_id):
     """Consulta que todavia se puede escribir. Cerrada = solo lectura."""
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         raise Http404('La consulta ya fue finalizada.')
     return consulta
@@ -216,6 +245,10 @@ def nueva_consulta(request, expediente_id):
     if abierta:
         messages.info(request, 'Este paciente ya tiene una consulta sin finalizar; se retomó esa.')
         return redirect('consultas:atender_consulta', consulta_id=abierta.pk)
+    en_curso = consulta_en_curso(request.user)
+    if en_curso:
+        messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} antes de registrar otra.')
+        return redirect('pacientes:ver_expediente', expediente_id=expediente.pk)
 
     form = ConsultaManualForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -248,6 +281,12 @@ def iniciar_consulta(request, consulta_id):
     """
     consulta = consulta_editable(request, consulta_id)
     if consulta.en_cola:
+        # Una emergencia no espera a que termine la consulta en curso.
+        en_curso = None if consulta.es_emergencia else consulta_en_curso(request.user, excepto=consulta.pk)
+        if en_curso:
+            messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} '
+                                    'antes de atender a otro paciente.')
+            return redirect('pacientes:cola_consultas')
         consulta.inicio = timezone.now()
         consulta.modificado_por = request.user
         consulta.save(update_fields=['inicio', 'modificado_por', 'fecha_modificacion'])
@@ -259,7 +298,7 @@ def iniciar_consulta(request, consulta_id):
 @permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
 def atender_consulta(request, consulta_id):
     """Pantalla de atencion: los ocho campos, con preguardado automatico."""
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     return render(request, 'consultas/atender_consulta.html', {
@@ -285,6 +324,16 @@ def atender_consulta(request, consulta_id):
     })
 
 
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
+def signos_vitales_consulta(request, consulta_id):
+    """Tarjeta de signos vitales sola: la atencion la vuelve a pedir para ver correcciones de enfermeria."""
+    consulta = consulta_propia(request, consulta_id)
+    signos = SignosVitales.objects.select_related('modificado_por').filter(consulta=consulta).first()
+    return render(request, 'consultas/signos_vitales.html', {'signos': signos})
+
+
 @require_POST
 @never_cache
 @login_required
@@ -295,7 +344,7 @@ def guardar_borrador(request, consulta_id):
     ventana por error. Se guarda en el servidor, sobre la misma fila --
     no en el navegador, porque cambiar de maquina perderia el texto.
     """
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
     form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
@@ -317,7 +366,7 @@ def finalizar_consulta(request, consulta_id):
     receta -- cerrar por receta se presta a error humano (acuerdo del
     05/09/2026, deja obsoleta la regla anterior).
     """
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_propia(request, consulta_id)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     # Finaliza sobre lo ya preguardado: el modal de confirmacion manda su
@@ -382,6 +431,9 @@ def ver_consulta(request, consulta_id):
         'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
         'controles': consulta.controles.filter(activo=True).order_by('fecha_control'),
         'aplicaciones': consulta.aplicaciones.filter(activo=True).order_by('-pk'),
+        'reasignaciones': consulta.reasignaciones.select_related(
+            'medico_anterior', 'medico_nuevo', 'reasignado_por',
+        ),
     })
 
 
@@ -444,7 +496,7 @@ def agregar_incapacidad(request, consulta_id):
     dibujarlo; si ya existe un documento con ese identificador, no se crea
     otro. Es la misma proteccion que usa el camino con vista previa.
     """
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_para_documento(request, consulta_id)
     try:
         solicitud = uuid.UUID(request.POST.get('solicitud_id', ''))
     except ValueError:
@@ -485,7 +537,7 @@ def agregar_incapacidad(request, consulta_id):
 @permission_required(('pacientes.view_expediente', 'consultas.view_referenciamedica',
                       'consultas.add_referenciamedica'), raise_exception=True)
 def agregar_referencia(request, consulta_id):
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_para_documento(request, consulta_id)
     form = ReferenciaMedicaForm(request.POST)
     if not form.is_valid():
         messages.error(request, 'Revise los datos de la referencia: %s' %
@@ -557,7 +609,7 @@ def pdf_referencia(request, referencia_id):
 @permission_required(('pacientes.view_expediente', 'consultas.view_controlposterior',
                       'consultas.add_controlposterior'), raise_exception=True)
 def agregar_control(request, consulta_id):
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_para_documento(request, consulta_id)
     form = ControlPosteriorForm(request.POST)
     if not form.is_valid():
         messages.error(request, 'Revise los datos del control: %s' %
@@ -647,7 +699,7 @@ def reprogramar_control(request, control_id):
 @permission_required(('pacientes.view_expediente', 'consultas.view_aplicacion',
                       'consultas.add_aplicacion'), raise_exception=True)
 def agregar_aplicacion(request, consulta_id):
-    consulta = consulta_autorizada(request, consulta_id)
+    consulta = consulta_para_documento(request, consulta_id)
     form = AplicacionForm(request.POST)
     if not form.is_valid():
         messages.error(request, 'Revise los datos de la aplicación: %s' %

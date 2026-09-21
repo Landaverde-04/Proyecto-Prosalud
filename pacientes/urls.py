@@ -7,6 +7,7 @@ urlpatterns = [
     path('', views.lista_pacientes, name='lista_pacientes'),
     path('nuevo/', views.registrar_paciente, name='registrar_paciente'),
     path('buscar-persona/', views.buscar_persona, name='buscar_persona'),
+    path('persona/<int:persona_id>/abrir-expediente/', views.abrir_expediente, name='abrir_expediente'),
     path('expediente/<int:expediente_id>/', views.ver_expediente, name='ver_expediente'),
     path('expediente/<int:expediente_id>/agregar-contacto/', views.agregar_contacto, name='agregar_contacto'),
     path(
@@ -17,4 +18,15 @@ urlpatterns = [
         'expediente/<int:expediente_id>/contacto/<int:contacto_id>/desactivar/',
         views.desactivar_contacto, name='desactivar_contacto',
     ),
+    path('expediente/<int:expediente_id>/registrar-dui/', views.registrar_dui, name='registrar_dui'),
+    path(
+        'expediente/<int:expediente_id>/preconsulta/',
+        views.registrar_preconsulta, name='registrar_preconsulta',
+    ),
+    path('cola/<int:consulta_id>/editar-preconsulta/', views.editar_preconsulta, name='editar_preconsulta'),
+    path('cola/', views.cola_consultas, name='cola_consultas'),
+    path('cola/<int:consulta_id>/emergencia/', views.marcar_emergencia, name='marcar_emergencia'),
+    path('cola/<int:consulta_id>/quitar-emergencia/', views.quitar_emergencia, name='quitar_emergencia'),
+    path('cola/<int:consulta_id>/retiro/', views.registrar_retiro, name='registrar_retiro'),
+    path('cola/<int:consulta_id>/reasignar/', views.reasignar_consulta, name='reasignar_consulta'),
 ]

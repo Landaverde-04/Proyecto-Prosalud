@@ -41,6 +41,34 @@
     --bs-secondary-color: var(--text-sec);
 }
 
+/* ============================================================
+   Tema por clinica. El color no se elige por el nombre de la
+   clinica sino por su campo `tema`, que base.html escribe en
+   data-tema. Solo se redefinen los colores: el resto del CSS
+   sigue leyendo las mismas variables.
+   ============================================================ */
+[data-tema="estetica"] {
+    --accent: #B4457A;
+    --accent-rgb: 180, 69, 122;
+    --accent-hover: #9C3868;
+    --accent-active: #8A3059;
+    --accent-soft: #FBE9F2;
+    --accent-border-subtle: #F2C9DE;
+
+    --sidebar: #2B1026;
+    --sidebar-line: #3D1935;
+    --sidebar-active: #B4457A;
+    --sidebar-label: #E38FBB;
+    --sidebar-item: #F0C3DA;
+
+    --page: #FAF6F8;
+    --line: #E8E1E5;
+    --text: #251E22;
+    --text-sec: #6B6367;
+
+    --bs-link-hover-color-rgb: 156, 56, 104;
+}
+
 /* Los componentes de Bootstrap (botones, tablas) NO leen --bs-primary
    en vivo -- traen su color ya resuelto en el CSS compilado del CDN.
    Como no compilamos Sass, se sobreescriben sus variables locales por
@@ -136,6 +164,38 @@
 
 #sidebar.sidebar-collapsed .sidebar-collapsed-only {
     display: inline-flex;
+}
+
+/* Selector de clinica activa, bajo la marca del sidebar */
+.selector-clinica-titulo {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.selector-clinica {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.selector-clinica-opcion {
+    border: 0;
+    border-radius: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    text-align: center;
+    background: none;
+    color: var(--sidebar-item);
+}
+
+button.selector-clinica-opcion:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.selector-clinica-opcion.activa {
+    background-color: var(--sidebar-active);
+    color: #ffffff;
+    font-weight: 600;
 }
 
 /* ── Toggle de contraseña ── */

@@ -19,6 +19,8 @@
     {% endif %}
 </div>
 
+{% include "pacientes/aviso_mayoria_edad.html" %}
+
 {# Cabecera del expediente -- HU-EXP-05 #}
 <div class="card shadow-sm mb-4">
     <div class="card-body p-4">
@@ -43,14 +45,23 @@
                 <div class="text-muted small">DUI</div>
                 {% if persona.dui %}
                     <div class="fw-medium">{{ persona.dui }}</div>
-                {% elif responsable %}
-                    <div class="fw-medium">Sin DUI (menor de edad)</div>
+                {% else %}
+                    <div class="fw-medium">{% if es_menor %}Sin DUI (menor de edad){% else %}Sin DUI registrado{% endif %}</div>
+                    {% if responsable %}
                     <div class="text-muted small mt-1">
                         Responsable: {{ responsable.nombres }} {{ responsable.apellidos }}
                         · {{ responsable.telefono|default:"sin teléfono" }}
                     </div>
-                {% else %}
-                    <div class="fw-medium">Sin DUI registrado</div>
+                    {% endif %}
+                    {% if persona.puede_registrar_dui and perms.pacientes.change_persona %}
+                    <button type="button" class="btn btn-link btn-sm p-0 mt-1"
+                            data-bs-toggle="modal" data-bs-target="#modalRegistrarDui"
+                            data-url="{% url 'pacientes:registrar_dui' expediente.id %}"
+                            data-nombre="{{ persona.nombres }} {{ persona.apellidos }}"
+                            data-responsables="{% for contacto in responsables_por_convertir %}{{ contacto.persona_contacto.nombres }} {{ contacto.persona_contacto.apellidos }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+                        <i class="bi bi-person-vcard"></i> Registrar DUI
+                    </button>
+                    {% endif %}
                 {% endif %}
             </div>
             <div class="col-sm-6 col-lg-4">
@@ -505,9 +516,15 @@ propio, con el mismo estilo visual.
   </div>
 </div>
 
+{% if persona.puede_registrar_dui and perms.pacientes.change_persona %}
+{% include "pacientes/modal_registrar_dui.html" with origen="expediente" %}
+{% endif %}
+
 {% endblock %}
 
 {% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
 <script src="{% static 'pacientes/js/buscador-contacto.js' %}"></script>
 <script src="{% static 'pacientes/js/ver-expediente.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-dui.js' %}"></script>
 {% endblock %}
