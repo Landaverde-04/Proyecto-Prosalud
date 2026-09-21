@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 
 from django import forms
+from django.conf import settings
 from django.utils import timezone
 
-from .models import (Antecedente, Aplicacion, Consulta, ControlPosterior, Incapacidad,
-                     ReferenciaMedica)
+from .models import (Adjunto, Antecedente, Aplicacion, Consulta, ControlPosterior,
+                     DetalleOrdenExamen, DetalleReceta, Incapacidad,
+                     OrdenExamen, Receta, ReferenciaMedica)
 
 
 class DocumentoMedicoForm(forms.Form):
@@ -222,3 +224,128 @@ class AplicacionForm(forms.ModelForm):
         self.fields['dosis'].widget = forms.TextInput(attrs={
             'class': 'form-control', 'placeholder': '500 ml, 2 puff…'})
         self.fields['indicaciones'].widget = forms.Textarea(attrs={'class': 'form-control', 'rows': 2})
+
+
+class OrdenExamenForm(forms.Form):
+    """
+    Orden de examenes (HU-EXP-20), version sencilla acordada con Samuel el
+    21/09/2026: solo los tipos de examen y las indicaciones.
+
+    Los examenes se escriben separados por coma, como en el mockup
+    ("Hemograma, glucosa..."), y la vista los guarda como filas de
+    `DetalleOrdenExamen`. Asi la doctora escribe de corrido pero el dato
+    queda estructurado para cuando exista el modulo de Laboratorio.
+    """
+
+    examenes = forms.CharField(
+        label='Exámenes solicitados', max_length=1000,
+        widget=forms.TextInput(attrs={'class': 'form-control',
+                                      'placeholder': 'Hemograma, glucosa, orina…'}))
+    indicaciones = forms.CharField(
+        label='Indicaciones', required=False, max_length=1000,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2,
+                                     'placeholder': 'En ayunas de 8 horas…'}))
+
+    def clean_examenes(self):
+        # "Hemograma, , glucosa," no debe crear filas vacias.
+        tipos = [t.strip() for t in self.cleaned_data['examenes'].split(',') if t.strip()]
+        if not tipos:
+            raise forms.ValidationError('Escriba al menos un examen.')
+        return tipos
+
+
+class RecetaForm(forms.Form):
+    """
+    Receta de la consulta (HU-EXP-25).
+
+    Un medicamento por envio, como el boton "+" del mockup: se van
+    agregando a la receta de la consulta. Los tres campos son los del
+    mockup y los de `DetalleReceta` -- la frecuencia va dentro de la dosis
+    ("1 c/8h"), que es como lo escribe la doctora.
+
+    Las indicaciones generales NO se piden aqui: son `Consulta.indicaciones`,
+    que ya se llenan durante la atencion. Pedirlas dos veces obligaria a
+    escribir lo mismo, y dejaria dos versiones del mismo dato.
+    """
+
+    medicamento = forms.CharField(
+        label='Medicamento', max_length=200,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Amoxicilina 500 mg'}))
+    dosis = forms.CharField(
+        label='Dosis', max_length=100,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '1 cápsula cada 8 horas'}))
+    duracion = forms.CharField(
+        label='Duración', max_length=50,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '7 días'}))
+
+    def clean(self):
+        datos = super().clean()
+        for campo in ('medicamento', 'dosis', 'duracion'):
+            if datos.get(campo) and not datos[campo].strip():
+                self.add_error(campo, 'No puede quedar en blanco.')
+        return datos
+
+
+class AdjuntoForm(forms.ModelForm):
+    """
+    Archivo del expediente (HU-EXP-08): PDF, JPG o PNG, hasta 10 MB.
+
+    El tipo NO se decide por la extension ni por el `content_type` que manda
+    el navegador: los dos los pone quien sube el archivo. Se leen los
+    primeros bytes, que es lo unico que dice de verdad que es el archivo --
+    renombrar un .exe a .pdf no lo convierte en PDF.
+    """
+
+    # Los bytes con los que empieza cada formato permitido.
+    FIRMAS = (
+        (b'%PDF-', Adjunto.Tipo.PDF),
+        (b'\xff\xd8\xff', Adjunto.Tipo.IMAGEN),          # JPG
+        (b'\x89PNG\r\n\x1a\n', Adjunto.Tipo.IMAGEN),     # PNG
+    )
+
+    class Meta:
+        model = Adjunto
+        fields = ('archivo', 'descripcion')
+        labels = {'archivo': 'Archivo', 'descripcion': 'Descripción'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['archivo'].widget.attrs.update({
+            'class': 'form-control',
+            # Solo filtra lo que ofrece el explorador de archivos; la
+            # validacion de verdad es la de abajo.
+            'accept': '.pdf,.jpg,.jpeg,.png',
+        })
+        self.fields['descripcion'].required = True
+        self.fields['descripcion'].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': 'Ej.: Radiografía de tórax 12/09 · Examen de sangre de laboratorio externo',
+        })
+
+    def clean_descripcion(self):
+        # Obligatoria aunque el modelo la deje en blanco: el nombre real del
+        # archivo se descarta al guardarlo, asi que sin descripcion la lista
+        # del expediente serian varias filas identicas que nadie distingue.
+        descripcion = self.cleaned_data['descripcion'].strip()
+        if not descripcion:
+            raise forms.ValidationError('Escriba de qué es el archivo.')
+        return descripcion
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data['archivo']
+        tope = settings.TAMANO_MAXIMO_ADJUNTO
+        if archivo.size > tope:
+            raise forms.ValidationError(
+                f'El archivo pesa {archivo.size / 1024 / 1024:.1f} MB y el máximo '
+                f'son {tope // 1024 // 1024} MB.')
+
+        cabecera = archivo.read(8)
+        archivo.seek(0)  # sin esto se guardaria el archivo sin sus primeros bytes
+        for firma, tipo in self.FIRMAS:
+            if cabecera.startswith(firma):
+                # Se guarda aqui para que la vista no tenga que repetir la
+                # deteccion: el formulario ya sabe que es.
+                self.instance.tipo = tipo
+                return archivo
+
+        raise forms.ValidationError('Solo se aceptan archivos PDF, JPG o PNG.')

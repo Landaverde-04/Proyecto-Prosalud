@@ -115,6 +115,26 @@ STORAGES = {
     },
 }
 
+# Archivos que sube la gente: los adjuntos del expediente (HU-EXP-08).
+#
+# NO se define MEDIA_URL a proposito. Definirla invita a escribir
+# `{{ adjunto.archivo.url }}` en una plantilla, y eso deja el archivo
+# clinico colgando de una direccion que cualquiera puede abrir con solo
+# tenerla. Los adjuntos se descargan por una vista con login, permisos y
+# validacion de clinica -- ver `consultas.views.descargar_adjunto`.
+#
+# La carpeta va FUERA del repositorio (`BASE_DIR.parent`) para que ningun
+# expediente termine en un commit por accidente.
+#
+# Pendiente: la historia contempla mover esto a S3 con bucket privado y
+# URL firmada temporal. Cuando se haga, solo cambia el backend de
+# almacenamiento; la vista protegida y sus permisos se quedan igual.
+MEDIA_ROOT = BASE_DIR.parent / 'archivos-prosalud'
+
+# Tope por archivo, del criterio de HU-EXP-08. Se valida en el formulario;
+# aqui solo se nombra una vez para no repetir el numero.
+TAMANO_MAXIMO_ADJUNTO = 10 * 1024 * 1024  # 10 MB
+
 # Modelo de usuario personalizado
 AUTH_USER_MODEL = 'seguridad.Usuario'
 

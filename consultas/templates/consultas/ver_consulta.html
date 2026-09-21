@@ -121,6 +121,35 @@
         </div>
         {% endif %}
 
+        {% if receta %}
+        <div class="vstack gap-2 mb-3">
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <i class="bi bi-capsule me-1" style="color: var(--accent);"></i>
+                    Receta
+                    <span class="text-muted small">· {{ receta.folio }} ·
+                        {% for d in receta.detalles.all %}{% if d.activo %}{{ d.medicamento }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</span>
+                </div>
+                <a href="{% url 'consultas:ver_receta' receta.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if ordenes %}
+        <div class="vstack gap-2 mb-3">
+            {% for orden in ordenes %}
+            <div class="d-flex justify-content-between align-items-center gap-2">
+                <div>
+                    <i class="bi bi-clipboard2-pulse me-1" style="color: var(--accent);"></i>
+                    Orden de exámenes
+                    <span class="text-muted small">· {% for d in orden.detalles.all %}{% if d.activo %}{{ d.tipo_examen }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</span>
+                </div>
+                <a href="{% url 'consultas:ver_orden' orden.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% if aplicaciones %}
         <div class="vstack gap-2 mb-3">
             {% for aplicacion in aplicaciones %}
@@ -151,7 +180,7 @@
         </div>
         {% endif %}
 
-        {% if not incapacidades and not referencias and not controles and not aplicaciones %}
+        {% if not incapacidades and not referencias and not controles and not aplicaciones and not ordenes and not receta %}
         <p class="text-muted small mb-3">No se ha emitido ningún documento en esta consulta.</p>
         {% endif %}
 
@@ -175,8 +204,7 @@
         </a>
         {% endif %}
         <p class="text-muted mb-0 mt-2" style="font-size: 0.75rem;">
-            La receta y las órdenes de examen se agregarán aquí cuando se construyan
-            (HU-EXP-25 y HU-EXP-20).
+            Los documentos se agregan desde la pantalla de atención.
         </p>
     </div>
 </div>

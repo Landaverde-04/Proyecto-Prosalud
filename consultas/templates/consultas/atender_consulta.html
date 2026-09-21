@@ -75,10 +75,26 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
             {% comment %}
-            Distribución tomada del mockup: motivo y diagnóstico arriba en dos
-            columnas, historia a lo ancho, examen físico y tratamiento debajo.
+            Orden SOAP (Subjetivo · Objetivo · Análisis · Plan), corregido el
+            21/09/2026. Una fila por etapa:
+
+                S  Motivo · Historia de la enfermedad actual   lo que cuenta el paciente
+                O  Examen físico                               lo que encuentra la doctora
+                A  Diagnóstico                                 el juicio clínico
+                P  Tratamiento · Indicaciones                  qué se hace
+
+            Los signos vitales son parte de la O y van arriba, en su propia
+            sección, porque los toma enfermería antes de la consulta.
+
+            La distribución anterior venía del mockup y ponía el DIAGNÓSTICO
+            de segundo, pegado al motivo — antes de la historia y del examen
+            físico. El SOAP existe justamente para lo contrario: el análisis
+            va después de lo subjetivo y lo objetivo. Escribiendo de corrido
+            hacia abajo, esa pantalla llevaba a anotar el diagnóstico antes
+            de haber documentado en qué se basa.
             {% endcomment %}
             <div class="row g-3">
+                {# S -- lo que cuenta el paciente #}
                 <div class="col-md-6">
                     <label for="{{ form.motivo.id_for_label }}" class="form-label small fw-semibold">
                         {{ form.motivo.label }} <span class="text-danger">*</span>
@@ -87,22 +103,28 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
                     {{ form.motivo }}{{ form.motivo.errors }}
                 </div>
                 <div class="col-md-6">
-                    <label for="{{ form.diagnostico.id_for_label }}" class="form-label small fw-semibold">{{ form.diagnostico.label }}</label>
-                    {{ form.diagnostico }}{{ form.diagnostico.errors }}
-                </div>
-                <div class="col-12">
                     <label for="{{ form.historia_enfermedad_actual.id_for_label }}" class="form-label small fw-semibold">{{ form.historia_enfermedad_actual.label }}</label>
                     {{ form.historia_enfermedad_actual }}{{ form.historia_enfermedad_actual.errors }}
                 </div>
-                <div class="col-md-6">
+
+                {# O -- lo que encuentra la doctora #}
+                <div class="col-12">
                     <label for="{{ form.examen_fisico.id_for_label }}" class="form-label small fw-semibold">{{ form.examen_fisico.label }}</label>
                     {{ form.examen_fisico }}{{ form.examen_fisico.errors }}
                 </div>
+
+                {# A -- el juicio clínico, a lo ancho: es la conclusión de todo lo de arriba #}
+                <div class="col-12">
+                    <label for="{{ form.diagnostico.id_for_label }}" class="form-label small fw-semibold">{{ form.diagnostico.label }}</label>
+                    {{ form.diagnostico }}{{ form.diagnostico.errors }}
+                </div>
+
+                {# P -- qué se hace #}
                 <div class="col-md-6">
                     <label for="{{ form.tratamiento.id_for_label }}" class="form-label small fw-semibold">{{ form.tratamiento.label }}</label>
                     {{ form.tratamiento }}{{ form.tratamiento.errors }}
                 </div>
-                <div class="col-12">
+                <div class="col-md-6">
                     <label for="{{ form.indicaciones.id_for_label }}" class="form-label small fw-semibold">{{ form.indicaciones.label }}</label>
                     {{ form.indicaciones }}{{ form.indicaciones.errors }}
                 </div>
@@ -135,6 +157,23 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
                 <button type="button" class="btn btn-sm btn-outline-secondary"
                         data-ver-pdf="{% url 'consultas:pdf_documento' documento.pk %}"
                         data-titulo="Constancia de incapacidad · {{ documento.folio }}">Ver PDF</button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if ordenes %}
+        <div class="vstack gap-2 mb-3">
+            {% for orden in ordenes %}
+            <div class="d-flex justify-content-between align-items-center gap-2 small">
+                <div>
+                    <i class="bi bi-clipboard2-pulse me-1" style="color: var(--accent);"></i>
+                    Exámenes ·
+                    {% for detalle in orden.detalles.all %}{% if detalle.activo %}{{ detalle.tipo_examen }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-ver-pdf="{% url 'consultas:pdf_orden' orden.pk %}"
+                        data-titulo="Orden de exámenes">Ver PDF</button>
             </div>
             {% endfor %}
         </div>
@@ -229,9 +268,11 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
                 <i class="bi bi-file-earmark-medical"></i> Incapacidad
             </button>
             {% endif %}
-            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Historia pendiente: HU-EXP-20">
+            {% if perms.consultas.add_ordenexamen %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-orden">
                 <i class="bi bi-clipboard2-pulse"></i> Exámenes
             </button>
+            {% endif %}
             {% if perms.consultas.add_aplicacion %}
             <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-aplicacion">
                 <i class="bi bi-eyedropper"></i> Aplicación
@@ -346,6 +387,28 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
         </form>
         {% endif %}
 
+        {% if perms.consultas.add_ordenexamen %}
+        <form method="post" action="{% url 'consultas:agregar_orden' consulta.pk %}"
+              id="panel-orden" class="border rounded p-3 mt-3" hidden>
+            {% csrf_token %}
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-9">
+                    <label for="{{ form_orden.examenes.id_for_label }}" class="form-label small fw-semibold">
+                        Exámenes solicitados <span class="fw-normal text-muted">— sepárelos con coma</span>
+                    </label>
+                    {{ form_orden.examenes }}
+                </div>
+                <div class="col-sm-3">
+                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
+                </div>
+                <div class="col-12">
+                    <label for="{{ form_orden.indicaciones.id_for_label }}" class="form-label small fw-semibold">Indicaciones</label>
+                    {{ form_orden.indicaciones }}
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
         <p class="text-muted mb-0 mt-3" style="font-size: 0.75rem;">
             Agregar un documento no finaliza la consulta. También se pueden
             agregar después, desde el detalle de la consulta.
@@ -358,13 +421,64 @@ Receta: en el mockup va aquí, con medicamento/dosis/duración y un botón para
 agregar varios. Es HU-EXP-25, acordada para el final. En el mockup además
 cerraba la consulta -- esa regla se descartó el 05/09/2026.
 {% endcomment %}
-<div class="card shadow-sm border-0 mb-3 opacity-75">
+{% comment %}
+Receta (HU-EXP-25). Va aquí, como en el mockup: medicamento, dosis y
+duración, y se van agregando de a uno con el botón. Una consulta tiene una
+sola receta -- la base de datos lo impide, a diferencia de los demás
+documentos.
+
+⚠️ Emitirla NO cierra la consulta. El mockup decía "Generar receta y
+cerrar", pero esa regla se descartó el 05/09/2026: cierra "Finalizar
+consulta", que es acción aparte.
+{% endcomment %}
+<div class="card shadow-sm border-0 mb-3">
     <div class="card-body p-3">
-        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
-            <i class="bi bi-capsule me-1"></i>RECETA
-        </h6>
-        <p class="text-muted small mb-0">
-            Medicamentos, dosis y duración. Pendiente de construir (HU-EXP-25).
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h6 class="fw-semibold text-muted mb-0" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+                <i class="bi bi-capsule me-1"></i>RECETA
+            </h6>
+            {% comment %}
+            En su propio contenedor porque al agregar el primer medicamento
+            la receta recién nace: el botón no existía y aparece sin recargar.
+            {% endcomment %}
+            <span id="receta-acciones">
+                {% include 'consultas/_receta_acciones.html' %}
+            </span>
+        </div>
+
+        <div id="receta-medicamentos">
+            {% include 'consultas/_receta_medicamentos.html' %}
+        </div>
+
+        {% if perms.consultas.add_receta %}
+        <form method="post" action="{% url 'consultas:agregar_medicamento' consulta.pk %}" class="border rounded p-3"
+              id="form-agregar-medicamento">
+            {% csrf_token %}
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-5">
+                    <label for="{{ form_receta.medicamento.id_for_label }}" class="form-label small fw-semibold">Medicamento</label>
+                    {{ form_receta.medicamento }}
+                </div>
+                <div class="col-sm-4">
+                    <label for="{{ form_receta.dosis.id_for_label }}" class="form-label small fw-semibold">Dosis</label>
+                    {{ form_receta.dosis }}
+                </div>
+                <div class="col-sm-2">
+                    <label for="{{ form_receta.duracion.id_for_label }}" class="form-label small fw-semibold">Duración</label>
+                    {{ form_receta.duracion }}
+                </div>
+                <div class="col-sm-1">
+                    <button type="submit" class="btn btn-primary w-100" title="Agregar a la receta">
+                        <i class="bi bi-plus-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </form>
+        {% endif %}
+
+        <p class="text-muted mb-0 mt-2" style="font-size: 0.75rem;">
+            Las indicaciones generales de la receta son las de la consulta.
+            Emitir la receta no finaliza la atención.
         </p>
     </div>
 </div>
@@ -429,7 +543,16 @@ aquí hace falta una lista.
                     <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
                         Control posterior el {{ control.fecha_control|date:'d/m/Y' }}</li>
                     {% endfor %}
-                    {% if not incapacidades and not referencias and not aplicaciones and not controles %}
+                    {% if receta %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        Receta con {{ receta.detalles.count }} medicamento{{ receta.detalles.count|pluralize }}</li>
+                    {% endif %}
+                    {% for orden in ordenes %}
+                    <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
+                        Orden de exámenes:
+                        {% for d in orden.detalles.all %}{% if d.activo %}{{ d.tipo_examen }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</li>
+                    {% endfor %}
+                    {% if not incapacidades and not referencias and not aplicaciones and not controles and not ordenes and not receta %}
                     <li class="text-muted"><i class="bi bi-dash me-2"></i>Ningún documento</li>
                     {% endif %}
                 </ul>
@@ -441,7 +564,7 @@ aquí hace falta una lista.
                 <div class="alert alert-warning py-2 small mb-0">
                     <div><i class="bi bi-exclamation-triangle me-1"></i><span class="fw-semibold">Revise antes de cerrar:</span></div>
                     <ul class="mb-0 mt-1 ps-4">
-                        <li>No se emitió receta{% if not incapacidades and not referencias and not aplicaciones and not controles %}, ni ningún otro documento{% endif %}.</li>
+                        {% if not receta %}<li>No se emitió receta{% if not incapacidades and not referencias and not aplicaciones and not controles and not ordenes %}, ni ningún otro documento{% endif %}.</li>{% endif %}
                         <li>Una consulta finalizada queda de <strong>solo lectura</strong> y no se puede seguir escribiendo en ella.</li>
                     </ul>
                 </div>

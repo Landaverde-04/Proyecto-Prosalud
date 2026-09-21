@@ -5,7 +5,27 @@ app_name = 'consultas'
 urlpatterns = [
     # Antecedentes del paciente -- HU-EXP-07
     path('expediente/<int:expediente_id>/antecedentes/', views.antecedentes, name='antecedentes'),
+    path('antecedentes/<int:antecedente_id>/editar/', views.editar_antecedente, name='editar_antecedente'),
     path('antecedentes/<int:antecedente_id>/desactivar/', views.desactivar_antecedente, name='desactivar_antecedente'),
+
+    # Adjuntos del expediente -- HU-EXP-08
+    path('expediente/<int:expediente_id>/adjuntos/', views.adjuntos, name='adjuntos'),
+    path('adjuntos/<int:adjunto_id>/archivo/', views.descargar_adjunto, name='descargar_adjunto'),
+    path('adjuntos/<int:adjunto_id>/retirar/', views.retirar_adjunto, name='retirar_adjunto'),
+
+    # Receta -- HU-EXP-25
+    path('expediente/<int:expediente_id>/recetas/', views.lista_recetas, name='lista_recetas'),
+    path('<int:consulta_id>/receta/', views.agregar_medicamento, name='agregar_medicamento'),
+    path('receta/medicamento/<int:detalle_id>/quitar/', views.quitar_medicamento, name='quitar_medicamento'),
+    path('receta/medicamento/<int:detalle_id>/editar/', views.editar_medicamento, name='editar_medicamento'),
+    path('recetas/<int:receta_id>/', views.ver_receta, name='ver_receta'),
+    path('recetas/<int:receta_id>/pdf/', views.pdf_receta, name='pdf_receta'),
+
+    # Ordenes de examen -- HU-EXP-20
+    path('expediente/<int:expediente_id>/examenes/', views.lista_ordenes, name='lista_ordenes'),
+    path('<int:consulta_id>/examenes/', views.agregar_orden, name='agregar_orden'),
+    path('examenes/<int:orden_id>/', views.ver_orden, name='ver_orden'),
+    path('examenes/<int:orden_id>/pdf/', views.pdf_orden, name='pdf_orden'),
 
     # Aplicaciones y servicios -- HU-EXP-21
     path('expediente/<int:expediente_id>/aplicaciones/', views.lista_aplicaciones, name='lista_aplicaciones'),

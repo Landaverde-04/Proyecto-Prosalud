@@ -1,0 +1,45 @@
+{% extends 'core/base.html' %}
+{% block titulo %}Recetas - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'pacientes:ver_expediente' expediente.pk %}"
+   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Expediente de {{ expediente.persona }}
+</a>
+
+<h4 class="fw-semibold mb-1">Recetas</h4>
+<p class="text-muted small mb-4">{{ expediente.persona }} · {{ expediente.clinica }}</p>
+
+{% if pagina.object_list %}
+<div class="card shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr><th>Fecha</th><th>Folio</th><th>Medicamentos</th><th>Profesional</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for receta in pagina %}
+                <tr>
+                    <td>{{ receta.fecha|date:'d/m/Y' }}</td>
+                    <td class="text-muted small">{{ receta.folio }}</td>
+                    <td class="fw-medium">
+                        {% for detalle in receta.detalles.all %}{% if detalle.activo %}{{ detalle.medicamento }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}
+                    </td>
+                    <td class="text-muted small">{{ receta.nombre_profesional }}</td>
+                    <td><a href="{% url 'consultas:ver_receta' receta.pk %}">Ver documento</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% include "core/paginacion.html" %}
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-capsule fs-1 d-block mb-3 opacity-25"></i>
+    <p class="mb-0">Aún no se han emitido recetas.</p>
+    <p class="small">Se generan desde una consulta, en la sección Receta.</p>
+</div>
+{% endif %}
+
+{% endblock %}

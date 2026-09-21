@@ -207,8 +207,18 @@ class ReasignacionConsulta(ModeloBase):
         return f'{self.consulta} · {self.medico_anterior} → {self.medico_nuevo}'
 
 
-class Receta(ModeloBase):
-    """Uno a uno con Consulta (TEC-01): al emitirla, la consulta se cierra."""
+class Receta(DocumentoDeConsulta, ModeloBase):
+    """
+    Uno a uno con Consulta (TEC-01): una consulta, una receta, y la base de
+    datos lo impide.
+
+    ⚠️ Emitirla NO cierra la consulta. El nombre de la historia
+    ("HU-EXP-25 Generar receta (cierra la consulta)") y su criterio
+    original decian lo contrario, pero los criterios nuevos del Word lo
+    corrigen: "Finalizar consulta" es una accion independiente y "no se
+    exige receta para poder cerrarla" (acuerdo del 05/09/2026 -- cerrar por
+    receta se presta a error humano).
+    """
 
     consulta = models.OneToOneField(
         Consulta, on_delete=models.PROTECT, related_name='receta',
@@ -354,7 +364,7 @@ class Aplicacion(ModeloBase):
         return f'{self.get_tipo_display()} · {self.consulta}'
 
 
-class OrdenExamen(ModeloBase):
+class OrdenExamen(DocumentoDeConsulta, ModeloBase):
     """
     Independiente de Consulta (TEC-01): se relaciona con Persona
     directo, y opcionalmente con una Consulta -- puede existir sin
@@ -440,3 +450,71 @@ class Antecedente(ModeloBase):
 
     def __str__(self):
         return f'{self.get_tipo_display()}: {self.detalle[:40]}'
+
+
+def ruta_adjunto(adjunto, nombre_original):
+    """
+    Donde se guarda fisicamente el archivo.
+
+    Una carpeta por expediente, y el nombre real se descarta: se guarda con
+    un uuid. Dos motivos. El nombre que trae el archivo del paciente puede
+    venir con acentos, espacios o barras que rompen la ruta, y --mas
+    importante-- suele traer datos del paciente ("dui-juan-perez.pdf"): si
+    alguien llegara al disco, el nombre ya estaria contando algo. El nombre
+    original, si hace falta, se escribe en `descripcion`.
+    """
+    extension = nombre_original.rsplit('.', 1)[-1].lower() if '.' in nombre_original else ''
+    return f'expedientes/{adjunto.expediente_id}/{uuid.uuid4().hex}.{extension}'
+
+
+class Adjunto(ModeloBase):
+    """
+    Archivo suelto del expediente: un PDF, una foto, un resultado que el
+    paciente trajo en papel (HU-EXP-08).
+
+    Cuelga del `Expediente`, NO de una consulta -- criterio explicito de la
+    historia: "Los adjuntos no estan atados a una consulta especifica". Un
+    examen que el paciente se hizo por su cuenta no pertenece a ninguna
+    visita, y obligarlo a colgar de una lo dejaria fuera o mal ubicado.
+
+    Al colgar del expediente queda acotado por clinica, igual que
+    `Antecedente`: lo subido en ProSalud no aparece en Estetica.
+
+    **El archivo no se sirve por URL publica.** `archivo.url` no se usa en
+    ninguna plantilla; se descarga por una vista con `login_required`,
+    permisos y validacion de clinica, como `ver_expediente`. Asi, el dia que
+    esto se mueva a S3 solo cambia de donde sale el contenido -- quien puede
+    pedirlo se sigue decidiendo en el mismo lugar.
+
+    El diagrama trae ademas `fecha` y `subido_por`. No se agregan: son
+    `fecha_creacion` y `creado_por` de `ModeloBase`. Mismo criterio que se
+    aplico el 06/09/2026 al quitar `doctor_jvpm` y el 21/09/2026 en
+    `OrdenExamen` -- un dato que ya existe no se guarda dos veces.
+    """
+
+    class Tipo(models.TextChoices):
+        # Lista cerrada en vez de guardar el MIME que manda el navegador:
+        # ese lo pone el cliente y no es de fiar. Este sale de validar el
+        # archivo, y solo sirve para saber que icono y que visor usar.
+        PDF = 'PDF', 'PDF'
+        IMAGEN = 'IMAGEN', 'Imagen'
+
+    expediente = models.ForeignKey(
+        Expediente, on_delete=models.PROTECT, related_name='adjuntos',
+    )
+    archivo = models.FileField(upload_to=ruta_adjunto)
+    tipo = models.CharField(max_length=10, choices=Tipo.choices, blank=True)
+    descripcion = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        db_table = 'Adjunto'
+        verbose_name = 'adjunto'
+        verbose_name_plural = 'adjuntos'
+        ordering = ['-fecha_creacion']
+
+    def __str__(self):
+        return self.descripcion or f'Adjunto {self.pk}'
+
+    @property
+    def es_imagen(self):
+        return self.tipo == self.Tipo.IMAGEN

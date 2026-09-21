@@ -1,0 +1,71 @@
+{% comment %}
+Lista de medicamentos de la receta.
+
+Va aparte porque las vistas la devuelven sola cuando el navegador la pide
+por fetch: agregar, corregir o quitar un medicamento NO recarga la pantalla
+de atención. Recargarla movía la página de lugar y era molesto en medio de
+una consulta.
+
+Sin JavaScript sigue funcionando: el formulario se envía normal y esta misma
+plantilla se dibuja dentro de la página completa.
+{% endcomment %}
+{% if receta %}
+<div class="vstack gap-2 mb-3">
+    {% for detalle in receta.detalles.all %}{% if detalle.activo %}
+    <div class="d-flex justify-content-between align-items-start gap-2 small" data-medicamento="{{ detalle.pk }}">
+
+        <div class="flex-grow-1 min-w-0" data-modo="ver">
+            <span class="fw-semibold">{{ detalle.medicamento }}</span>
+            <div class="text-muted">{{ detalle.dosis }} — {{ detalle.duracion }}</div>
+        </div>
+
+        {% if perms.consultas.change_receta %}
+        {% comment %}
+        El formulario de corrección viene dibujado y escondido: así corregir
+        es un clic, sin ir a pedirle nada al servidor.
+        {% endcomment %}
+        <form method="post" action="{% url 'consultas:editar_medicamento' detalle.pk %}"
+              class="flex-grow-1 row g-1" data-modo="editar" hidden>
+            {% csrf_token %}
+            <div class="col-sm-5">
+                <input type="text" name="medicamento" value="{{ detalle.medicamento }}" maxlength="200"
+                       class="form-control form-control-sm" aria-label="Medicamento" required>
+            </div>
+            <div class="col-sm-4">
+                <input type="text" name="dosis" value="{{ detalle.dosis }}" maxlength="100"
+                       class="form-control form-control-sm" aria-label="Dosis" required>
+            </div>
+            <div class="col-sm-3">
+                <input type="text" name="duracion" value="{{ detalle.duracion }}" maxlength="50"
+                       class="form-control form-control-sm" aria-label="Duración" required>
+            </div>
+            <div class="col-12 d-flex gap-1 mt-1">
+                <button type="submit" class="btn btn-sm btn-primary py-0 px-2">Guardar</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                        data-cancelar-edicion>Cancelar</button>
+            </div>
+        </form>
+        {% endif %}
+
+        <div class="d-flex gap-1 flex-shrink-0" data-modo="ver">
+            {% if perms.consultas.change_receta %}
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                    title="Corregir" data-editar-medicamento>
+                <i class="bi bi-pencil"></i>
+            </button>
+            <form method="post" action="{% url 'consultas:quitar_medicamento' detalle.pk %}"
+                  data-quitar-medicamento>
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                        title="Quitar de la receta">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}{% endfor %}
+</div>
+{% else %}
+<p class="text-muted small mb-3">Todavía no ha agregado medicamentos.</p>
+{% endif %}
