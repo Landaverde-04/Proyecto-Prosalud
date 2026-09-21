@@ -7,12 +7,22 @@ core/js/main.js al cargar la página.
 Vive en un parcial porque lo usan dos plantillas que no comparten
 herencia: core/base.html (todo el sistema) y seguridad/login.html (que
 no extiende de base.html por ser la pantalla previa al ingreso).
+SOLO advertencias y errores (nivel >= 30). Antes salía en cada mensaje,
+incluidos los de "guardado con éxito": agregar un documento abría una
+ventana que había que cerrar a mano, y en una consulta eso pasa varias
+veces seguidas. Un aviso de que todo salió bien no merece interrumpir.
+
+Los mensajes de éxito e información salen como aviso flotante abajo a la
+derecha y se cierran solos (ver core/base.html y core/js/main.js). Así
+tampoco se muestra el mismo mensaje dos veces.
 {% endcomment %}
-{% if messages %}
+{% load avisos %}
+{% with bloqueantes=messages|bloqueantes %}
+{% if bloqueantes %}
 <div class="modal fade" id="modalMensaje" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
         <div class="modal-content border-0 shadow overflow-hidden">
-            {% for message in messages %}{% if forloop.first %}
+            {% for message in bloqueantes %}{% if forloop.first %}
             <div class="modal-header border-0
                 {% if message.tags == 'success' %}bg-success text-white
                 {% elif message.tags == 'danger' %}bg-danger text-white
@@ -44,3 +54,4 @@ no extiende de base.html por ser la pantalla previa al ingreso).
     </div>
 </div>
 {% endif %}
+{% endwith %}

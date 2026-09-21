@@ -166,13 +166,16 @@
         var titulo = document.getElementById('modalDocumentoTitulo');
         var enlace = document.getElementById('modalDocumentoNuevaPestana');
         var ventana = new bootstrap.Modal(modal);
-        document.querySelectorAll('[data-ver-pdf]').forEach(function (boton) {
-            boton.addEventListener('click', function () {
-                visor.src = boton.dataset.verPdf;
-                enlace.href = boton.dataset.verPdf;
-                titulo.textContent = boton.dataset.titulo || 'Documento';
-                ventana.show();
-            });
+        // Delegado, no botón por botón: el "Ver PDF" de la receta aparece
+        // después, cuando se agrega el primer medicamento, y con un
+        // addEventListener por botón ese nacería muerto.
+        document.addEventListener('click', function (evento) {
+            var boton = evento.target.closest('[data-ver-pdf]');
+            if (!boton) { return; }
+            visor.src = boton.dataset.verPdf;
+            enlace.href = boton.dataset.verPdf;
+            titulo.textContent = boton.dataset.titulo || 'Documento';
+            ventana.show();
         });
         // Al cerrar se descarga el PDF de memoria: si no, sigue ahí cargado
         // y el siguiente documento aparece un instante con el anterior.
@@ -216,6 +219,11 @@
         try { return sessionStorage.getItem(CLAVE); } catch (e) { return null; }
     }
     document.querySelectorAll('form[action]').forEach(function (formulario) {
+        // Los de la receta no recargan (se envían por fetch), así que
+        // guardar su posición dejaría un scroll viejo en sessionStorage que
+        // saltaría en la siguiente carga de esta pantalla.
+        if (formulario.closest('#receta-medicamentos') ||
+            formulario.id === 'form-agregar-medicamento') { return; }
         formulario.addEventListener('submit', function () {
             recordar(String(window.scrollY));
         });
@@ -227,5 +235,85 @@
         window.requestAnimationFrame(function () {
             window.scrollTo(0, parseInt(guardado, 10) || 0);
         });
+    }
+})();
+
+/*
+ * La receta, sin recargar la pantalla -- pedido de Samuel el 21/09/2026.
+ *
+ * Agregar un medicamento recargaba toda la consulta y la página se movía de
+ * lugar. Escribiendo una receta de cinco medicamentos eso pasa cinco veces,
+ * con el paciente enfrente.
+ *
+ * Ahora el servidor devuelve solo la lista y se cambia en su sitio. Si el
+ * JavaScript no carga, los formularios se envían como siempre: la vista
+ * detecta que no es fetch y redirige.
+ */
+(function () {
+    'use strict';
+
+    var lista = document.getElementById('receta-medicamentos');
+    if (!lista || !window.fetch) { return; }
+    var acciones = document.getElementById('receta-acciones');
+
+    function enviar(formulario) {
+        return fetch(formulario.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(formulario),
+        }).then(function (respuesta) {
+            // Un 403 de permisos o un 500 devuelven HTML, no JSON: sin esto
+            // reventaría al parsearlo y el clic se quedaría sin respuesta.
+            if (!respuesta.ok) { throw new Error(respuesta.status); }
+            return respuesta.json();
+        }).then(function (datos) {
+            lista.innerHTML = datos.medicamentos;
+            if (acciones) { acciones.innerHTML = datos.acciones; }
+            if (window.avisar) { window.avisar(datos.mensaje, datos.tipo); }
+        }).catch(function () {
+            // Si algo falla se recarga: más vale una recarga molesta que
+            // dejar a la doctora creyendo que guardó algo que no guardó.
+            formulario.submit();
+        });
+    }
+
+    var alta = document.getElementById('form-agregar-medicamento');
+    if (alta) {
+        alta.addEventListener('submit', function (evento) {
+            evento.preventDefault();
+            enviar(alta).then(function () {
+                alta.reset();
+                // Listo para el siguiente: una receta rara vez trae uno solo.
+                // No `querySelector('input')` a secas -- el primero es el
+                // campo oculto del CSRF.
+                alta.querySelector('input[name=medicamento]').focus();
+            });
+        });
+    }
+
+    // Delegado: la lista se redibuja entera en cada cambio, así que un
+    // listener por fila se perdería en el primer redibujado.
+    lista.addEventListener('submit', function (evento) {
+        var formulario = evento.target;
+        if (!formulario.matches('[data-quitar-medicamento], [data-modo="editar"]')) { return; }
+        evento.preventDefault();
+        enviar(formulario);
+    });
+
+    lista.addEventListener('click', function (evento) {
+        var fila = evento.target.closest('[data-medicamento]');
+        if (!fila) { return; }
+        if (evento.target.closest('[data-editar-medicamento]')) {
+            mostrarEdicion(fila, true);
+        } else if (evento.target.closest('[data-cancelar-edicion]')) {
+            mostrarEdicion(fila, false);
+        }
+    });
+
+    function mostrarEdicion(fila, editando) {
+        fila.querySelectorAll('[data-modo]').forEach(function (parte) {
+            parte.hidden = (parte.dataset.modo === 'editar') !== editando;
+        });
+        if (editando) { fila.querySelector('input[name=medicamento]').focus(); }
     }
 })();

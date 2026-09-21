@@ -1,5 +1,44 @@
 document.addEventListener('DOMContentLoaded', function () {
 
+    /* ── Avisos que se cierran solos ── */
+    // Solo los marcados con data-cerrar-solo: exito e informacion. Los de
+    // error se quedan hasta que alguien los cierre -- si se fueran solos,
+    // quien estaba escribiendo se pierde el motivo de que algo fallara.
+    //
+    // La funcion queda expuesta para que otras pantallas muestren avisos sin
+    // recargar (la receta de atender_consulta.html, por ejemplo).
+    window.avisar = function (texto, tipo) {
+        var caja = document.getElementById('avisos');
+        if (!caja) { return; }
+        var aviso = document.createElement('div');
+        aviso.className = 'alert alert-' + (tipo || 'success') + ' alert-dismissible fade show shadow-sm';
+        aviso.setAttribute('role', 'alert');
+        aviso.textContent = texto;
+        var cerrar = document.createElement('button');
+        cerrar.type = 'button';
+        cerrar.className = 'btn-close';
+        cerrar.setAttribute('data-bs-dismiss', 'alert');
+        cerrar.setAttribute('aria-label', 'Cerrar');
+        aviso.appendChild(cerrar);
+        caja.appendChild(aviso);
+        if (tipo !== 'danger') { cerrarDespues(aviso); }
+    };
+
+    function cerrarDespues(aviso) {
+        setTimeout(function () {
+            // bootstrap.Alert hace la animacion de salida y quita el nodo.
+            // Si Bootstrap no cargo, se quita a secas: mejor sin animacion
+            // que un aviso que nunca se va.
+            if (window.bootstrap && bootstrap.Alert) {
+                bootstrap.Alert.getOrCreateInstance(aviso).close();
+            } else {
+                aviso.remove();
+            }
+        }, 5000);
+    }
+
+    document.querySelectorAll('#avisos [data-cerrar-solo]').forEach(cerrarDespues);
+
     /* ── Sidebar ── */
     var sidebar       = document.getElementById('sidebar');
     var backdrop      = document.getElementById('sidebar-backdrop');

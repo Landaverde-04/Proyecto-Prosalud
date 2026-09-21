@@ -2,13 +2,15 @@ import time
 import uuid
 from datetime import date
 
+from django.contrib.auth.context_processors import PermWrapper
 from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.contrib import messages
 from django.db.models import F, Q
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
@@ -16,12 +18,15 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from core.paginacion import es_ajax, paginar
 from pacientes.models import Expediente
-from .documentos import generar_pdf, generar_pdf_referencia
-from .forms import (AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
+from .documentos import (generar_pdf, generar_pdf_orden, generar_pdf_receta,
+                         generar_pdf_referencia)
+from .forms import (AdjuntoForm, AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
                     ConsultaManualForm, ControlPosteriorForm, DocumentoMedicoForm,
-                    ReferenciaMedicaForm, ReprogramarControlForm)
-from .models import (Antecedente, Aplicacion, Consulta, ControlPosterior,
-                     Incapacidad, ReferenciaMedica, SignosVitales)
+                    OrdenExamenForm, RecetaForm, ReferenciaMedicaForm,
+                    ReprogramarControlForm)
+from .models import (Adjunto, Antecedente, Aplicacion, Consulta, ControlPosterior,
+                     DetalleOrdenExamen, DetalleReceta, Incapacidad,
+                     OrdenExamen, Receta, ReferenciaMedica, SignosVitales)
 
 
 def expediente_autorizado(request, expediente_id):
@@ -319,6 +324,10 @@ def atender_consulta(request, consulta_id):
         'form_control': ControlPosteriorForm(),
         'aplicaciones': consulta.aplicaciones.filter(activo=True).order_by('-pk'),
         'form_aplicacion': AplicacionForm(),
+        'ordenes': consulta.ordenes_examen.filter(activo=True).prefetch_related('detalles').order_by('-pk'),
+        'form_orden': OrdenExamenForm(),
+        'receta': getattr(consulta, 'receta', None),
+        'form_receta': RecetaForm(),
         'antecedentes': consulta.expediente.antecedentes.filter(activo=True),
         'signos': getattr(consulta, 'signos_vitales', None),
     })
@@ -459,10 +468,58 @@ def antecedentes(request, expediente_id):
             messages.success(request, 'Antecedente agregado.')
             # Post/redirect/get: recargar no vuelve a agregarlo.
             return redirect('consultas:antecedentes', expediente_id=expediente.pk)
+
+    # Cada antecedente lleva su propio formulario ya lleno, para corregirlo
+    # en su lugar. Va sin `prefix` porque cada uno viaja en su propio
+    # <form>, asi que los nombres de los campos no se pisan.
+    registrados = list(expediente.antecedentes.filter(activo=True))
+    for antecedente in registrados:
+        antecedente.form_edicion = AntecedenteForm(instance=antecedente)
+
     return render(request, 'consultas/antecedentes.html', {
-        'expediente': expediente, 'form': form,
-        'antecedentes': expediente.antecedentes.filter(activo=True),
+        'expediente': expediente, 'form': form, 'antecedentes': registrados,
     })
+
+
+def _antecedente_autorizado(request, antecedente_id):
+    antecedente = get_object_or_404(
+        Antecedente.objects.select_related('expediente'), pk=antecedente_id, activo=True)
+    expediente_autorizado(request, antecedente.expediente_id)
+    return antecedente
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_antecedente'), raise_exception=True)
+def editar_antecedente(request, antecedente_id):
+    """
+    Corregir un antecedente ya registrado (criterio del Word: "la doctora
+    puede registrar y EDITAR los antecedentes"). Quedo sin construir el
+    06/09/2026 y se completo el 21/09/2026.
+
+    Se corrige la fila, no se crea otra: un antecedente es un dato
+    permanente del paciente, no un documento emitido. Si se escribio mal
+    "Penicilina" o se precisa el diagnostico, lo que vale es el dato
+    corregido -- guardar las dos versiones dejaria dos alergias donde hay
+    una. Quien lo corrigio y cuando quedan en `modificado_por` y
+    `fecha_modificacion`.
+
+    Distinto de corregir un documento YA EMITIDO (incapacidad, referencia):
+    eso sigue siendo punto a debatir, porque el paciente ya se llevo el
+    papel.
+    """
+    antecedente = _antecedente_autorizado(request, antecedente_id)
+    form = AntecedenteForm(request.POST, instance=antecedente)
+    if form.is_valid():
+        antecedente = form.save(commit=False)
+        antecedente.modificado_por = request.user
+        antecedente.save()
+        messages.success(request, 'Antecedente corregido.')
+    else:
+        messages.error(request, 'Revise el antecedente: %s' %
+                       '; '.join(e for errores in form.errors.values() for e in errores))
+    return redirect('consultas:antecedentes', expediente_id=antecedente.expediente_id)
 
 
 @require_POST
@@ -471,9 +528,7 @@ def antecedentes(request, expediente_id):
 @permission_required(('pacientes.view_expediente', 'consultas.change_antecedente'), raise_exception=True)
 def desactivar_antecedente(request, antecedente_id):
     """Nada se elimina (regla del proyecto): se desactiva con `activo`."""
-    antecedente = get_object_or_404(
-        Antecedente.objects.select_related('expediente'), pk=antecedente_id, activo=True)
-    expediente_autorizado(request, antecedente.expediente_id)
+    antecedente = _antecedente_autorizado(request, antecedente_id)
     antecedente.activo = False
     antecedente.modificado_por = request.user
     antecedente.save(update_fields=['activo', 'modificado_por', 'fecha_modificacion'])
@@ -749,3 +804,367 @@ def marcar_aplicacion(request, aplicacion_id):
         messages.success(request, f'{aplicacion.get_tipo_display()} marcada como aplicada.')
     return redirect('consultas:lista_aplicaciones',
                    expediente_id=aplicacion.consulta.expediente_id)
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-20 -- ordenes de examen. Version sencilla (21/09/2026): tipos de
+# examen e indicaciones. Se crean desde la consulta, como los demas
+# documentos; la orden suelta llegara con el modulo de Laboratorio.
+# --------------------------------------------------------------------------
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_ordenexamen',
+                      'consultas.add_ordenexamen'), raise_exception=True)
+def agregar_orden(request, consulta_id):
+    consulta = consulta_para_documento(request, consulta_id)
+    form = OrdenExamenForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, 'Revise los datos de la orden: %s' %
+                       '; '.join(e for errores in form.errors.values() for e in errores))
+    else:
+        with transaction.atomic():
+            orden = OrdenExamen.objects.create(
+                persona=consulta.expediente.persona, consulta=consulta,
+                indicaciones=form.cleaned_data['indicaciones'],
+                # Mismo criterio que el resto: el nombre se congela al emitir.
+                doctor_nombre=request.user.get_full_name() or request.user.username,
+                creado_por=request.user, modificado_por=request.user,
+            )
+            DetalleOrdenExamen.objects.bulk_create([
+                DetalleOrdenExamen(orden=orden, tipo_examen=tipo,
+                                  creado_por=request.user, modificado_por=request.user)
+                for tipo in form.cleaned_data['examenes']
+            ])
+        messages.success(request, 'Orden de exámenes agregada a la consulta.')
+    destino = 'ver_consulta' if consulta.cerrada else 'atender_consulta'
+    return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
+
+
+def orden_autorizada(request, orden_id):
+    orden = get_object_or_404(
+        OrdenExamen.objects.select_related('creado_por', 'persona', 'consulta__doctor',
+                                          'consulta__expediente__clinica'),
+        pk=orden_id, activo=True)
+    expediente_autorizado(request, orden.consulta.expediente_id)
+    return orden
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_ordenexamen'), raise_exception=True)
+def lista_ordenes(request, expediente_id):
+    expediente = expediente_autorizado(request, expediente_id)
+    ordenes = OrdenExamen.objects.filter(
+        consulta__expediente=expediente, activo=True,
+    ).select_related('creado_por', 'consulta__doctor').prefetch_related('detalles').order_by('-fecha', '-pk')
+    return render(request, 'consultas/lista_ordenes.html', {
+        'expediente': expediente, 'pagina': paginar(ordenes, request),
+    })
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_ordenexamen'), raise_exception=True)
+def ver_orden(request, orden_id):
+    return render(request, 'consultas/ver_orden.html', {'orden': orden_autorizada(request, orden_id)})
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_ordenexamen'), raise_exception=True)
+def pdf_orden(request, orden_id):
+    orden = orden_autorizada(request, orden_id)
+    respuesta = HttpResponse(generar_pdf_orden(orden), content_type='application/pdf')
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    respuesta['Content-Disposition'] = f'{modo}; filename="orden-examenes-{orden.pk}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-25 -- receta. Una por consulta (uno a uno en la base). Se van
+# agregando medicamentos, como el boton "+" del mockup.
+#
+# ⚠️ Emitirla NO cierra la consulta: eso lo hace "Finalizar consulta", que
+# es accion aparte (criterios nuevos del Word, acuerdo del 05/09/2026).
+# --------------------------------------------------------------------------
+
+def _receta_de(consulta, usuario):
+    """La receta de la consulta; la crea la primera vez que se agrega algo."""
+    receta = getattr(consulta, 'receta', None)
+    if receta:
+        return receta
+    receta = Receta.objects.create(
+        consulta=consulta, folio='',
+        # Nombre congelado al emitir, igual que el resto de documentos.
+        doctor_nombre=usuario.get_full_name() or usuario.username,
+        creado_por=usuario, modificado_por=usuario,
+    )
+    # El folio sale del id, como en la constancia. Formato definitivo y
+    # correlativo por clinica siguen pendientes de acordar.
+    receta.folio = f'R-{receta.pk:08d}'
+    receta.save(update_fields=['folio'])
+    return receta
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_receta',
+                      'consultas.add_receta'), raise_exception=True)
+def _respuesta_receta(request, consulta, mensaje, tipo='success'):
+    """
+    Lo que se devuelve despues de tocar la receta.
+
+    Si la pidio el navegador por fetch, solo el pedazo que cambio: agregar o
+    corregir un medicamento no tiene por que recargar la pantalla de
+    atencion. Recargarla movia la pagina de lugar en plena consulta, con el
+    paciente enfrente.
+
+    Sin JavaScript se sigue redirigiendo como antes -- el formulario funciona
+    igual, solo que recargando.
+    """
+    receta = Receta.objects.filter(consulta=consulta, activo=True).first()
+    if es_ajax(request):
+        contexto = {'receta': receta, 'perms': PermWrapper(request.user)}
+        return JsonResponse({
+            'ok': tipo == 'success',
+            'mensaje': mensaje,
+            'tipo': tipo,
+            'medicamentos': render_to_string('consultas/_receta_medicamentos.html',
+                                             contexto, request=request),
+            'acciones': render_to_string('consultas/_receta_acciones.html',
+                                         contexto, request=request),
+        })
+    getattr(messages, 'error' if tipo == 'danger' else 'success')(request, mensaje)
+    destino = 'ver_consulta' if consulta.cerrada else 'atender_consulta'
+    return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
+
+
+def agregar_medicamento(request, consulta_id):
+    consulta = consulta_para_documento(request, consulta_id)
+    form = RecetaForm(request.POST)
+    if not form.is_valid():
+        return _respuesta_receta(request, consulta, 'Revise el medicamento: %s' %
+                                 '; '.join(e for errores in form.errors.values() for e in errores),
+                                 tipo='danger')
+    with transaction.atomic():
+        # Serializa dos envios seguidos: la receta se crea una sola vez.
+        Consulta.objects.select_for_update().get(pk=consulta.pk)
+        receta = _receta_de(consulta, request.user)
+        DetalleReceta.objects.create(
+            receta=receta, medicamento=form.cleaned_data['medicamento'].strip(),
+            dosis=form.cleaned_data['dosis'].strip(),
+            duracion=form.cleaned_data['duracion'].strip(),
+            creado_por=request.user, modificado_por=request.user,
+        )
+    return _respuesta_receta(request, consulta,
+                             f"{form.cleaned_data['medicamento']} agregado a la receta.")
+
+
+def _medicamento_autorizado(request, detalle_id):
+    detalle = get_object_or_404(
+        DetalleReceta.objects.select_related('receta__consulta__expediente'),
+        pk=detalle_id, activo=True)
+    expediente_autorizado(request, detalle.receta.consulta.expediente_id)
+    return detalle
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_receta'), raise_exception=True)
+def editar_medicamento(request, detalle_id):
+    """
+    Corregir un medicamento ya agregado (pedido de Samuel, 21/09/2026).
+
+    Antes solo se podia quitar y volver a escribir entero. Cambiar "cada 8
+    horas" por "cada 12" obligaba a teclear las tres casillas otra vez.
+
+    Se corrige en su lugar, no se crea una fila nueva: quien lo corrigio y
+    cuando quedan en `modificado_por` y `fecha_modificacion`. La receta aun
+    no se ha impreso -- esto es la doctora escribiendola, no una correccion
+    a un documento ya entregado.
+    """
+    detalle = _medicamento_autorizado(request, detalle_id)
+    form = RecetaForm(request.POST)
+    if not form.is_valid():
+        return _respuesta_receta(request, detalle.receta.consulta, 'Revise el medicamento: %s' %
+                                 '; '.join(e for errores in form.errors.values() for e in errores),
+                                 tipo='danger')
+    detalle.medicamento = form.cleaned_data['medicamento'].strip()
+    detalle.dosis = form.cleaned_data['dosis'].strip()
+    detalle.duracion = form.cleaned_data['duracion'].strip()
+    detalle.modificado_por = request.user
+    detalle.save(update_fields=['medicamento', 'dosis', 'duracion',
+                                'modificado_por', 'fecha_modificacion'])
+    return _respuesta_receta(request, detalle.receta.consulta,
+                             f'{detalle.medicamento} corregido.')
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_receta'), raise_exception=True)
+def quitar_medicamento(request, detalle_id):
+    """
+    Un medicamento mal puesto se quita antes de imprimir. No se elimina
+    (regla del proyecto): se desactiva y deja de salir en el PDF.
+    """
+    detalle = _medicamento_autorizado(request, detalle_id)
+    detalle.activo = False
+    detalle.modificado_por = request.user
+    detalle.save(update_fields=['activo', 'modificado_por', 'fecha_modificacion'])
+    return _respuesta_receta(request, detalle.receta.consulta,
+                             f'{detalle.medicamento} quitado de la receta.')
+
+
+def receta_autorizada(request, receta_id):
+    receta = get_object_or_404(
+        Receta.objects.select_related('creado_por', 'consulta__doctor',
+                                     'consulta__expediente__persona',
+                                     'consulta__expediente__clinica'),
+        pk=receta_id, activo=True)
+    expediente_autorizado(request, receta.consulta.expediente_id)
+    return receta
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_receta'), raise_exception=True)
+def lista_recetas(request, expediente_id):
+    expediente = expediente_autorizado(request, expediente_id)
+    recetas = Receta.objects.filter(
+        consulta__expediente=expediente, activo=True,
+    ).select_related('creado_por', 'consulta__doctor').prefetch_related('detalles').order_by('-fecha', '-pk')
+    return render(request, 'consultas/lista_recetas.html', {
+        'expediente': expediente, 'pagina': paginar(recetas, request),
+    })
+
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_receta'), raise_exception=True)
+def ver_receta(request, receta_id):
+    return render(request, 'consultas/ver_receta.html', {'receta': receta_autorizada(request, receta_id)})
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_receta'), raise_exception=True)
+def pdf_receta(request, receta_id):
+    receta = receta_autorizada(request, receta_id)
+    respuesta = HttpResponse(generar_pdf_receta(receta), content_type='application/pdf')
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    respuesta['Content-Disposition'] = f'{modo}; filename="receta-{receta.folio}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-08 -- adjuntos del expediente. Cuelgan del expediente, no de una
+# consulta: un examen que el paciente se hizo por su cuenta no pertenece a
+# ninguna visita.
+# --------------------------------------------------------------------------
+
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_adjunto'), raise_exception=True)
+def adjuntos(request, expediente_id):
+    expediente = expediente_autorizado(request, expediente_id)
+    form = AdjuntoForm(request.POST or None, request.FILES or None)
+    if request.method == 'POST':
+        if not request.user.has_perm('consultas.add_adjunto'):
+            raise PermissionDenied
+        if form.is_valid():
+            adjunto = form.save(commit=False)
+            adjunto.expediente = expediente
+            # `creado_por` es el "subido_por" del diagrama, y
+            # `fecha_creacion` su "fecha": el criterio de la historia
+            # ("cada adjunto guarda la fecha y el usuario que lo subio")
+            # queda cubierto sin columnas nuevas.
+            adjunto.creado_por = adjunto.modificado_por = request.user
+            adjunto.save()
+            messages.success(request, 'Archivo agregado al expediente.')
+            # Post/redirect/get: recargar no vuelve a subirlo.
+            return redirect('consultas:adjuntos', expediente_id=expediente.pk)
+    return render(request, 'consultas/adjuntos.html', {
+        'expediente': expediente, 'form': form,
+        'adjuntos': expediente.adjuntos.filter(activo=True).select_related('creado_por'),
+    })
+
+
+def adjunto_autorizado(request, adjunto_id):
+    adjunto = get_object_or_404(
+        Adjunto.objects.select_related('expediente'), pk=adjunto_id, activo=True)
+    expediente_autorizado(request, adjunto.expediente_id)
+    return adjunto
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_adjunto'), raise_exception=True)
+def descargar_adjunto(request, adjunto_id):
+    """
+    La unica puerta al archivo.
+
+    No hay `MEDIA_URL`: nadie llega al contenido sin pasar por aqui, y aqui
+    se valida sesion, permiso y que el expediente sea de una clinica del
+    usuario -- igual que `ver_expediente`.
+
+    El dia que los archivos se muevan a S3, esta vista devuelve una URL
+    firmada temporal en vez del contenido. Lo que decide quien puede verlo
+    sigue siendo este mismo bloque.
+    """
+    adjunto = adjunto_autorizado(request, adjunto_id)
+
+    # El tipo sale de lo que se valido al subirlo, NUNCA del nombre del
+    # archivo. Servir contenido ajeno con un tipo adivinado es como se
+    # cuela un HTML disfrazado y se ejecuta en la sesion de la doctora.
+    # `nosniff` remata: el navegador tampoco puede reinterpretarlo.
+    extension = adjunto.archivo.name.rsplit('.', 1)[-1].lower()
+    if adjunto.tipo == Adjunto.Tipo.PDF:
+        tipo_mime = 'application/pdf'
+    elif extension == 'png':
+        tipo_mime = 'image/png'
+    else:
+        tipo_mime = 'image/jpeg'
+
+    try:
+        archivo = adjunto.archivo.open('rb')
+    except FileNotFoundError:
+        # La fila existe pero el archivo no esta en disco. Pasa al restaurar
+        # una base sin su carpeta de archivos; mejor un 404 claro que un 500.
+        raise Http404('El archivo ya no está disponible.')
+
+    respuesta = FileResponse(archivo, content_type=tipo_mime)
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    respuesta['Content-Disposition'] = f'{modo}; filename="adjunto-{adjunto.pk}.{extension}"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_adjunto'), raise_exception=True)
+def retirar_adjunto(request, adjunto_id):
+    """
+    Nada se elimina (regla del proyecto): se desactiva con `activo`.
+
+    El archivo se queda en disco a proposito. Es un expediente clinico: si
+    manana hay que explicar que se subio y se retiro, el archivo tiene que
+    seguir ahi. Quien lo retiro y cuando quedan en `modificado_por` y
+    `fecha_modificacion`, sin nada adicional.
+    """
+    adjunto = adjunto_autorizado(request, adjunto_id)
+    adjunto.activo = False
+    adjunto.modificado_por = request.user
+    adjunto.save(update_fields=['activo', 'modificado_por', 'fecha_modificacion'])
+    messages.success(request, 'Archivo retirado del expediente.')
+    return redirect('consultas:adjuntos', expediente_id=adjunto.expediente_id)
