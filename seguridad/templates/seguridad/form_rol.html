@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load static %}
 
 {% block titulo %}{{ accion }} rol - Sistema ProSalud{% endblock %}
 
@@ -34,26 +35,38 @@
             <div class="mb-4">
                 <label class="form-label fw-medium">Permisos</label>
                 {% if permisos_agrupados %}
-                    <div class="border rounded p-3">
+                    <div class="border rounded">
                         {% for app_label, permisos in permisos_agrupados %}
-                            <p class="text-uppercase fw-semibold mb-2"
-                               style="font-size: 0.7rem; letter-spacing: 0.06em; color: #6c757d;">
-                                {{ app_label }}
-                            </p>
-                            {% for item in permisos %}
-                                <div class="form-check">
-                                    <input class="form-check-input"
-                                           type="checkbox"
-                                           name="{{ form.permissions.html_name }}"
-                                           value="{{ item.pk }}"
-                                           id="perm_{{ item.pk }}"
-                                           {% if item.pk in permisos_seleccionados %}checked{% endif %}>
-                                    <label class="form-check-label" for="perm_{{ item.pk }}">
-                                        {{ item.label }}
-                                    </label>
+                        <div class="grupo-permisos {% if not forloop.last %}border-bottom{% endif %}" data-grupo-permisos>
+                            <div class="d-flex align-items-center gap-2 px-3 py-2">
+                                <button type="button" class="btn btn-link text-reset text-decoration-none flex-grow-1 d-flex align-items-center gap-2 p-0 text-start"
+                                        data-grupo-toggle aria-expanded="true" aria-controls="grupo_{{ forloop.counter }}">
+                                    <i class="bi bi-chevron-down icono-grupo"></i>
+                                    <span class="fw-semibold">{{ app_label }}</span>
+                                    <span class="badge rounded-pill text-bg-light text-muted fw-normal" data-grupo-contador></span>
+                                </button>
+                                <div class="form-check mb-0 flex-shrink-0">
+                                    {% comment %}Sin name: solo marca o desmarca las casillas del grupo, no se envia.{% endcomment %}
+                                    <input class="form-check-input" type="checkbox" id="todos_{{ forloop.counter }}" data-grupo-todos>
+                                    <label class="form-check-label small text-muted" for="todos_{{ forloop.counter }}">Todos</label>
                                 </div>
-                            {% endfor %}
-                            {% if not forloop.last %}<hr class="my-2">{% endif %}
+                            </div>
+                            <div class="px-3 pb-3 ps-5" id="grupo_{{ forloop.counter }}" data-grupo-cuerpo>
+                                {% for item in permisos %}
+                                    <div class="form-check{% if item.nuevo_modelo %} mt-2 pt-2 border-top{% endif %}">
+                                        <input class="form-check-input"
+                                               type="checkbox"
+                                               name="{{ form.permissions.html_name }}"
+                                               value="{{ item.pk }}"
+                                               id="perm_{{ item.pk }}"
+                                               {% if item.pk in permisos_seleccionados %}checked{% endif %}>
+                                        <label class="form-check-label" for="perm_{{ item.pk }}">
+                                            {{ item.label }}
+                                        </label>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
                         {% endfor %}
                     </div>
                 {% else %}
@@ -75,4 +88,12 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block estilos_extra %}
+<link rel="stylesheet" href="{% static 'seguridad/css/form-rol.css' %}">
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'seguridad/js/form-rol.js' %}"></script>
 {% endblock %}

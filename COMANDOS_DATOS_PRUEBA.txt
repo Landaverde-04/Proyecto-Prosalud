@@ -1,0 +1,129 @@
+Datos de prueba — comando sembrar_datos
+========================================
+
+Qué es
+------
+Un solo comando de Django para crear datos de prueba en toda la base de
+datos, organizado por secciones (como un "seeder" de Laravel). No hay un
+comando por cada app: agregar una sección nueva es agregar una función
+dentro del mismo archivo, no crear un archivo nuevo en cada app.
+
+Vive en: core/management/commands/sembrar_datos.py
+
+
+Cómo se usa
+-----------
+Sembrar datos (no borra nada, es seguro correrlo varias veces):
+
+    python manage.py sembrar_datos
+
+Vaciar los datos de prueba y volver a sembrarlos de cero (borra
+consultas, signos vitales, documentos y pacientes; NO toca cuentas):
+
+    python manage.py sembrar_datos --limpiar
+
+Además de lo anterior, borrar también las cuentas de prueba y volver a
+crearlas desde cero:
+
+    python manage.py sembrar_datos --limpiar-usuarios
+
+    OJO: este último borra TODAS las cuentas menos los superusuarios.
+    Está en un flag aparte justamente para que --limpiar, que se corre
+    seguido, nunca te deje sin cuentas por accidente.
+
+
+Secciones y qué tablas toca cada una
+-------------------------------------
+
+1) Clínicas
+   Tablas: core_clinica
+   Crea "ProSalud" y "Estética" si no existen. Va primero porque
+   Seguridad (Usuario.clinicas) y Pacientes (Expediente.clinica) la
+   necesitan a las dos.
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección. Son las clínicas
+   reales del sistema, no datos de ejemplo.
+
+2) Seguridad
+   Tablas: auth_group (Roles), Usuario (solo los 9 de prueba),
+   UsuarioClinica
+   Crea los 6 roles del sistema si no existen: Doctora Administradora,
+   Doctor, Enfermera, Secretaria, Laboratorio, Regente. Además crea (o
+   corrige, si ya existían) 9 cuentas de prueba, una por rol, cada una con su
+   clínica asignada — para poder probar cualquier pantalla (ej.
+   HU-EXP-05, que exige el permiso view_expediente + pertenecer a la
+   clínica) sin tener que crear una cuenta a mano después de clonar el
+   proyecto:
+
+       usuario         rol                      clínica(s)
+       --------------  -----------------------  -------------------
+       doctora         Doctora Administradora    ProSalud, Estética
+       doctor1         Doctor                     ProSalud
+       doctor2         Doctor                     ProSalud
+       doctor3         Doctor                     ProSalud
+       enfermera1      Enfermera                  ProSalud
+       enfermera2      Enfermera                  ProSalud
+       secretaria1     Secretaria                 Estética
+       laboratorio1    Laboratorio                ProSalud
+       regente1        Regente                    ProSalud
+
+   Contraseña de las 9: admin
+
+   Son 3 doctores y 2 enfermeras a propósito: es el personal real de la
+   clínica, y hace falta más de un médico para probar la cola de
+   consulta (asignar, comparar colas, reasignar). La secretaria es la
+   única cuenta de la clínica estética: sirve para ver el sistema desde
+   una clínica que atiende por cita, sin cola ni expediente.
+
+   IMPORTANTE: --limpiar NUNCA borra esta sección; para eso está
+   --limpiar-usuarios. Sí es seguro volver a correr el comando normal:
+   si alguien le cambió el rol, la clínica o la contraseña a una de
+   estas cuentas, sembrar_datos se los regresa a lo de la tabla.
+
+   Los permisos de cada rol (qué puede hacer "Doctor", etc.) NO se
+   siembran aquí — se asignan a mano desde Roles → Permisos, la primera
+   vez que se configura el sistema en una máquina nueva.
+
+3) Pacientes
+   Tablas: pacientes_persona, pacientes_contacto, pacientes_expediente
+   Crea 12 personas de ejemplo con expediente en ProSalud (mezcla de
+   adultos y menores, con y sin DUI), cada una con su contacto de
+   referencia o responsable — 12 para que la paginación de HU-EXP-04
+   (10 por página) se vea de verdad, no solo una página que siempre
+   cabe todo.
+
+   --limpiar SÍ borra esta sección (Persona, Contacto, Expediente) y
+   la vuelve a sembrar completa.
+
+4) Consultas
+   Todavía no existe. Se agrega cuando haya un flujo real que probar
+   (a partir de HU-EXP-17, de Samuel) — mismo patrón: una función
+   sembrar_consultas() con su propio limpiar_consultas(), documentando
+   qué tablas toca.
+
+
+Cómo agregar una sección nueva
+-------------------------------
+Dentro de sembrar_datos.py:
+
+1. Escribir una función sembrar_<seccion>(self) con un comentario
+   arriba diciendo qué tablas toca.
+2. Si la sección debe poder vaciarse con --limpiar, escribir también
+   limpiar_<seccion>(self) y llamarla desde handle() solo cuando
+   options['limpiar'] sea True — antes de sembrar, no después.
+3. Llamar a la función de siembra desde handle(), junto a las demás.
+4. Decidir si esa sección es "sembrable" (datos de ejemplo, se puede
+   borrar sin problema) o "protegida" (datos reales del sistema, como
+   los roles) — y dejarlo dicho en el comentario, igual que las dos
+   secciones que ya existen.
+
+
+Por qué está hecho así
+-----------------------
+- Un solo comando en vez de uno por app: menos archivos que mantener,
+  y se ve de un vistazo qué datos de prueba existen en todo el sistema.
+- Separar "sembrable" de "protegido": para que --limpiar nunca borre
+  por accidente cuentas o roles que alguien esté usando de verdad.
+- Idempotente (get_or_create): correrlo dos veces seguidas no duplica
+  nada, así que es seguro dejarlo como parte del setup normal de una
+  máquina nueva.

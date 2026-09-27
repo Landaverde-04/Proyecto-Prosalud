@@ -1,0 +1,47 @@
+{% comment %}
+Paginación estándar, compartida por todos los listados del sistema.
+
+Contexto requerido: pagina (un objeto Page de Django, ver core/paginacion.py)
+
+Dos cuidados, para quien lo edite después:
+  - previous_page_number / next_page_number LANZAN excepción si no existe
+    esa página, así que solo se llaman dentro del {% if %} correspondiente.
+  - {% querystring %} (Django 5.1+) reescribe la URL conservando los demás
+    parámetros (?q=, ?accion=, etc.), para no perder el filtro activo al
+    cambiar de página.
+{% endcomment %}
+{% if pagina.has_other_pages %}
+<nav class="mt-3" aria-label="Paginación">
+    <ul class="pagination pagination-sm justify-content-center mb-0">
+        {% if pagina.has_previous %}
+            <li class="page-item">
+                <a class="page-link" data-listado-link href="{% querystring page=pagina.previous_page_number %}" aria-label="Anterior">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+        {% else %}
+            <li class="page-item disabled">
+                <span class="page-link"><i class="bi bi-chevron-left"></i></span>
+            </li>
+        {% endif %}
+
+        <li class="page-item disabled">
+            <span class="page-link">
+                Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}
+            </span>
+        </li>
+
+        {% if pagina.has_next %}
+            <li class="page-item">
+                <a class="page-link" data-listado-link href="{% querystring page=pagina.next_page_number %}" aria-label="Siguiente">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+        {% else %}
+            <li class="page-item disabled">
+                <span class="page-link"><i class="bi bi-chevron-right"></i></span>
+            </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}

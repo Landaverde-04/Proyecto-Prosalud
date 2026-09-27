@@ -1,0 +1,40 @@
+{% comment %}
+Modal compartido para registrar el DUI de un paciente mayor de edad.
+Lo abre cualquier boton con data-bs-target="#modalRegistrarDui"; registrar-dui.js
+toma de ese boton la URL, el nombre y, si los hay, los responsables.
+"origen" le dice a la vista a que pantalla volver.
+{% endcomment %}
+<div class="modal fade" id="modalRegistrarDui" tabindex="-1" aria-labelledby="tituloRegistrarDui" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form method="post" class="modal-content">
+            {% csrf_token %}
+            <input type="hidden" name="origen" value="{{ origen }}">
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold" id="tituloRegistrarDui">
+                    <i class="bi bi-person-vcard me-1" style="color: var(--accent);"></i>
+                    Registrar DUI de <span data-dui-nombre></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <label for="duiNuevo" class="form-label fw-medium">DUI <span class="text-danger">*</span></label>
+                <input type="text" name="dui" id="duiNuevo" class="form-control" required
+                       inputmode="numeric" maxlength="10" pattern="\d{8}-\d" placeholder="00000000-0"
+                       title="Formato 00000000-0">
+
+                <div class="alert alert-info small mt-3 mb-0" data-dui-con-responsables hidden>
+                    <i class="bi bi-arrow-left-right me-1"></i>Pasará a manejarse como adulto:
+                    <span class="fw-semibold" data-dui-responsables></span> dejará de ser responsable y quedará
+                    como contacto de referencia.
+                </div>
+                <p class="text-muted small mt-3 mb-0">
+                    No se borra ningún dato ni se modifica a otros pacientes que tenga a cargo el responsable.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Registrar DUI</button>
+            </div>
+        </form>
+    </div>
+</div>

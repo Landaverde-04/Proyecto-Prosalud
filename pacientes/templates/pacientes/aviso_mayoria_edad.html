@@ -1,0 +1,23 @@
+{% comment %}
+Aviso de que el paciente ya cumplio 18 y sigue con responsable. Solo se
+muestra al abrir su expediente o su preconsulta, no en la lista: no bloquea
+nada, porque el DUI a veces no lo trae ese dia.
+{% endcomment %}
+{% if responsables_por_convertir %}
+<div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 px-3 small">
+    <div>
+        <i class="bi bi-person-check me-1"></i>
+        <span class="fw-semibold">{{ persona.nombres }} ya cumplió 18 años</span> y todavía tiene un responsable asignado.
+        Cuando presente su DUI, regístralo para manejar el expediente como el de un adulto.
+    </div>
+    {% if perms.pacientes.change_persona %}
+    <button type="button" class="btn btn-sm btn-warning flex-shrink-0"
+            data-bs-toggle="modal" data-bs-target="#modalRegistrarDui"
+            data-url="{% url 'pacientes:registrar_dui' expediente.id %}"
+            data-nombre="{{ persona.nombres }} {{ persona.apellidos }}"
+            data-responsables="{% for contacto in responsables_por_convertir %}{{ contacto.persona_contacto.nombres }} {{ contacto.persona_contacto.apellidos }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+        <i class="bi bi-person-vcard"></i> Registrar DUI
+    </button>
+    {% endif %}
+</div>
+{% endif %}

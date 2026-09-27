@@ -1,0 +1,7 @@
+{# Abre #modalRegistrarDui para esta persona; en la lista no se nombran los responsables. #}
+<button type="button" class="btn btn-sm btn-outline-secondary"
+        data-bs-toggle="modal" data-bs-target="#modalRegistrarDui"
+        data-url="{% url 'pacientes:registrar_dui' persona.expediente_id %}"
+        data-nombre="{{ persona.nombres }} {{ persona.apellidos }}">
+    <i class="bi bi-person-vcard"></i> Registrar DUI
+</button>

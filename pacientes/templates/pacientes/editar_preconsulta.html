@@ -1,0 +1,67 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Editar preconsulta - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<a href="{% url 'pacientes:cola_consultas' %}" class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Volver a la cola
+</a>
+
+<h4 class="fw-semibold mb-1">Editar preconsulta</h4>
+<p class="text-muted small mb-4">
+    Corrige los signos vitales mal ingresados. El cambio queda registrado con tu usuario y la hora.
+</p>
+
+<div class="card shadow-sm border-0 mx-auto" style="max-width: 640px;">
+    <div class="card-body p-4">
+
+        <div class="mb-3 pb-3 border-bottom">
+            <small class="text-muted">Paciente</small>
+            <div class="fw-semibold">{{ persona.nombres }} {{ persona.apellidos }}</div>
+            <div class="text-muted small">
+                {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}{{ consulta.expediente.clinica.nombre }}
+                · {% if consulta.en_atencion %}en consulta con{% else %}en la cola de{% endif %} {{ consulta.doctor_nombre }}
+            </div>
+            <div class="text-muted small mt-2">
+                <i class="bi bi-clipboard2-pulse me-1"></i>Tomada por
+                {{ signos.tomado_por.get_full_name|default:signos.tomado_por.username }}
+                el {{ signos.fecha_creacion|date:"d/m/Y" }} a las {{ signos.fecha_creacion|time:"H:i" }}
+            </div>
+            {% if signos.fue_corregida and signos.modificado_por %}
+            <div class="text-muted small">
+                <i class="bi bi-pencil me-1"></i>Última corrección:
+                {{ signos.modificado_por.get_full_name|default:signos.modificado_por.username }}
+                el {{ signos.fecha_modificacion|date:"d/m/Y" }} a las {{ signos.fecha_modificacion|time:"H:i" }}
+            </div>
+            {% endif %}
+        </div>
+
+        {% if consulta.en_atencion %}
+        <div class="alert alert-warning py-2 small">
+            <i class="bi bi-info-circle me-1"></i>El médico ya está atendiendo a este paciente: verá los datos corregidos al recargar su pantalla.
+        </div>
+        {% endif %}
+
+        <form method="post" novalidate id="form-preconsulta">
+            {% csrf_token %}
+
+            {% include "pacientes/campos_signos_vitales.html" %}
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> Guardar cambios
+                </button>
+                <a href="{% url 'pacientes:cola_consultas' %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-preconsulta.js' %}"></script>
+{% endblock %}

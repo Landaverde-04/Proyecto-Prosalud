@@ -1,0 +1,6 @@
+{# Linea "Reasignado desde ..." de un paciente de la cola, con el ultimo cambio de medico. #}
+{% for cambio in consulta.reasignaciones.all %}{% if forloop.last %}
+<div class="text-muted small" {% if cambio.motivo %}title="Motivo: {{ cambio.motivo }}"{% endif %}>
+    <i class="bi bi-arrow-left-right me-1"></i>Reasignado desde {{ cambio.medico_anterior.get_full_name|default:cambio.medico_anterior.username }}
+</div>
+{% endif %}{% endfor %}

@@ -1,5 +1,44 @@
 document.addEventListener('DOMContentLoaded', function () {
 
+    /* ── Avisos que se cierran solos ── */
+    // Solo los marcados con data-cerrar-solo: exito e informacion. Los de
+    // error se quedan hasta que alguien los cierre -- si se fueran solos,
+    // quien estaba escribiendo se pierde el motivo de que algo fallara.
+    //
+    // La funcion queda expuesta para que otras pantallas muestren avisos sin
+    // recargar (la receta de atender_consulta.html, por ejemplo).
+    window.avisar = function (texto, tipo) {
+        var caja = document.getElementById('avisos');
+        if (!caja) { return; }
+        var aviso = document.createElement('div');
+        aviso.className = 'alert alert-' + (tipo || 'success') + ' alert-dismissible fade show shadow-sm';
+        aviso.setAttribute('role', 'alert');
+        aviso.textContent = texto;
+        var cerrar = document.createElement('button');
+        cerrar.type = 'button';
+        cerrar.className = 'btn-close';
+        cerrar.setAttribute('data-bs-dismiss', 'alert');
+        cerrar.setAttribute('aria-label', 'Cerrar');
+        aviso.appendChild(cerrar);
+        caja.appendChild(aviso);
+        if (tipo !== 'danger') { cerrarDespues(aviso); }
+    };
+
+    function cerrarDespues(aviso) {
+        setTimeout(function () {
+            // bootstrap.Alert hace la animacion de salida y quita el nodo.
+            // Si Bootstrap no cargo, se quita a secas: mejor sin animacion
+            // que un aviso que nunca se va.
+            if (window.bootstrap && bootstrap.Alert) {
+                bootstrap.Alert.getOrCreateInstance(aviso).close();
+            } else {
+                aviso.remove();
+            }
+        }, 5000);
+    }
+
+    document.querySelectorAll('#avisos [data-cerrar-solo]').forEach(cerrarDespues);
+
     /* ── Sidebar ── */
     var sidebar       = document.getElementById('sidebar');
     var backdrop      = document.getElementById('sidebar-backdrop');
@@ -105,44 +144,77 @@ document.addEventListener('DOMContentLoaded', function () {
         mostrarModal(modalMensaje);
     }
 
-    /* ── Modal de confirmacion de eliminacion ── */
-    var modalEliminarEl = document.getElementById('modalEliminar');
-    if (modalEliminarEl) {
+    /* ── Modal de confirmacion generico ──
+
+       Se dispara desde cualquier boton con data-confirmar. Atributos:
+         data-titulo   -- encabezado del modal
+         data-mensaje  -- texto antes del nombre (que va en negrita)
+         data-nombre   -- nombre del elemento afectado
+         data-boton    -- etiqueta del boton que confirma
+         data-color    -- danger | warning | success (encabezado y boton)
+         data-icono    -- clase de Bootstrap Icons, ej: bi-trash-fill
+         data-aviso    -- (opcional) advertencia en amarillo
+         data-nota     -- (opcional) nota gris al pie
+         data-url      -- destino del POST
+    */
+    var modalConfirmarEl = document.getElementById('modalConfirmar');
+    if (modalConfirmarEl) {
         document.addEventListener('click', function (event) {
-            var btn = event.target.closest('[data-accion="eliminar"]');
+            var btn = event.target.closest('[data-confirmar]');
             if (!btn) return;
 
-            var nombre   = btn.dataset.nombre   || '';
-            var url      = btn.dataset.url      || '';
-            var tipo     = btn.dataset.tipo     || 'elemento';
-            var usuarios = parseInt(btn.dataset.usuarios || '0');
+            var color = btn.dataset.color || 'danger';
 
-            document.getElementById('modal-eliminar-titulo').textContent =
-                'Eliminar ' + tipo;
+            // bg-warning es amarillo claro: ahi el texto blanco no se lee
+            var fondoClaro = (color === 'warning');
 
-            var preguntaEl = document.getElementById('modal-eliminar-pregunta');
-            preguntaEl.innerHTML = '';
-            preguntaEl.appendChild(document.createTextNode(
-                '¿Estas seguro de que deseas eliminar ' +
-                (tipo === 'usuario' ? 'al usuario ' : 'el rol ')
-            ));
-            var fuerte = document.createElement('strong');
-            fuerte.textContent = nombre;
-            preguntaEl.appendChild(fuerte);
-            preguntaEl.appendChild(document.createTextNode('?'));
+            var encabezado = document.getElementById('modal-confirmar-encabezado');
+            encabezado.className = 'modal-header border-0 bg-' + color +
+                (fondoClaro ? ' text-dark' : ' text-white');
 
-            var avisoEl = document.getElementById('modal-eliminar-aviso');
-            if (tipo === 'rol' && usuarios > 0) {
-                avisoEl.textContent = 'Este rol tiene ' + usuarios +
-                    ' usuario' + (usuarios !== 1 ? 's' : '') +
-                    ' asignados. Seran desvinculados del rol.';
+            var btnCerrar = encabezado.querySelector('.btn-close');
+            btnCerrar.className = 'btn-close' + (fondoClaro ? '' : ' btn-close-white');
+
+            document.getElementById('modal-confirmar-icono').className =
+                'bi fs-5 ' + (btn.dataset.icono || 'bi-question-circle-fill');
+
+            document.getElementById('modal-confirmar-titulo').textContent =
+                btn.dataset.titulo || 'Confirmar';
+
+            // Se arma con textContent (no innerHTML) para que un nombre con
+            // caracteres raros no pueda inyectar HTML
+            var preguntaEl = document.getElementById('modal-confirmar-pregunta');
+            preguntaEl.textContent = '';
+            preguntaEl.appendChild(document.createTextNode(btn.dataset.mensaje || ''));
+            if (btn.dataset.nombre) {
+                var fuerte = document.createElement('strong');
+                fuerte.textContent = btn.dataset.nombre;
+                preguntaEl.appendChild(fuerte);
+                preguntaEl.appendChild(document.createTextNode('?'));
+            }
+
+            var avisoEl = document.getElementById('modal-confirmar-aviso');
+            if (btn.dataset.aviso) {
+                avisoEl.textContent = btn.dataset.aviso;
                 avisoEl.style.display = '';
             } else {
                 avisoEl.style.display = 'none';
             }
 
-            document.getElementById('form-modal-eliminar').action = url;
-            mostrarModal(modalEliminarEl);
+            var notaEl = document.getElementById('modal-confirmar-nota');
+            if (btn.dataset.nota) {
+                notaEl.textContent = btn.dataset.nota;
+                notaEl.style.display = '';
+            } else {
+                notaEl.style.display = 'none';
+            }
+
+            var botonEl = document.getElementById('modal-confirmar-boton');
+            botonEl.className = 'btn btn-sm btn-' + color;
+            botonEl.textContent = btn.dataset.boton || 'Confirmar';
+
+            document.getElementById('form-modal-confirmar').action = btn.dataset.url || '';
+            mostrarModal(modalConfirmarEl);
         });
     }
 

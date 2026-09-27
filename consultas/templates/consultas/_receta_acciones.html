@@ -1,0 +1,10 @@
+{% comment %}
+El botón "Ver PDF" de la receta. Aparte porque antes del primer medicamento
+la receta no existe, y las vistas devuelven este pedazo por fetch cuando
+recién se crea.
+{% endcomment %}
+{% if receta %}
+<button type="button" class="btn btn-sm btn-outline-secondary"
+        data-ver-pdf="{% url 'consultas:pdf_receta' receta.pk %}"
+        data-titulo="Receta · {{ receta.folio }}">Ver PDF</button>
+{% endif %}

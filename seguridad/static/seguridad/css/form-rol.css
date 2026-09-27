@@ -1,0 +1,12 @@
+/* Flecha del grupo de permisos: apunta a la derecha cuando esta cerrado. */
+.icono-grupo {
+    transition: transform 0.15s ease;
+}
+
+[data-grupo-toggle][aria-expanded="false"] .icono-grupo {
+    transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .icono-grupo { transition: none; }
+}

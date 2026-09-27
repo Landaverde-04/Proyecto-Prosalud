@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load static %}
 
 {% block titulo %}{{ accion }} usuario - Sistema ProSalud{% endblock %}
 
@@ -80,10 +81,17 @@
                 <input type="password"
                        name="{{ form.password1.html_name }}"
                        id="{{ form.password1.id_for_label }}"
-                       class="form-control {% if form.password1.errors %}is-invalid{% endif %}">
+                       class="form-control {% if form.password1.errors %}is-invalid{% endif %}"
+                       data-aviso-password="aviso-password1">
                 {% for error in form.password1.errors %}
                     <div class="invalid-feedback">{{ error }}</div>
                 {% endfor %}
+                <div class="form-text text-muted small">
+                    Es temporal: el usuario la va a cambiar en su primer ingreso.
+                </div>
+                <div id="aviso-password1" class="form-text text-warning small d-none">
+                    <i class="bi bi-exclamation-triangle"></i> Es corta -- puedes seguir igual, solo te lo avisamos.
+                </div>
             </div>
             <div class="mb-3">
                 <label for="{{ form.password2.id_for_label }}" class="form-label">Confirmar contraseña</label>
@@ -97,29 +105,40 @@
             </div>
             {% endif %}
 
-            {# Roles (checkboxes de grupos) #}
+            {# Rol: un usuario tiene uno solo (ver RolUnicoField en forms.py) #}
             <div class="mb-3">
-                <label class="form-label">Roles</label>
+                <label for="{{ form.groups.id_for_label }}" class="form-label">Rol</label>
                 {% if form.groups.field.queryset.exists %}
-                    <div class="border rounded p-3">
-                        {% for checkbox in form.groups %}
-                            <div class="form-check">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       name="{{ form.groups.html_name }}"
-                                       value="{{ checkbox.data.value }}"
-                                       id="{{ checkbox.id_for_label }}"
-                                       {% if checkbox.data.selected %}checked{% endif %}>
-                                <label class="form-check-label" for="{{ checkbox.id_for_label }}">
-                                    {{ checkbox.choice_label }}
-                                </label>
-                            </div>
-                        {% endfor %}
+                    {{ form.groups }}
+                    <div class="form-text">
+                        Si alguien necesita una combinación distinta de permisos, crea un rol específico para esa persona.
                     </div>
                 {% else %}
                     <p class="text-muted small mb-0">No hay roles creados aún.</p>
                 {% endif %}
                 {% for error in form.groups.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            {# Clinicas: a diferencia del rol, aqui si se permite mas de una (TEC-01) #}
+            <div class="mb-3">
+                <label class="form-label">Clínicas</label>
+                {% if form.clinicas.field.queryset.exists %}
+                    {% for opcion in form.clinicas %}
+                        <div class="form-check">
+                            {{ opcion.tag }}
+                            <label class="form-check-label" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>
+                        </div>
+                    {% endfor %}
+                    <div class="form-text">
+                        En qué clínica(s) puede trabajar este usuario. La mayoría del personal solo
+                        necesita una; solo quien atiende en varias (ej. la doctora administradora) marca más de una.
+                    </div>
+                {% else %}
+                    <p class="text-muted small mb-0">No hay clínicas registradas aún.</p>
+                {% endif %}
+                {% for error in form.clinicas.errors %}
                     <div class="text-danger small">{{ error }}</div>
                 {% endfor %}
             </div>
@@ -149,4 +168,8 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'seguridad/js/aviso-password.js' %}"></script>
 {% endblock %}

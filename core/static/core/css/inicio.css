@@ -1,0 +1,90 @@
+/* Pantalla de inicio: cifras del dia, accesos rapidos y paneles por rol. */
+
+.inicio {
+    max-width: 1200px;
+}
+
+.inicio-fecha,
+.inicio-seccion {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--text-sec);
+}
+
+.inicio-fecha {
+    color: var(--accent);
+}
+
+.inicio-rol {
+    background-color: var(--accent-soft);
+    color: var(--accent);
+}
+
+/* Cifras */
+.inicio-cifra-icono,
+.inicio-acceso-icono {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background-color: var(--accent-soft);
+    color: var(--accent);
+}
+
+.inicio-cifra-icono {
+    width: 36px;
+    height: 36px;
+    font-size: 1.05rem;
+}
+
+.inicio-cifra-icono-ambar {
+    background-color: var(--bs-warning-bg-subtle);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.inicio-cifra-valor {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Accesos */
+.inicio-acceso-icono {
+    width: 44px;
+    height: 44px;
+    font-size: 1.25rem;
+}
+
+.inicio-acceso,
+a.inicio-cifra {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.inicio-acceso:hover,
+a.inicio-cifra:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08) !important;
+}
+
+.inicio-acceso-flecha {
+    transition: transform 0.15s ease;
+}
+
+.inicio-acceso:hover .inicio-acceso-flecha {
+    transform: translateX(3px);
+    color: var(--accent) !important;
+}
+
+.inicio-vacio {
+    color: var(--accent);
+    opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .inicio-acceso,
+    a.inicio-cifra,
+    .inicio-acceso-flecha {
+        transition: none;
+    }
+}

@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html lang="es">
+{% load avisos %}
+{# El tema de la clinica activa pinta toda la pagina (ver estilos.css). #}
+<html lang="es" data-tema="{{ clinica_activa.tema|default:'verde_salud' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,14 +28,41 @@
         <div class="flex-grow-1 d-flex flex-column bg-light" style="min-width: 0;">
 
             {# Header visible solo en movil #}
-            <header class="d-flex d-md-none align-items-center px-3 py-2 bg-white border-bottom sticky-top shadow-sm">
-                <button id="sidebar-open-mobile" class="btn btn-sm btn-light me-2 p-1">
+            <header class="d-flex d-md-none align-items-center px-3 py-2 sticky-top shadow-sm"
+                    style="background-color: var(--sidebar); border-bottom: 1px solid rgba(255,255,255,0.08);">
+                <button id="sidebar-open-mobile" class="btn btn-sm me-2 p-1"
+                        style="background: rgba(255,255,255,0.12); border: none; color: #fff;">
                     <i class="bi bi-list fs-5"></i>
                 </button>
-                <span class="fw-semibold text-truncate" style="font-size: 0.9rem;">Sistema ProSalud</span>
+                <span class="fw-semibold text-truncate text-white" style="font-size: 0.9rem;">{{ clinica_activa.nombre|default:"Sistema ProSalud" }}</span>
             </header>
 
             <main class="flex-grow-1 p-4">
+
+                {% comment %}
+                Los avisos FLOTAN sobre el contenido, no lo empujan.
+
+                Antes iban en el flujo de la pagina: al aparecer, todo lo de
+                abajo se corria varios centimetros, y despues de guardar algo
+                la pantalla no quedaba donde estaba. Flotando, la pagina no se
+                mueve.
+
+                Se cierran solos (ver core/js/main.js) salvo los de error, que
+                se leen y se cierran a mano.
+
+                Abajo a la derecha y no arriba: arriba tapaba el nombre del
+                paciente y su estado justo mientras se le atiende.
+                {% endcomment %}
+                <div id="avisos" class="position-fixed bottom-0 end-0 p-3"
+                     style="z-index: 1080; max-width: 26rem;">
+                    {% for mensaje in messages|pasajeros %}
+                        <div class="alert alert-{{ mensaje.tags }} alert-dismissible fade show shadow-sm"
+                             role="alert" data-cerrar-solo>
+                            {{ mensaje }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                        </div>
+                    {% endfor %}
+                </div>
 
                 {% block contenido %}{% endblock %}
 
@@ -42,65 +71,33 @@
 
     </div>
 
-    {# Modal: mensajes del sistema (éxito, error, aviso, info) #}
-    {% if messages %}
-    <div class="modal fade" id="modalMensaje" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
-            <div class="modal-content border-0 shadow overflow-hidden">
-                {% for message in messages %}{% if forloop.first %}
-                <div class="modal-header border-0
-                    {% if message.tags == 'success' %}bg-success text-white
-                    {% elif message.tags == 'danger' %}bg-danger text-white
-                    {% elif message.tags == 'warning' %}bg-warning text-dark
-                    {% else %}bg-primary text-white{% endif %}">
-                    <div class="d-flex align-items-center gap-2">
-                        {% if message.tags == 'success' %}
-                            <i class="bi bi-check-circle-fill fs-5"></i><span class="fw-semibold">Operación exitosa</span>
-                        {% elif message.tags == 'danger' %}
-                            <i class="bi bi-x-circle-fill fs-5"></i><span class="fw-semibold">Error</span>
-                        {% elif message.tags == 'warning' %}
-                            <i class="bi bi-exclamation-triangle-fill fs-5"></i><span class="fw-semibold">Advertencia</span>
-                        {% else %}
-                            <i class="bi bi-info-circle-fill fs-5"></i><span class="fw-semibold">Información</span>
-                        {% endif %}
-                    </div>
-                    <button type="button"
-                            class="btn-close {% if message.tags != 'warning' %}btn-close-white{% endif %}"
-                            data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                </div>
-                <div class="modal-body py-3 px-4">
-                    <p class="mb-0">{{ message }}</p>
-                </div>
-                <div class="modal-footer border-0 pt-0 pb-3">
-                    <button type="button" class="btn btn-secondary btn-sm px-4" data-bs-dismiss="modal">Aceptar</button>
-                </div>
-                {% endif %}{% endfor %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
+    {% include "core/modal_mensaje.html" %}
 
-    {# Modal: confirmación de eliminación (compartido por todas las páginas) #}
-    <div class="modal fade" id="modalEliminar" tabindex="-1">
+    {% comment %}
+    Modal de confirmación genérico, compartido por todas las páginas.
+    Se dispara desde cualquier botón con data-confirmar y se configura
+    con sus atributos data-* (ver core/js/main.js).
+    {% endcomment %}
+    <div class="modal fade" id="modalConfirmar" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
             <div class="modal-content border-0 shadow overflow-hidden">
-                <div class="modal-header bg-danger text-white border-0">
+                <div class="modal-header text-white border-0" id="modal-confirmar-encabezado">
                     <div class="d-flex align-items-center gap-2">
-                        <i class="bi bi-trash-fill fs-5"></i>
-                        <span class="fw-semibold" id="modal-eliminar-titulo">Eliminar</span>
+                        <i class="bi fs-5" id="modal-confirmar-icono"></i>
+                        <span class="fw-semibold" id="modal-confirmar-titulo"></span>
                     </div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                 </div>
                 <div class="modal-body py-3 px-4">
-                    <p class="mb-1" id="modal-eliminar-pregunta"></p>
-                    <p class="mb-1 text-warning small" id="modal-eliminar-aviso" style="display: none;"></p>
-                    <small class="text-muted">Esta acción no se puede deshacer.</small>
+                    <p class="mb-1" id="modal-confirmar-pregunta"></p>
+                    <p class="mb-1 text-warning small" id="modal-confirmar-aviso" style="display: none;"></p>
+                    <small class="text-muted" id="modal-confirmar-nota" style="display: none;"></small>
                 </div>
                 <div class="modal-footer border-0 pt-0 pb-3">
-                    <form id="form-modal-eliminar" method="post">
+                    <form id="form-modal-confirmar" method="post">
                         {% csrf_token %}
                         <button type="button" class="btn btn-outline-secondary btn-sm me-1" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-danger btn-sm">Sí, eliminar</button>
+                        <button type="submit" class="btn btn-sm" id="modal-confirmar-boton"></button>
                     </form>
                 </div>
             </div>

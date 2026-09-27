@@ -1,0 +1,124 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Registrar preconsulta - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<a href="{% url 'pacientes:lista_pacientes' %}" class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Volver a pacientes
+</a>
+
+<h4 class="fw-semibold mb-1">Registrar preconsulta</h4>
+<p class="text-muted small mb-4">
+    Signos vitales y asignación de médico -- al guardar, el paciente entra a la cola del médico elegido.
+</p>
+
+{# Arriba del formulario: registrar el DUI recarga esta pantalla y se perderia lo ya escrito. #}
+<div class="mx-auto" style="max-width: 640px;">
+    {% include "pacientes/aviso_mayoria_edad.html" %}
+</div>
+
+<div class="card shadow-sm border-0 mx-auto" style="max-width: 640px;">
+    <div class="card-body p-4">
+
+        <div class="mb-3 pb-3 border-bottom">
+            <small class="text-muted">Paciente</small>
+            <div class="fw-semibold">{{ persona.nombres }} {{ persona.apellidos }}</div>
+            <div class="text-muted small">
+                {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}{{ expediente.clinica.nombre }}
+            </div>
+        </div>
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <form method="post" novalidate id="form-preconsulta">
+            {% csrf_token %}
+
+            {% include "pacientes/campos_signos_vitales.html" %}
+
+            <div class="border rounded-3 p-3 mb-4 {% if form.es_emergencia.value %}border-danger{% endif %}" id="bloque-emergencia">
+                <div class="form-check form-switch mb-0">
+                    {{ form.es_emergencia }}
+                    <label class="form-check-label fw-medium" for="{{ form.es_emergencia.id_for_label }}">
+                        <i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Es una emergencia
+                    </label>
+                </div>
+                <div class="form-text ms-5 mt-0">Pasa adelante en la cola del médico.</div>
+                <div class="mt-3 {% if not form.es_emergencia.value %}d-none{% endif %}" id="campo-motivo-emergencia">
+                    <label for="{{ form.motivo_prioridad.id_for_label }}" class="form-label fw-medium">
+                        Motivo <span class="text-danger">*</span>
+                    </label>
+                    {{ form.motivo_prioridad }}
+                    {% for error in form.motivo_prioridad.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                    {% if not form.motivo_prioridad.errors %}
+                    {# Aviso inmediato del navegador; Bootstrap lo muestra solo cuando el campo tiene is-invalid. #}
+                    <div class="invalid-feedback">Falta el motivo: al marcar emergencia, el médico necesita saber qué le pasa al paciente.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <hr>
+
+            <div id="seccion-medico">
+                <label class="form-label fw-medium d-block mb-2">
+                    Médico <span class="text-danger">*</span>
+                </label>
+                {% if medicos %}
+                <div class="row row-cols-1 row-cols-sm-2 g-2 mb-2">
+                    {% for medico in medicos %}
+                    <div class="col">
+                        <label class="card h-100 p-3 mb-0" style="cursor: pointer;">
+                            <div class="d-flex align-items-start gap-2">
+                                <input type="radio" name="medico" value="{{ medico.pk }}" class="form-check-input mt-1"
+                                       {% if form.medico.value|stringformat:"s" == medico.pk|stringformat:"s" %}checked{% endif %}
+                                       required>
+                                <div>
+                                    <div class="fw-medium">{{ medico.get_full_name|default:medico.username }}</div>
+                                    <div class="text-muted small">
+                                        {{ medico.pacientes_en_cola }} paciente{{ medico.pacientes_en_cola|pluralize }} en cola
+                                    </div>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted small">Ningún usuario de esta clínica tiene permiso para atender consultas todavía.</p>
+                {% endif %}
+                {# Aviso inmediato del navegador -- registrar-preconsulta.js lo muestra y hace scroll aqui. #}
+                <div class="alert alert-danger py-2 d-none" id="aviso-medico-cliente">
+                    Debes elegir un médico antes de continuar.
+                </div>
+                {% if form.medico.errors %}
+                {# Respaldo del lado del servidor -- cubre el caso de JavaScript desactivado. #}
+                <div class="alert alert-danger py-2" id="aviso-medico-servidor" data-error-servidor>
+                    {{ form.medico.errors|join:" " }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-primary" {% if not medicos %}disabled{% endif %}>
+                    <i class="bi bi-send"></i> Enviar a consulta
+                </button>
+                <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if responsables_por_convertir and perms.pacientes.change_persona %}
+{% include "pacientes/modal_registrar_dui.html" with origen="preconsulta" %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-preconsulta.js' %}"></script>
+<script src="{% static 'pacientes/js/registrar-dui.js' %}"></script>
+{% endblock %}

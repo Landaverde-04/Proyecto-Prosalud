@@ -1,0 +1,89 @@
+body.login-page {
+    background: radial-gradient(1100px circle at 12% 12%, #123527 0%, #0A2A22 42%, #05130E 100%);
+    min-height: 100vh;
+    overflow: hidden;
+    position: relative;
+}
+
+.login-decor {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.login-orb {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, #8CE9C4, #0F6E56 65%, #0A4A38 100%);
+    filter: blur(1px);
+    opacity: .5;
+    animation: login-float 13s ease-in-out infinite;
+}
+
+.login-orb-1 { width: 220px; height: 220px; top: 6%;   left: 6%;   }
+.login-orb-2 { width: 130px; height: 130px; top: 58%;  left: 3%;   opacity: .32; animation-delay: 2.2s; }
+.login-orb-3 { width: 260px; height: 260px; bottom: -70px; right: -60px; animation-delay: 1s; }
+.login-orb-4 { width: 90px;  height: 90px;  top: 16%;  right: 20%; opacity: .38; animation-delay: 3.4s; }
+
+@keyframes login-float {
+    0%, 100% { transform: translate(0, 0); }
+    50%      { transform: translate(12px, -18px); }
+}
+
+.login-dna, .login-pulse {
+    position: absolute;
+    opacity: .16;
+}
+.login-dna   { width: 130px; top: 8%;  right: 7%; }
+.login-pulse { width: 300px; bottom: 7%; left: 5%; }
+
+/* Logo responsivo: mas grande en escritorio, contenido en pantallas chicas */
+.login-logo {
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+}
+
+@media (max-width: 767.98px) {
+    .login-dna, .login-orb-4 { display: none; }
+    .login-logo { max-width: 200px; }
+    .login-pulse { width: 220px; }
+}
+
+@media (max-width: 575.98px) {
+    .login-orb-1, .login-orb-2 { opacity: .28; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .login-orb { animation: none; }
+}
+
+.login-card {
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 255, 255, .09);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 18px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, .40);
+}
+
+.login-card .form-label { color: rgba(255, 255, 255, .85); font-size: .85rem; }
+
+.login-card .form-control {
+    background: rgba(255, 255, 255, .10);
+    border: 1px solid rgba(255, 255, 255, .28);
+    color: #fff;
+}
+.login-card .form-control::placeholder { color: rgba(255, 255, 255, .45); }
+.login-card .form-control:focus {
+    background: rgba(255, 255, 255, .16);
+    border-color: #5DCAA5;
+    box-shadow: 0 0 0 .2rem rgba(93, 202, 165, .30);
+    color: #fff;
+}
+.login-card .form-control.is-invalid { border-color: #e79a9a; }
+.login-card .invalid-feedback { color: #ffc9c9; }

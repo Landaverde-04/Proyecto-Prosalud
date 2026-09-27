@@ -1,0 +1,31 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block titulo %}Referencia médica - ProSalud{% endblock %}
+{% block estilos_extra %}<link rel="stylesheet" href="{% static 'consultas/css/documentos.css' %}">{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'consultas:lista_referencias' referencia.consulta.expediente_id %}" class="text-decoration-none">← Referencias médicas</a>
+
+<div class="d-flex flex-wrap justify-content-between gap-3 align-items-center my-3">
+    <div>
+        <h1 class="h4 mb-1">Referencia médica</h1>
+        <p class="text-muted mb-0">
+            {{ referencia.consulta.expediente.persona }} · {{ referencia.especialidad }}
+            · {{ referencia.fecha|date:'d/m/Y' }}
+        </p>
+    </div>
+</div>
+
+{% include "consultas/consulta_origen.html" with consulta=referencia.consulta %}
+
+{% comment %}
+Misma clase que la constancia (documento-pdf): el visor ocupa el alto de la
+pantalla y trae sus propias acciones de descargar e imprimir, así que no se
+repiten como botones externos (criterio del 05/09/2026).
+{% endcomment %}
+<iframe class="documento-pdf" title="Referencia médica"
+        src="{% url 'consultas:pdf_referencia' referencia.pk %}"></iframe>
+
+<p class="small text-muted mt-2">La vista muestra el mismo PDF que puede descargar e imprimir.</p>
+
+{% endblock %}

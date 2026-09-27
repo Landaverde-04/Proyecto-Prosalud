@@ -1,0 +1,56 @@
+{% extends 'core/base.html' %}
+{% block titulo %}Registrar consulta - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'pacientes:ver_expediente' expediente.pk %}"
+   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Expediente de {{ expediente.persona }}
+</a>
+
+<h4 class="fw-semibold mb-1">Registrar consulta</h4>
+<p class="text-muted small mb-4">
+    Indique cuándo ocurrió la atención. Los campos clínicos se llenan en la
+    pantalla siguiente, mientras atiende — no hace falta tenerlos listos ahora.
+</p>
+
+<div class="card shadow-sm border-0" style="max-width: 560px;">
+    <div class="card-body p-4">
+        <div class="mb-3 pb-3 border-bottom">
+            <small class="text-muted">Paciente</small>
+            <div class="fw-semibold">{{ expediente.persona }}</div>
+            <div class="text-muted small">{{ expediente.clinica }}</div>
+        </div>
+
+        <form method="post">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div class="row g-3">
+                <div class="col-sm-6">
+                    {{ form.fecha.label_tag }}{{ form.fecha }}{{ form.fecha.errors }}
+                </div>
+                <div class="col-sm-6">
+                    {{ form.hora.label_tag }}{{ form.hora }}{{ form.hora.errors }}
+                </div>
+            </div>
+            <p class="text-muted small mt-3 mb-0">
+                Si la atención se hizo en papel —por un corte de energía, por
+                ejemplo— ponga la fecha y hora reales, no las de hoy.
+            </p>
+            <div class="d-flex gap-2 mt-4">
+                <button type="submit" class="btn btn-primary">Iniciar consulta</button>
+                <a href="{% url 'pacientes:ver_expediente' expediente.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    // Fecha y hora actuales por defecto: el caso normal es registrar lo que
+    // se esta atendiendo ahora; el retrospectivo se corrige a mano.
+    document.querySelector('#id_fecha').value ||= '{{ hoy }}';
+    document.querySelector('#id_hora').value ||= '{{ hora_actual }}';
+</script>
+{% endblock %}
