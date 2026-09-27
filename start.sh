@@ -13,6 +13,10 @@ python manage.py migrate --noinput
 # existen, para no deshacer ajustes hechos desde la pantalla de Roles.
 python manage.py preparar_produccion
 
+# Cuenta para el primer ingreso, solo si estan sus variables de entorno.
+# Sin consola en el servidor no habria otra forma de crear el primer usuario.
+python manage.py crear_usuario_inicial
+
 # Dos procesos: con 512 MB de RAM en el servicio y 256 MB en la base, mas
 # procesos solo significan mas conexiones abiertas y menos memoria libre.
 exec gunicorn sistema_prosalud.wsgi:application \
