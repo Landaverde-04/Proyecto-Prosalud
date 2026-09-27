@@ -325,12 +325,12 @@ class ClinicaTests(PruebaCore):
         from core.management.commands.sembrar_datos import Command
         from core.models import Clinica
 
-        Clinica.objects.create(nombre='Estética')  # ya existia, sin configurar
+        Clinica.objects.create(nombre='Centro de Medicina Estética')  # ya existia, sin configurar
         comando = Command(stdout=StringIO())
 
         comando.sembrar_clinicas()
 
-        estetica = Clinica.objects.get(nombre='Estética')
+        estetica = Clinica.objects.get(nombre='Centro de Medicina Estética')
         self.assertFalse(estetica.usa_cola)
         self.assertEqual(estetica.tema, Clinica.Tema.ESTETICA)
         self.assertEqual(Clinica.objects.get(nombre='ProSalud').logo, 'core/img/logo_prosalud.svg')
@@ -438,7 +438,7 @@ class TemaPorClinicaTests(PruebaCore):
             nombre='ProSalud', logo='core/img/logo_prosalud.svg')
         self.estetica = Clinica.objects.create(
             nombre='Estética', tipo=Clinica.Tipo.ESTETICA, tema=Clinica.Tema.ESTETICA,
-            logo='core/img/logo_estetica.svg')
+            logo='core/img/logo_estetica.png')
         self.doctora = Usuario.objects.create_user(username='doctora', password='x')
         self.doctora.clinicas.add(self.prosalud, self.estetica)
         self.url_home = reverse('core:home')
@@ -458,7 +458,7 @@ class TemaPorClinicaTests(PruebaCore):
         respuesta = self._en_clinica(self.estetica)
 
         self.assertContains(respuesta, 'data-tema="estetica"')
-        self.assertContains(respuesta, 'logo_estetica.svg')
+        self.assertContains(respuesta, 'logo_estetica.png')
         self.assertNotContains(respuesta, 'logo_prosalud.svg')
 
     def test_sin_clinica_queda_el_tema_y_el_logo_por_defecto(self):
