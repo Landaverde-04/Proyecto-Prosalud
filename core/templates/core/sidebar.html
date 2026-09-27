@@ -26,10 +26,12 @@
         <div class="selector-clinica d-flex gap-1 p-1 rounded-3" role="group" aria-label="Clínica en la que trabajas">
             {% for clinica in clinicas_para_elegir %}
             {% if clinica.pk == clinica_activa.pk %}
-            <span class="selector-clinica-opcion activa flex-fill text-truncate" aria-current="true">{{ clinica.nombre }}</span>
+            <span class="selector-clinica-opcion activa flex-fill text-truncate" aria-current="true"
+                  title="{{ clinica.nombre }}">{{ clinica.etiqueta }}</span>
             {% else %}
-            <button type="submit" name="clinica" value="{{ clinica.pk }}" class="selector-clinica-opcion flex-fill text-truncate">
-                {{ clinica.nombre }}
+            <button type="submit" name="clinica" value="{{ clinica.pk }}"
+                    class="selector-clinica-opcion flex-fill text-truncate" title="Cambiar a {{ clinica.nombre }}">
+                {{ clinica.etiqueta }}
             </button>
             {% endif %}
             {% endfor %}

@@ -116,10 +116,11 @@ class Command(BaseCommand):
     # Tipo, tema y logo de cada clinica de prueba. El logo de Estetica queda
     # vacio hasta tener el archivo (provisional u oficial).
     CLINICAS_DE_PRUEBA = [
-        {'nombre': 'ProSalud', 'tipo': Clinica.Tipo.MEDICA, 'tema': Clinica.Tema.VERDE_SALUD,
-         'logo': 'core/img/logo_prosalud.svg'},
-        {'nombre': 'Estética', 'tipo': Clinica.Tipo.ESTETICA, 'tema': Clinica.Tema.ESTETICA,
-         'logo': 'core/img/logo_estetica.svg'},
+        {'nombre': 'ProSalud', 'nombre_corto': '', 'tipo': Clinica.Tipo.MEDICA,
+         'tema': Clinica.Tema.VERDE_SALUD, 'logo': 'core/img/logo_prosalud.svg'},
+        {'nombre': 'Centro de Medicina Estética', 'nombre_corto': 'Estética',
+         'tipo': Clinica.Tipo.ESTETICA, 'tema': Clinica.Tema.ESTETICA,
+         'logo': 'core/img/logo_estetica.png'},
     ]
 
     def sembrar_clinicas(self):
@@ -129,7 +130,8 @@ class Command(BaseCommand):
             # Se reescriben siempre, igual que el rol de las cuentas de prueba:
             # volver a correr el comando las deja en su configuracion esperada.
             clinica.tipo, clinica.tema, clinica.logo = datos['tipo'], datos['tema'], datos['logo']
-            clinica.save(update_fields=['tipo', 'tema', 'logo'])
+            clinica.nombre_corto = datos['nombre_corto']
+            clinica.save(update_fields=['tipo', 'tema', 'logo', 'nombre_corto'])
             etiqueta = 'creada' if creada else 'ya existia'
             self.stdout.write(f'  Clinica {etiqueta}: {datos["nombre"]} ({clinica.get_tipo_display()})')
 
@@ -149,7 +151,7 @@ class Command(BaseCommand):
     USUARIOS_DE_PRUEBA = [
         {
             'username': 'doctora', 'first_name': 'Elsa Cecilia', 'last_name': 'Miranda Velasquez',
-            'rol': 'Doctora Administradora', 'clinicas': ['ProSalud', 'Estética'],
+            'rol': 'Doctora Administradora', 'clinicas': ['ProSalud', 'Centro de Medicina Estética'],
         },
         {
             'username': 'doctor1', 'first_name': 'Carlos', 'last_name': 'Rivas Aguilar',
@@ -173,7 +175,7 @@ class Command(BaseCommand):
         },
         {
             'username': 'secretaria1', 'first_name': 'Karla', 'last_name': 'Mendoza Rivas',
-            'rol': 'Secretaria', 'clinicas': ['Estética'],
+            'rol': 'Secretaria', 'clinicas': ['Centro de Medicina Estética'],
         },
         {
             'username': 'laboratorio1', 'first_name': 'Jorge', 'last_name': 'Aguilar Castro',

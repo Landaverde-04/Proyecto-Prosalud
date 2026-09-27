@@ -19,7 +19,7 @@ def clasificar_clinicas(apps, schema_editor):
             clinica.tipo = 'estetica'
             clinica.tema = 'estetica'
             if not clinica.logo:
-                clinica.logo = 'core/img/logo_estetica.svg'
+                clinica.logo = 'core/img/logo_estetica.png'
         if 'prosalud' in nombre.replace(' ', '') and not clinica.logo:
             clinica.logo = 'core/img/logo_prosalud.svg'
         clinica.save(update_fields=['tipo', 'tema', 'logo'])

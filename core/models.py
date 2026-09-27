@@ -68,6 +68,9 @@ class Clinica(ModeloBase):
         ESTETICA = 'estetica', 'Estética'
 
     nombre = models.CharField(max_length=150)
+    # Etiqueta para el menu, donde el nombre completo no cabe. Los documentos
+    # siempre usan `nombre`: ahi va la marca completa.
+    nombre_corto = models.CharField(max_length=40, blank=True)
     direccion = models.CharField(max_length=255, blank=True)
     telefono = models.CharField(max_length=20, blank=True)
     # Ruta dentro de los estaticos, ej. 'core/img/logo_prosalud.svg'.
@@ -82,6 +85,11 @@ class Clinica(ModeloBase):
 
     def __str__(self):
         return self.nombre
+
+    @property
+    def etiqueta(self):
+        """Como se nombra la clinica en pantallas con poco espacio."""
+        return self.nombre_corto or self.nombre
 
     @property
     def usa_cola(self):
