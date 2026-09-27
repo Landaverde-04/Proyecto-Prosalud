@@ -13,6 +13,32 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env.bool('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=[])
 
+# ── Seguridad detras del proxy (produccion) ──────────────────────────
+# Todo esto se enciende con una sola variable, para que en desarrollo no
+# cambie nada: sin HTTPS local, forzar cookies seguras dejaria fuera al
+# navegador y nadie podria iniciar sesion.
+DETRAS_DE_PROXY_HTTPS = env.bool('DETRAS_DE_PROXY_HTTPS', default=False)
+
+if DETRAS_DE_PROXY_HTTPS:
+    # La pieza clave, y la que Django no avisa que falta: el proxy termina
+    # el HTTPS y a la aplicacion le llega una peticion HTTP normal con esta
+    # cabecera. Sin esto request.is_secure() es falso, la comprobacion de
+    # origen de CSRF no cuadra y TODOS los formularios fallan, login incluido.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # Quien entre por http:// sube a https:// en vez de quedarse sin cifrar.
+    SECURE_SSL_REDIRECT = True
+    # La sesion y el token CSRF solo viajan por conexiones cifradas.
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # El navegador recuerda por un año que este sitio es solo HTTPS, asi la
+    # primera visita del dia tampoco pasa por http.
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # Origenes en los que Django confia para formularios; con https explicito,
+    # que es lo que exige Django desde la version 4.
+    CSRF_TRUSTED_ORIGINS = [f'https://{host}' for host in ALLOWED_HOSTS if host != '*']
+
 
 # Application definition
 
