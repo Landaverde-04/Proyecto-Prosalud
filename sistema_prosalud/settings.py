@@ -115,6 +115,44 @@ STORAGES = {
     },
 }
 
+# ── Almacenamiento de adjuntos clínicos en Cloudflare R2 ─────────────
+# Nombre del bucket de R2; si no está en el .env queda vacío
+R2_BUCKET = env('R2_BUCKET', default='')
+
+# Solo si hay bucket configurado se usa R2; si no, sigue el disco local
+if R2_BUCKET:
+    # La app de django-storages se registra solo aquí, no siempre:
+    # así, sin variables de R2, Django arranca aunque la librería no
+    # esté instalada (desarrollo local y pruebas)
+    INSTALLED_APPS.append('storages')
+    # Reemplaza el almacenamiento por defecto (el que usan los FileField)
+    STORAGES['default'] = {
+        # Backend S3 de django-storages; R2 habla el mismo idioma que S3
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            # Bucket privado donde viven los adjuntos
+            'bucket_name': R2_BUCKET,
+            # Dirección de la cuenta de Cloudflare, armada con el Account ID
+            'endpoint_url': f"https://{env('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com",
+            # Llave pública del token de R2 (solo lectura/escritura de este bucket)
+            'access_key': env('R2_ACCESS_KEY_ID'),
+            # Llave secreta del mismo token; nunca se escribe en el código
+            'secret_key': env('R2_SECRET_ACCESS_KEY'),
+            # R2 no tiene regiones como AWS; 'auto' es lo que pide Cloudflare
+            'region_name': 'auto',
+            # Firma moderna de peticiones, la única que acepta R2
+            'signature_version': 's3v4',
+            # R2 no usa permisos por archivo: la privacidad la da el bucket
+            'default_acl': None,
+            # Si alguien llamara a .url, la dirección sale firmada y no pública
+            'querystring_auth': True,
+            # Y esa firma vence a los 5 minutos
+            'querystring_expire': 300,
+            # Nunca sobrescribir un archivo existente con el mismo nombre
+            'file_overwrite': False,
+        },
+    }
+
 # Archivos que sube la gente: los adjuntos del expediente (HU-EXP-08).
 #
 # NO se define MEDIA_URL a proposito. Definirla invita a escribir
