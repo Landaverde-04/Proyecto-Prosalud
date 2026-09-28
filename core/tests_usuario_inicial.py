@@ -33,16 +33,30 @@ class CuentaDeArranqueTests(PruebaCore):
 
         self.assertEqual(Usuario.objects.count(), 0)
 
-    def test_crea_la_cuenta_con_rol_clinicas_y_cambio_de_contrasena(self):
+    def test_crea_la_cuenta_con_su_rol_y_cambio_de_contrasena(self):
         self.crear(**VARIABLES)
 
         usuario = Usuario.objects.get(username='admin.inicial')
         self.assertTrue(usuario.check_password('temporal-123'))
         self.assertTrue(usuario.debe_cambiar_password)
         self.assertEqual([g.name for g in usuario.groups.all()], ['Doctora Administradora'])
-        self.assertEqual(usuario.clinicas.count(), Clinica.objects.count())
         # Es una cuenta de rol, no un superusuario que se salte los permisos.
         self.assertFalse(usuario.is_superuser)
+
+    def test_no_pertenece_a_ninguna_clinica(self):
+        """
+        Su rol trae el permiso que define a un medico. Si tuviera clinica,
+        aparecería como médico disponible en la preconsulta y con cola propia,
+        y es una cuenta auxiliar: no atiende a nadie.
+        """
+        from pacientes.views import _medicos_disponibles
+
+        self.crear(**VARIABLES)
+
+        usuario = Usuario.objects.get(username='admin.inicial')
+        self.assertEqual(usuario.clinicas.count(), 0)
+        disponibles = _medicos_disponibles(Clinica.objects.all())
+        self.assertNotIn(usuario, disponibles)
 
     def test_si_la_cuenta_ya_existe_no_le_reescribe_la_contrasena(self):
         self.crear(**VARIABLES)

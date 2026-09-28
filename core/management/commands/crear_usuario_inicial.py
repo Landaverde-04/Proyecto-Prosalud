@@ -16,7 +16,6 @@ import os
 from django.contrib.auth.models import Group
 from django.core.management.base import BaseCommand
 
-from core.models import Clinica
 from seguridad.models import Usuario
 
 ROL = 'Doctora Administradora'
@@ -56,7 +55,11 @@ class Command(BaseCommand):
         usuario.debe_cambiar_password = True
         usuario.save(update_fields=['debe_cambiar_password'])
         usuario.groups.add(rol)
-        usuario.clinicas.set(Clinica.objects.filter(activo=True))
+        # A proposito SIN clinicas. El rol incluye el permiso que define a un
+        # medico, y la lista de medicos disponibles de la preconsulta se arma
+        # con los usuarios de esa clinica: sin clinica, esta cuenta no puede
+        # aparecer ahi ni tener cola propia. Para dar de alta usuarios y roles
+        # no le hace falta ninguna.
 
         self.stdout.write(self.style.SUCCESS(
             f'Cuenta de arranque {nombre} creada con el rol {ROL}. '
