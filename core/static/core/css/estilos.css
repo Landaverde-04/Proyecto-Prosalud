@@ -47,26 +47,30 @@
    data-tema. Solo se redefinen los colores: el resto del CSS
    sigue leyendo las mismas variables.
    ============================================================ */
+/* Dorado tomado de la tarjeta de presentacion de la clinica. El tono de
+   marca (#C07840) solo alcanza 3.5:1 contra blanco, asi que se reserva
+   para el logo y los detalles grandes; el acento de botones y enlaces es
+   un paso mas oscuro (5:1) para que el texto se lea. */
 [data-tema="estetica"] {
-    --accent: #B4457A;
-    --accent-rgb: 180, 69, 122;
-    --accent-hover: #9C3868;
-    --accent-active: #8A3059;
-    --accent-soft: #FBE9F2;
-    --accent-border-subtle: #F2C9DE;
+    --accent: #A25F2A;
+    --accent-rgb: 162, 95, 42;
+    --accent-hover: #8A4F1D;
+    --accent-active: #78441A;
+    --accent-soft: #F8EDE2;
+    --accent-border-subtle: #EBD4BC;
 
-    --sidebar: #2B1026;
-    --sidebar-line: #3D1935;
-    --sidebar-active: #B4457A;
-    --sidebar-label: #E38FBB;
-    --sidebar-item: #F0C3DA;
+    --sidebar: #2E1D10;
+    --sidebar-line: #3F2916;
+    --sidebar-active: #A25F2A;
+    --sidebar-label: #E8C9A6;
+    --sidebar-item: #F2DCC4;
 
-    --page: #FAF6F8;
-    --line: #E8E1E5;
-    --text: #251E22;
-    --text-sec: #6B6367;
+    --page: #FAF6F2;
+    --line: #E9E2DA;
+    --text: #251E18;
+    --text-sec: #6B635B;
 
-    --bs-link-hover-color-rgb: 156, 56, 104;
+    --bs-link-hover-color-rgb: 138, 79, 29;
 }
 
 /* Los componentes de Bootstrap (botones, tablas) NO leen --bs-primary
