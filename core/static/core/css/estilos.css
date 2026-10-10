@@ -166,10 +166,6 @@
     display: none;
 }
 
-#sidebar.sidebar-collapsed .sidebar-collapsed-only {
-    display: inline-flex;
-}
-
 /* Selector de clinica activa, bajo la marca del sidebar */
 .selector-clinica-titulo {
     font-size: 0.65rem;
@@ -218,6 +214,7 @@ input[type="password"].form-control.is-invalid {
 /* ── Sidebar responsive ── */
 
 #sidebar {
+    min-height: 100vh;
     transition: min-width 0.22s ease, max-width 0.22s ease;
     overflow: hidden;
 }
@@ -227,24 +224,30 @@ input[type="password"].form-control.is-invalid {
 }
 
 /* Estado colapsado — escritorio */
-#sidebar.sidebar-collapsed {
-    min-width: 64px !important;
-    max-width: 64px !important;
-}
+@media (min-width: 768px) {
+    #sidebar.sidebar-collapsed {
+        min-width: 64px !important;
+        max-width: 64px !important;
+    }
 
-#sidebar.sidebar-collapsed .sidebar-label,
-#sidebar.sidebar-collapsed .sidebar-seccion {
-    display: none !important;
-}
+    #sidebar.sidebar-collapsed .sidebar-label,
+    #sidebar.sidebar-collapsed .sidebar-seccion {
+        display: none !important;
+    }
 
-#sidebar.sidebar-collapsed .sidebar-link {
-    justify-content: center;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-}
+    #sidebar.sidebar-collapsed .sidebar-link {
+        justify-content: center;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
 
-#sidebar.sidebar-collapsed .sidebar-chevron {
-    transform: rotate(180deg);
+    #sidebar.sidebar-collapsed .sidebar-chevron {
+        transform: rotate(180deg);
+    }
+
+    #sidebar.sidebar-collapsed .sidebar-collapsed-only {
+        display: inline-flex;
+    }
 }
 
 /* Móvil: sidebar fuera de pantalla por defecto */
@@ -253,7 +256,18 @@ input[type="password"].form-control.is-invalid {
         position: fixed;
         top: 0;
         left: 0;
-        height: 100%;
+        /* vh es el respaldo; dvh sigue el area visible cuando Chrome
+           muestra u oculta sus barras. No heredar el minimo de escritorio. */
+        min-height: 0;
+        height: 100vh;
+        height: 100svh;
+        height: 100dvh;
+        box-sizing: border-box;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        /* En alturas extremas tambien se puede desplazar el menu completo. */
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
         z-index: 1045;
         transform: translateX(-100%);
         transition: transform 0.25s ease !important;
@@ -263,6 +277,14 @@ input[type="password"].form-control.is-invalid {
 
     #sidebar.sidebar-open {
         transform: translateX(0);
+    }
+
+    #sidebar .sidebar-nav {
+        /* Solo las opciones ceden espacio: perfil y cerrar sesion no se
+           empujan fuera de la pantalla aunque haya muchos permisos. */
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
     }
 }
 

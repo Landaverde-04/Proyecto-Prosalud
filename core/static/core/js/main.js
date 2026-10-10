@@ -80,6 +80,14 @@ document.addEventListener('DOMContentLoaded', function () {
         backdrop.addEventListener('click', cerrarMobile);
     }
 
+    // Al girar el telefono puede entrar en el ancho de escritorio.
+    // No dejar la pagina bloqueada por un menu movil que ya no es flotante.
+    window.addEventListener('resize', function () {
+        if (sidebar && !esMobile() && sidebar.classList.contains('sidebar-open')) {
+            cerrarMobile();
+        }
+    });
+
     // Restaurar estado colapsado en escritorio
     if (sidebar && !esMobile() && localStorage.getItem('sidebar-colapsado') === '1') {
         sidebar.classList.add('sidebar-collapsed');
