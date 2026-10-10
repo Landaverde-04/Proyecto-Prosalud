@@ -1,7 +1,7 @@
-<aside id="sidebar" class="d-flex flex-column" style="min-width: 240px; max-width: 240px; background-color: var(--sidebar); min-height: 100vh;">
+<aside id="sidebar" class="d-flex flex-column" style="min-width: 240px; max-width: 240px; background-color: var(--sidebar);">
 
     {# Marca del sistema + botón de colapso #}
-    <div class="px-3 py-3 d-flex align-items-center justify-content-between" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+    <div class="px-3 py-3 d-flex align-items-center justify-content-between flex-shrink-0" style="border-bottom: 1px solid rgba(255,255,255,0.08);">
         {% load static %}
         <a href="{% url 'core:home' %}" class="text-white text-decoration-none d-flex align-items-center gap-2 overflow-hidden">
             <i class="bi {% if clinica_activa.tema == 'estetica' %}bi-flower1{% else %}bi-heart-pulse-fill{% endif %} fs-5 flex-shrink-0 sidebar-collapsed-only" style="color: var(--sidebar-item);"></i>
@@ -20,7 +20,7 @@
 
     {# Selector de clinica: solo para quien pertenece a mas de una #}
     {% if clinicas_para_elegir %}
-    <form method="post" action="{% url 'core:cambiar_clinica' %}" class="px-3 pt-3 sidebar-label">
+    <form method="post" action="{% url 'core:cambiar_clinica' %}" class="px-3 pt-3 sidebar-label flex-shrink-0">
         {% csrf_token %}
         <div class="selector-clinica-titulo text-uppercase fw-semibold mb-1">Clínica</div>
         <div class="selector-clinica d-flex gap-1 p-1 rounded-3" role="group" aria-label="Clínica en la que trabajas">
@@ -40,7 +40,7 @@
     {% endif %}
 
     {# Links de navegacion #}
-    <nav class="flex-grow-1 px-2 py-3">
+    <nav class="sidebar-nav flex-grow-1 px-2 py-3">
         <ul class="nav flex-column gap-1">
 
             <li class="nav-item">
@@ -137,7 +137,7 @@
     </nav>
 
     {# Usuario y cierre de sesion #}
-    <div class="px-2 py-3" style="border-top: 1px solid rgba(255,255,255,0.08);">
+    <div class="sidebar-footer px-2 py-3 flex-shrink-0" style="border-top: 1px solid rgba(255,255,255,0.08);">
         {% if user.is_authenticated %}
             <a href="{% url 'seguridad:mi_perfil' %}"
                class="sidebar-link d-flex align-items-center gap-2 mb-2 px-3 py-2 rounded"
