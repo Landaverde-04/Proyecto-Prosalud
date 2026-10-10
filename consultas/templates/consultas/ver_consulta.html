@@ -112,7 +112,7 @@
             <div class="d-flex justify-content-between align-items-center gap-2">
                 <div>
                     <i class="bi bi-send me-1" style="color: var(--accent);"></i>
-                    Referencia a {{ referencia.especialidad }}
+                    Referencia a {{ referencia.especialidad }}{% if referencia.hospital %} · {{ referencia.hospital }}{% endif %}
                     <span class="text-muted small">· {{ referencia.fecha|date:'d/m/Y' }}</span>
                 </div>
                 <a href="{% url 'consultas:ver_referencia' referencia.pk %}" class="btn btn-sm btn-outline-secondary">Ver</a>

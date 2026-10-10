@@ -165,9 +165,12 @@ def generar_pdf_referencia(referencia, borrador=False):
     Referencia medica (HU-EXP-23). Reusa el encabezado, la expedicion y la
     firma de la constancia: es el mismo papel de la clinica.
 
-    El formato del texto es provisional -- no existe un impreso real de
-    referencia como el que se uso para la constancia. Falta aprobarlo con
-    la doctora.
+    El texto lo dicto la doctora el 09/10/2026 (CD-06):
+
+        "...refiere a [paciente] a la especialidad de [X] del hospital [Y],
+        por el siguiente motivo: [motivo], para evaluacion y tratamiento."
+
+    Antes era provisional: no habia un impreso real de referencia que copiar.
     """
     paciente = str(referencia.consulta.expediente.persona)
     salida, pdf, historia, estilos, es_prosalud = _abrir(referencia, 'Referencia medica')
@@ -176,10 +179,24 @@ def generar_pdf_referencia(referencia, borrador=False):
     # parrafo corrido con los datos subrayados, expedicion y firma. Es el
     # papel de la clinica, no un formato propio de cada documento.
     historia += [Spacer(1, 48), Paragraph('A QUIEN INTERESE:', cuerpo), Spacer(1, 8)]
+    destino = relleno(referencia.especialidad)
+    # El hospital es opcional: sin el, la frase queda como antes en vez de
+    # decir "del hospital" seguido de un hueco.
+    if referencia.hospital:
+        # Si la doctora escribio el nombre completo ("Hospital Rosales"), no
+        # se repite la palabra: quedaria "del hospital Hospital Rosales".
+        if referencia.hospital.lower().startswith('hospital'):
+            destino += f' del {relleno(referencia.hospital)}'
+        else:
+            destino += f' del hospital {relleno(referencia.hospital)}'
+    # El punto final lo pone la frase fija; si la doctora termino el motivo
+    # con punto, sin esto quedaria "dolor abdominal., para evaluacion".
+    motivo = referencia.motivo.strip().rstrip('.')
     texto = (f'EL INFRASCRITO MÉDICO, {seguro(referencia.nombre_profesional)}, por medio de la '
-             f'presente, REFIERE A {relleno(paciente)} a la especialidad de '
-             f'{relleno(referencia.especialidad)}, por el siguiente motivo: '
-             f'{relleno(referencia.motivo)}.')
+             f'presente, REFIERE A {relleno(paciente)} a la especialidad de {destino}, '
+             f'por el siguiente motivo: {relleno(motivo)}, para evaluación y tratamiento.')
+    # Las observaciones van despues de la frase fija, para que esta cierre
+    # la referencia propiamente dicha.
     if referencia.observaciones:
         texto += f' Observaciones: {relleno(referencia.observaciones)}.'
     historia.append(Paragraph(texto, cuerpo))

@@ -81,7 +81,7 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
                 S  Motivo · Historia de la enfermedad actual   lo que cuenta el paciente
                 O  Examen físico                               lo que encuentra la doctora
                 A  Diagnóstico                                 el juicio clínico
-                P  Tratamiento · Indicaciones                  qué se hace
+                P  Plan · Indicaciones                         qué se hace
 
             Los signos vitales son parte de la O y van arriba, en su propia
             sección, porque los toma enfermería antes de la consulta.
@@ -251,7 +251,7 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <div class="d-flex justify-content-between align-items-center gap-2 small">
                 <div>
                     <i class="bi bi-send me-1" style="color: var(--accent);"></i>
-                    Referencia a {{ referencia.especialidad }}
+                    Referencia a {{ referencia.especialidad }}{% if referencia.hospital %} · {{ referencia.hospital }}{% endif %}
                     <span class="text-muted">· {{ referencia.fecha|date:'d/m/Y' }}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -324,9 +324,13 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
               id="panel-referencia" class="border rounded p-3 mt-3" hidden>
             {% csrf_token %}
             <div class="row g-2 align-items-end">
-                <div class="col-sm-6">
+                <div class="col-sm-4">
                     <label for="{{ form_referencia.especialidad.id_for_label }}" class="form-label small fw-semibold">Especialidad</label>
                     {{ form_referencia.especialidad }}
+                </div>
+                <div class="col-sm-5">
+                    <label for="{{ form_referencia.hospital.id_for_label }}" class="form-label small fw-semibold">Hospital (opcional)</label>
+                    {{ form_referencia.hospital }}
                 </div>
                 <div class="col-sm-3">
                     <button type="submit" class="btn btn-primary w-100">Agregar</button>

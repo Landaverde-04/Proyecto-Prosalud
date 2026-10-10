@@ -10,7 +10,7 @@
     <div>
         <h1 class="h4 mb-1">Referencia médica</h1>
         <p class="text-muted mb-0">
-            {{ referencia.consulta.expediente.persona }} · {{ referencia.especialidad }}
+            {{ referencia.consulta.expediente.persona }} · {{ referencia.especialidad }}{% if referencia.hospital %} · {{ referencia.hospital }}{% endif %}
             · {{ referencia.fecha|date:'d/m/Y' }}
         </p>
     </div>

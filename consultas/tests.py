@@ -14,7 +14,7 @@ from core.models import Clinica
 from core.tests import PruebaCore
 from pacientes.models import Persona, Expediente
 from seguridad.models import Usuario
-from .forms import ConsultaClinicaForm, DocumentoMedicoForm
+from .forms import ConsultaClinicaForm, DocumentoMedicoForm, RecetaForm
 from .models import (Adjunto, Antecedente, Aplicacion, Consulta, DetalleReceta,
                      Incapacidad, OrdenExamen, Receta, ReferenciaMedica)
 from .documentos import generar_pdf, anio_en_letras
@@ -311,6 +311,10 @@ class ConsultaTests(PruebaCore):
         # Entrar a atenderla lleva al detalle: cerrada ya no se edita.
         self.assertRedirects(self.client.get(reverse('consultas:atender_consulta', args=[consulta.pk])),
                              reverse('consultas:ver_consulta', args=[consulta.pk]))
+
+    def test_el_campo_tratamiento_se_muestra_como_plan(self):
+        """CD-03: pedido de la doctora. Solo cambia la etiqueta, no la columna."""
+        self.assertEqual(ConsultaClinicaForm().fields['tratamiento'].label, 'Plan')
 
     def test_finalizar_no_depende_de_emitir_receta(self):
         consulta = self.crear()
@@ -813,6 +817,17 @@ class RecetaTests(PruebaDeDocumentos):
         self.assertEqual(respuesta.status_code, 302)
         self.assertTrue(DetalleReceta.objects.exists())
 
+    def test_los_textos_de_ayuda_no_parecen_datos_ya_escritos(self):
+        """
+        CD-04: la doctora creyó que "7 días" ya estaba cargado. Un texto de
+        ayuda con números parece un valor; sin ellos, se lee como guía.
+        """
+        for nombre, campo in RecetaForm().fields.items():
+            ayuda = campo.widget.attrs.get('placeholder', '')
+            self.assertTrue(ayuda, f'{nombre} no tiene texto de ayuda')
+            self.assertFalse(any(c.isdigit() for c in ayuda),
+                             f'{nombre}: "{ayuda}" parece un dato ya escrito')
+
     def test_un_medicamento_vacio_no_se_guarda(self):
         respuesta = self.agregar(medicamento='', **self.AJAX)
         self.assertEqual(respuesta.json()['tipo'], 'danger')
@@ -929,10 +944,24 @@ class ReferenciaMedicaTests(PruebaDeDocumentos):
 
     permisos = ['view_referenciamedica', 'add_referenciamedica']
 
-    def referir(self, especialidad='Cardiología', motivo='Soplo a descartar'):
+    def referir(self, especialidad='Cardiología', motivo='Soplo a descartar', hospital=''):
         return self.client.post(
             reverse('consultas:agregar_referencia', args=[self.consulta.pk]),
-            {'especialidad': especialidad, 'motivo': motivo, 'observaciones': ''})
+            {'especialidad': especialidad, 'hospital': hospital,
+             'motivo': motivo, 'observaciones': ''})
+
+    def test_la_referencia_guarda_el_hospital_de_destino(self):
+        """CD-06: pedido de la doctora, la referencia va dirigida a un hospital."""
+        self.referir(hospital='  Hospital Rosales  ')
+        self.assertEqual(ReferenciaMedica.objects.get().hospital, 'Hospital Rosales')
+
+    def test_el_hospital_es_opcional(self):
+        """Las referencias emitidas antes de CD-06 no lo tienen y siguen valiendo."""
+        self.referir()
+        referencia = ReferenciaMedica.objects.get()
+        self.assertEqual(referencia.hospital, '')
+        respuesta = self.client.get(reverse('consultas:pdf_referencia', args=[referencia.pk]))
+        self.assertEqual(respuesta['Content-Type'], 'application/pdf')
 
     def test_la_referencia_congela_el_nombre_del_medico(self):
         self.referir()

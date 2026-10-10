@@ -297,6 +297,10 @@ class ReferenciaMedica(DocumentoDeConsulta, ModeloBase):
     doctor_nombre = models.CharField(max_length=150, blank=True)
     fecha = models.DateField(auto_now_add=True)
     especialidad = models.CharField(max_length=100)
+    # Hospital al que se refiere al paciente (CD-06, pedido de la doctora del
+    # 09/10/2026). Revierte la decision del 06/09 de no llevar destinatario.
+    # Opcional: las referencias emitidas antes no lo tienen y siguen validas.
+    hospital = models.CharField(max_length=150, blank=True)
     motivo = models.TextField()
     observaciones = models.TextField(blank=True)
 

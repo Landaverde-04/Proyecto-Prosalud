@@ -68,7 +68,10 @@ class ConsultaClinicaForm(forms.ModelForm):
             'historia_enfermedad_actual': 'Historia de la enfermedad actual',
             'examen_fisico': 'Examen físico',
             'diagnostico': 'Diagnóstico',
-            'tratamiento': 'Tratamiento',
+            # Pedido de la doctora (CD-03, 09/10/2026): se muestra "Plan", la P
+            # del SOAP. La columna en la base sigue siendo `tratamiento`: solo
+            # cambia lo que se ve, sin migracion.
+            'tratamiento': 'Plan',
             'indicaciones': 'Indicaciones',
         }
 
@@ -139,20 +142,26 @@ class ReferenciaMedicaForm(forms.ModelForm):
 
     `especialidad` es texto libre por decision de Samuel (06/09/2026): no
     tiene sentido cargar un catalogo mundial de especialidades para usar
-    cinco. Tampoco lleva destinatario: la referencia es una recomendacion
-    abierta que el paciente lleva a donde decida, no un documento dirigido.
+    cinco.
+
+    `hospital` tambien es texto libre (CD-06, pedido de la doctora del
+    09/10/2026): la referencia va dirigida a un hospital concreto. Es
+    opcional; si queda vacio, el PDF no lo menciona.
     """
 
     class Meta:
         model = ReferenciaMedica
-        fields = ('especialidad', 'motivo', 'observaciones')
-        labels = {'especialidad': 'Especialidad', 'motivo': 'Motivo de la referencia',
-                  'observaciones': 'Observaciones'}
+        fields = ('especialidad', 'hospital', 'motivo', 'observaciones')
+        labels = {'especialidad': 'Especialidad', 'hospital': 'Hospital',
+                  'motivo': 'Motivo de la referencia', 'observaciones': 'Observaciones'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['especialidad'].widget = forms.TextInput(attrs={
             'class': 'form-control', 'placeholder': 'Cardiología, Dermatología…'})
+        # Dice QUE va, sin un valor de ejemplo que parezca ya escrito (CD-04).
+        self.fields['hospital'].widget = forms.TextInput(attrs={
+            'class': 'form-control', 'placeholder': 'Nombre del hospital'})
         for nombre in ('motivo', 'observaciones'):
             self.fields[nombre].widget = forms.Textarea(attrs={'class': 'form-control', 'rows': 2})
         self.fields['observaciones'].required = False
@@ -162,6 +171,9 @@ class ReferenciaMedicaForm(forms.ModelForm):
         if not especialidad:
             raise forms.ValidationError('Indique la especialidad.')
         return especialidad
+
+    def clean_hospital(self):
+        return self.cleaned_data['hospital'].strip()
 
 
 class ControlPosteriorForm(forms.ModelForm):
@@ -266,17 +278,22 @@ class RecetaForm(forms.Form):
     Las indicaciones generales NO se piden aqui: son `Consulta.indicaciones`,
     que ya se llenan durante la atencion. Pedirlas dos veces obligaria a
     escribir lo mismo, y dejaria dos versiones del mismo dato.
+
+    Los textos de fondo dicen QUE va en cada campo, no un ejemplo de valor
+    (CD-04, pedido de la doctora del 09/10/2026). Antes decian "Amoxicilina
+    500 mg" o "7 dias", y la doctora creyo que esos datos ya estaban
+    escritos.
     """
 
     medicamento = forms.CharField(
         label='Medicamento', max_length=200,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Amoxicilina 500 mg'}))
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nombre y presentación'}))
     dosis = forms.CharField(
         label='Dosis', max_length=100,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '1 cápsula cada 8 horas'}))
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Cantidad y cada cuánto'}))
     duracion = forms.CharField(
         label='Duración', max_length=50,
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '7 días'}))
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Cuántos días'}))
 
     def clean(self):
         datos = super().clean()

@@ -31,7 +31,7 @@
         </span>
         <input type="text" name="q" value="{{ consulta }}"
                class="form-control border-start-0 ps-1"
-               placeholder="Buscar por motivo, diagnóstico, tratamiento o médico...">
+               placeholder="Buscar por motivo, diagnóstico, plan o médico...">
         <button type="submit" class="btn btn-outline-secondary">Buscar</button>
         {% if consulta %}
             <a data-listado-link href="{% url 'consultas:historial_consultas' expediente.pk %}" class="btn btn-outline-secondary" title="Limpiar">
