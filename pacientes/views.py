@@ -1,4 +1,3 @@
-from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -18,14 +17,16 @@ from consultas.models import Consulta, ReasignacionConsulta, SignosVitales
 from core.auditoria import registrar
 from core.clinica_activa import clinica_activa, formulario_de_otra_clinica
 from core.models import RegistroAuditoria
+from core.navegacion import regreso_expediente
 from core.paginacion import es_ajax, paginar
 from seguridad.models import Usuario
 
 from .forms import (
     AgregarContactoForm, EditarContactoForm, MarcarEmergenciaForm, PreconsultaForm, ReasignarForm,
-    RegistrarDuiForm, RegistrarPacienteForm, RetiroForm, SignosVitalesForm, calcular_imc,
+    RegistrarDuiForm, RegistrarPacienteForm, RetiroForm, SignosVitalesForm,
 )
 from .models import Contacto, Expediente, Persona
+from .preconsulta import campos_de_preconsulta as _campos_de_preconsulta, corregir_signos
 
 # Lo que hace enfermeria sobre la cola: tomar preconsulta y gestionar la
 # espera. Se usa el mismo par en la preconsulta y en marcar emergencias.
@@ -403,7 +404,7 @@ def _tiene_responsable_activo(paciente, excluir_contacto=None):
     return contactos.exists()
 
 
-def _contexto_ver_expediente(expediente):
+def _contexto_ver_expediente(expediente, request):
     """
     Contexto completo de la pantalla del expediente -- compartido por
     `ver_expediente` (GET normal) y `agregar_contacto`/`editar_contacto`
@@ -449,6 +450,7 @@ def _contexto_ver_expediente(expediente):
 
     return {
         'expediente': expediente,
+        'url_regresar': regreso_expediente(request, expediente),
         'persona': persona,
         'es_menor': es_menor,
         'responsable': responsable,
@@ -494,8 +496,9 @@ def ver_expediente(request, expediente_id):
     """
     expediente = _expediente_para_usuario(request, expediente_id)
     if _es_de_otra_clinica(request, expediente):
-        return render(request, 'pacientes/expediente_otra_clinica.html', {'expediente': expediente})
-    return render(request, 'pacientes/ver_expediente.html', _contexto_ver_expediente(expediente))
+        return render(request, 'pacientes/expediente_otra_clinica.html', {
+            'expediente': expediente, 'url_regresar': regreso_expediente(request, expediente)})
+    return render(request, 'pacientes/ver_expediente.html', _contexto_ver_expediente(expediente, request))
 
 
 def _es_de_otra_clinica(request, expediente):
@@ -571,7 +574,7 @@ def agregar_contacto(request, expediente_id):
     # enviado (y sus errores) en vez de uno en blanco, y una senal para
     # que la plantilla abra el modal solo -- si no, los errores quedarian
     # escondidos detras de un modal cerrado.
-    contexto = _contexto_ver_expediente(expediente)
+    contexto = _contexto_ver_expediente(expediente, request)
     contexto['agregar_contacto_form'] = form
     contexto['abrir_modal_contacto'] = True
     return render(request, 'pacientes/ver_expediente.html', contexto)
@@ -630,7 +633,7 @@ def editar_contacto(request, expediente_id, contacto_id):
     # Igual que agregar_contacto: se vuelve a mostrar la misma pantalla
     # completa, con el formulario y sus errores, señalando CUAL de los
     # contactos (puede haber varios) es el que fallo.
-    contexto = _contexto_ver_expediente(expediente)
+    contexto = _contexto_ver_expediente(expediente, request)
     contexto['editar_contacto_form'] = form
     contexto['editar_contacto_id'] = contacto.id
     return render(request, 'pacientes/ver_expediente.html', contexto)
@@ -835,34 +838,6 @@ def registrar_preconsulta(request, expediente_id):
     })
 
 
-# Etiqueta y unidad de cada signo vital, para el detalle legible de la bitacora.
-ETIQUETAS_SIGNOS = {
-    'peso': ('Peso', 'kg'),
-    'talla': ('Talla', 'm'),
-    'presion_arterial': ('Presión arterial', ''),
-    'temperatura': ('Temperatura', '°C'),
-    'saturacion': ('Saturación', '%'),
-    'frecuencia_cardiaca': ('Frecuencia cardíaca', 'lpm'),
-    'imc': ('IMC', ''),
-}
-
-
-def _campos_de_preconsulta(es_menor):
-    """Campos que muestra la preconsulta segun la edad: talla a menores, presion a adultos."""
-    por_edad = ['talla'] if es_menor else ['presion_arterial']
-    return ['peso', *por_edad, 'temperatura', 'frecuencia_cardiaca', 'saturacion']
-
-
-def _valor_legible(campo, valor):
-    if valor in (None, ''):
-        return 'vacío'
-    if isinstance(valor, Decimal):
-        # 70.00 -> 70; 1.20 -> 1.2
-        valor = f'{valor.normalize():f}'
-    unidad = ETIQUETAS_SIGNOS[campo][1]
-    return f'{valor} {unidad}'.strip()
-
-
 @login_required
 @permission_required('consultas.change_signosvitales', raise_exception=True)
 def editar_preconsulta(request, consulta_id):
@@ -894,32 +869,9 @@ def editar_preconsulta(request, consulta_id):
 
             # Releida bajo el bloqueo: el antes -> despues compara contra lo guardado ahora.
             signos = SignosVitales.objects.get(pk=signos.pk)
-            cambios = []
-            for campo in campos:
-                anterior, nuevo = getattr(signos, campo), form.cleaned_data[campo]
-                # '' y None son el mismo "vacio"; Decimal compara por valor (70.00 == 70).
-                if (None if anterior == '' else anterior) != (None if nuevo == '' else nuevo):
-                    cambios.append((campo, anterior, nuevo))
-                    setattr(signos, campo, nuevo)
-            if not cambios:
+            if not corregir_signos(request, signos, form.cleaned_data, campos):
                 messages.info(request, 'No se cambió ningún dato de la preconsulta.')
                 return redirect('pacientes:cola_consultas')
-
-            imc_anterior = signos.imc
-            signos.imc = calcular_imc(signos.peso, signos.talla)
-            if imc_anterior != signos.imc:
-                cambios.append(('imc', imc_anterior, signos.imc))
-
-            signos.modificado_por = request.user
-            signos.save()
-            registrar(
-                request, RegistroAuditoria.Accion.EDITAR_PRECONSULTA,
-                objetivo=f'{persona.nombres} {persona.apellidos}',
-                detalle='; '.join(
-                    f'{ETIQUETAS_SIGNOS[c][0]}: {_valor_legible(c, a)} → {_valor_legible(c, n)}'
-                    for c, a, n in cambios
-                ),
-            )
         messages.success(request, f'Preconsulta de {persona} corregida.')
         return redirect('pacientes:cola_consultas')
 
