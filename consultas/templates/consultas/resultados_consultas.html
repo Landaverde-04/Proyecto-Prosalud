@@ -50,11 +50,11 @@ de listado-vivo.js, sin repetir el buscador ni el encabezado.
                     <div class="mt-2">
                         {% if atencion.retirada %}
                         {% elif atencion.cerrada %}
-                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
+                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}?volver={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
                         {% elif perms.consultas.change_consulta %}
-                            <a href="{% url 'consultas:atender_consulta' atencion.pk %}" class="btn btn-sm btn-primary">Continuar</a>
+                            <a href="{% url 'consultas:atender_consulta' atencion.pk %}?volver={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-primary">Continuar</a>
                         {% else %}
-                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
+                            <a href="{% url 'consultas:ver_consulta' atencion.pk %}?volver={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary">Ver detalle</a>
                         {% endif %}
                     </div>
                 </div>

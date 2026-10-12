@@ -3,10 +3,14 @@
 {% block titulo %}Atender consulta - Sistema ProSalud{% endblock %}
 {% block contenido %}
 
-<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir
-   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
-    <i class="bi bi-arrow-left"></i> Expediente de {{ consulta.expediente.persona }}
-</a>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <a href="{{ url_regresar }}" data-salir class="text-decoration-none small text-muted">
+        <i class="bi bi-arrow-left me-1"></i> Regresar
+    </a>
+    <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-folder2-open me-1"></i> Ver expediente
+    </a>
+</div>
 
 {% if consulta.en_cola %}
 {% comment %}
@@ -20,6 +24,7 @@ cuando la doctora pulsa el boton, no al abrir el expediente (HU-EXP-17).
         <p class="text-muted small">Este paciente está en espera. La atención empieza cuando inicie la consulta.</p>
         <form method="post" action="{% url 'consultas:iniciar_consulta' consulta.pk %}">
             {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ url_regresar }}">
             <button type="submit" class="btn btn-primary">Iniciar consulta</button>
         </form>
     </div>
@@ -60,13 +65,36 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
 {% endcomment %}
 <div class="card shadow-sm border-0 mb-3">
     <div class="card-body p-3" data-signos-vivos data-url="{% url 'consultas:signos_vitales_consulta' consulta.pk %}">
-        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h6 class="fw-semibold text-muted mb-0" style="font-size: 0.75rem; letter-spacing: 0.03em;">
             <i class="bi bi-activity me-1"></i>SIGNOS VITALES
-            <span class="badge text-bg-warning fw-normal ms-2" data-signos-aviso hidden>Actualizados por enfermería</span>
+            <span class="badge text-bg-warning fw-normal ms-2" data-signos-aviso hidden>Preconsulta actualizada</span>
         </h6>
+        {% if signos %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-editar-preconsulta
+                aria-expanded="false" aria-controls="editor-preconsulta">
+            <i class="bi bi-pencil-square me-1"></i> Editar preconsulta
+        </button>
+        {% endif %}
+        </div>
         <div data-signos-contenido>
             {% include "consultas/signos_vitales.html" %}
         </div>
+        {% if signos %}
+        <div id="editor-preconsulta" class="mt-3 pt-3 border-top" hidden>
+            <p class="text-muted small">Corrija los datos tomados en enfermería. Se guardan sin salir de la consulta y quedan registrados con su usuario.</p>
+            <form id="form-preconsulta-consulta" method="post" action="{% url 'consultas:editar_preconsulta_consulta' consulta.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="version_preconsulta">
+                <fieldset data-preconsulta-campos></fieldset>
+                <div class="small mb-2" data-preconsulta-estado role="status" aria-live="polite"></div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                    <button type="button" class="btn btn-outline-secondary" data-cancelar-preconsulta>Cancelar</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -489,7 +517,7 @@ consulta", que es acción aparte.
         Lo que escriba se guarda solo.
     </output>
     <div class="d-flex gap-2">
-        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary" data-salir>Salir</a>
+        <a href="{{ url_regresar }}" class="btn btn-outline-secondary" data-salir>Regresar</a>
         <button type="button" class="btn btn-primary" data-abrir-finalizar>
             Finalizar consulta
         </button>
@@ -575,6 +603,7 @@ aquí hace falta una lista.
                 </button>
                 <form method="post" action="{% url 'consultas:finalizar_consulta' consulta.pk %}">
                     {% csrf_token %}
+                    <input type="hidden" name="preconsulta_pendiente" value="0">
                     <button type="submit" class="btn btn-primary">Sí, finalizar</button>
                 </form>
             </div>
@@ -630,6 +659,8 @@ costaba abandonar la atención.
 {% endblock %}
 
 {% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'consultas/js/preconsulta.js' %}"></script>
 <script src="{% static 'consultas/js/consulta.js' %}"></script>
 <script src="{% static 'consultas/js/signos-vivos.js' %}"></script>
 {% endblock %}

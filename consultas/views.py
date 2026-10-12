@@ -10,14 +10,19 @@ from django.contrib import messages
 from django.db.models import F, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from core.paginacion import es_ajax, paginar
 from pacientes.models import Expediente
+from pacientes.forms import SignosVitalesForm
+from pacientes.preconsulta import campos_de_preconsulta, corregir_signos
+from .navegacion import origen_seguro, regreso_consulta
 from .documentos import (generar_pdf, generar_pdf_orden, generar_pdf_receta,
                          generar_pdf_referencia)
 from .forms import (AdjuntoForm, AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
@@ -249,6 +254,7 @@ def nueva_consulta(request, expediente_id):
     abierta = Consulta.objects.filter(expediente=expediente, cierre__isnull=True, activo=True).first()
     if abierta:
         messages.info(request, 'Este paciente ya tiene una consulta sin finalizar; se retomó esa.')
+        regreso_consulta(request, abierta)
         return redirect('consultas:atender_consulta', consulta_id=abierta.pk)
     en_curso = consulta_en_curso(request.user)
     if en_curso:
@@ -265,12 +271,16 @@ def nueva_consulta(request, expediente_id):
             inicio=form.cleaned_data['inicio'], motivo='',
             creado_por=request.user, modificado_por=request.user,
         )
+        regreso_consulta(request, consulta)
         return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
 
     ahora = timezone.localtime()
     return render(request, 'consultas/nueva_consulta.html', {
         'expediente': expediente, 'form': form,
         'hoy': ahora.date().isoformat(), 'hora_actual': ahora.strftime('%H:%M'),
+        'url_regresar': (origen_seguro(request, request.POST.get('volver') or request.GET.get('volver'))
+                         or origen_seguro(request, request.META.get('HTTP_REFERER'))
+                         or reverse('pacientes:ver_expediente', args=[expediente.pk])),
     })
 
 
@@ -285,6 +295,7 @@ def iniciar_consulta(request, consulta_id):
     expediente no inicia nada por si solo.
     """
     consulta = consulta_editable(request, consulta_id)
+    regreso_consulta(request, consulta)
     if consulta.en_cola:
         # Una emergencia no espera a que termine la consulta en curso.
         en_curso = None if consulta.es_emergencia else consulta_en_curso(request.user, excepto=consulta.pk)
@@ -304,10 +315,12 @@ def iniciar_consulta(request, consulta_id):
 def atender_consulta(request, consulta_id):
     """Pantalla de atencion: los ocho campos, con preguardado automatico."""
     consulta = consulta_propia(request, consulta_id)
+    url_regresar = regreso_consulta(request, consulta)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     return render(request, 'consultas/atender_consulta.html', {
         'consulta': consulta, 'form': ConsultaClinicaForm(instance=consulta, borrador=True),
+        'url_regresar': url_regresar,
         # Los documentos se emiten durante la atencion, no despues: es
         # cuando la doctora tiene al paciente enfrente (mockup).
         'incapacidades': consulta.incapacidades.filter(activo=True).order_by('-fecha', '-pk'),
@@ -343,6 +356,49 @@ def signos_vitales_consulta(request, consulta_id):
     return render(request, 'consultas/signos_vitales.html', {'signos': signos})
 
 
+@require_http_methods(['GET', 'POST'])
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
+def editar_preconsulta_consulta(request, consulta_id):
+    """Corrige la preconsulta dentro de su propia atencion, nunca despues del cierre."""
+    consulta = consulta_propia(request, consulta_id)
+    # El mismo bloqueo lo usan enfermeria y finalizar_consulta.
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if not consulta.en_atencion:
+            return JsonResponse({'ok': False, 'mensaje': 'La preconsulta solo se puede corregir durante la atención.'}, status=409)
+        signos = get_object_or_404(SignosVitales, consulta=consulta, activo=True)
+        persona = consulta.expediente.persona
+        es_menor = persona.edad is not None and persona.edad < 18
+        campos = campos_de_preconsulta(es_menor)
+        form = SignosVitalesForm(
+            request.POST if request.method == 'POST' else None,
+            initial={c: getattr(signos, c) for c in campos})
+        # No validar ni aceptar campos que la preconsulta no muestra por edad.
+        for campo in list(form.fields):
+            if campo not in campos:
+                del form.fields[campo]
+        if request.method == 'GET':
+            return JsonResponse({'ok': True, 'version': signos.fecha_modificacion.isoformat(),
+                                 'campos': render_to_string('pacientes/campos_signos_vitales.html',
+                                                           {'form': form, 'es_menor': es_menor}, request=request)})
+        if not form.is_valid():
+            return JsonResponse({'ok': False, 'mensaje': 'Revise los datos de la preconsulta.',
+                                 'errores': form.errors}, status=400)
+        try:
+            version = parse_datetime(request.POST.get('version_preconsulta', ''))
+        except ValueError:
+            version = None
+        if version != signos.fecha_modificacion:
+            return JsonResponse({'ok': False, 'mensaje': 'La preconsulta cambió mientras la editaba. Cancele y vuelva a editar para revisar los datos actuales.'}, status=409)
+        corregir_signos(request, signos, form.cleaned_data, campos)
+        return JsonResponse({'ok': True, 'version': signos.fecha_modificacion.isoformat(),
+                             'mensaje': 'Preconsulta guardada.',
+                             'signos': render_to_string('consultas/signos_vitales.html',
+                                                       {'signos': signos}, request=request)})
+
+
 @require_POST
 @never_cache
 @login_required
@@ -354,14 +410,16 @@ def guardar_borrador(request, consulta_id):
     no en el navegador, porque cambiar de maquina perderia el texto.
     """
     consulta = consulta_propia(request, consulta_id)
-    if consulta.cerrada:
-        return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
-    form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
-    if not form.is_valid():
-        return JsonResponse({'ok': False, 'mensaje': 'No se pudo guardar.'}, status=400)
-    consulta = form.save(commit=False)
-    consulta.modificado_por = request.user
-    consulta.save()
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if consulta.cerrada:
+            return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
+        form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
+        if not form.is_valid():
+            return JsonResponse({'ok': False, 'mensaje': 'No se pudo guardar.'}, status=400)
+        consulta = form.save(commit=False)
+        consulta.modificado_por = request.user
+        consulta.save()
     return JsonResponse({'ok': True, 'hora': timezone.localtime().strftime('%H:%M')})
 
 
@@ -376,19 +434,43 @@ def finalizar_consulta(request, consulta_id):
     05/09/2026, deja obsoleta la regla anterior).
     """
     consulta = consulta_propia(request, consulta_id)
-    if consulta.cerrada:
-        return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     # Finaliza sobre lo ya preguardado: el modal de confirmacion manda su
     # propio POST y no arrastra el formulario, y el borrador ya esta en la
     # fila. El motivo es el unico campo que la consulta no puede no tener.
-    if not consulta.motivo.strip():
-        messages.error(request, 'Escriba el motivo de consulta antes de finalizar.')
-        return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
-    consulta.modificado_por = request.user
-    consulta.cierre = timezone.now()
-    if consulta.inicio is None:
-        consulta.inicio = consulta.cierre
-    consulta.save()
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if consulta.cerrada:
+            return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
+        if request.POST.get('preconsulta_pendiente') not in (None, '', '0'):
+            messages.error(request, 'Guarde los cambios de la preconsulta antes de finalizar la consulta.')
+            return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        if request.POST.get('preconsulta_version'):
+            signos = SignosVitales.objects.filter(consulta=consulta, activo=True).first()
+            try:
+                version = parse_datetime(request.POST['preconsulta_version'])
+            except ValueError:
+                version = None
+            if signos is None or version != signos.fecha_modificacion:
+                messages.error(request, 'La preconsulta se actualizó. Vuelva a editar para revisar sus datos antes de finalizar.')
+                return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+            persona = consulta.expediente.persona
+            campos = campos_de_preconsulta(persona.edad is not None and persona.edad < 18)
+            form = SignosVitalesForm({c: request.POST.get('preconsulta_' + c, '') for c in campos})
+            for campo in list(form.fields):
+                if campo not in campos:
+                    del form.fields[campo]
+            if not form.is_valid() or any(
+                    getattr(signos, c) != form.cleaned_data[c] for c in campos):
+                messages.error(request, 'Guarde los cambios de la preconsulta antes de finalizar la consulta.')
+                return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        if not consulta.motivo.strip():
+            messages.error(request, 'Escriba el motivo de consulta antes de finalizar.')
+            return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        consulta.modificado_por = request.user
+        consulta.cierre = timezone.now()
+        if consulta.inicio is None:
+            consulta.inicio = consulta.cierre
+        consulta.save()
     messages.success(request, 'Consulta finalizada.')
     return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
 
@@ -435,6 +517,7 @@ def ver_consulta(request, consulta_id):
     etiquetas = ConsultaClinicaForm().fields
     return render(request, 'consultas/ver_consulta.html', {
         'consulta': consulta,
+        'url_regresar': regreso_consulta(request, consulta),
         'campos': [(campo.label, getattr(consulta, nombre)) for nombre, campo in etiquetas.items()],
         'incapacidades': consulta.incapacidades.filter(activo=True).order_by('-fecha', '-pk'),
         'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
