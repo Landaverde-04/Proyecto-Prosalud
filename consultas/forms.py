@@ -126,7 +126,7 @@ class AntecedenteForm(forms.ModelForm):
         self.fields['tipo'].widget.attrs['class'] = 'form-select'
         self.fields['detalle'].widget = forms.Textarea(attrs={
             'class': 'form-control', 'rows': 2,
-            'placeholder': 'Ej.: Penicilina · Diabetes tipo 2 desde 2019 · Apendicectomía 2015',
+            'placeholder': 'Qué tiene o tuvo el paciente y desde cuándo',
         })
 
     def clean_detalle(self):
@@ -157,9 +157,9 @@ class ReferenciaMedicaForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['especialidad'].widget = forms.TextInput(attrs={
-            'class': 'form-control', 'placeholder': 'Cardiología, Dermatología…'})
         # Dice QUE va, sin un valor de ejemplo que parezca ya escrito (CD-04).
+        self.fields['especialidad'].widget = forms.TextInput(attrs={
+            'class': 'form-control', 'placeholder': 'Especialidad a la que se refiere'})
         self.fields['hospital'].widget = forms.TextInput(attrs={
             'class': 'form-control', 'placeholder': 'Nombre del hospital'})
         for nombre in ('motivo', 'observaciones'):
@@ -218,24 +218,37 @@ class ReprogramarControlForm(forms.ModelForm):
 
 class AplicacionForm(forms.ModelForm):
     """
-    Aplicacion o servicio indicado en la consulta (HU-EXP-21): suero,
-    curacion, nebulizacion u otro.
+    Cuadro con medicamentos de cumplimiento en clinica (HU-EXP-21).
 
-    No incluye `ejecutada` ni sus dos campos: la doctora la indica, y quien
-    la aplica la marca despues. Son dos momentos distintos.
+    Desde CD-01 (pedido de la doctora del 09/10/2026) es UN cuadro de texto
+    libre: la doctora explica con sus palabras que se aplica, en que dosis y
+    como. Antes eran campos separados (tipo de lista, dosis e indicaciones).
+
+    No incluye `ejecutada` ni sus dos campos: la doctora lo indica, y quien
+    lo aplica lo marca despues. Son dos momentos distintos.
     """
 
     class Meta:
         model = Aplicacion
-        fields = ('tipo', 'dosis', 'indicaciones')
-        labels = {'tipo': 'Tipo', 'dosis': 'Dosis', 'indicaciones': 'Indicaciones'}
+        fields = ('indicaciones',)
+        labels = {'indicaciones': 'Medicamentos y cómo se aplican'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['tipo'].widget.attrs['class'] = 'form-select'
-        self.fields['dosis'].widget = forms.TextInput(attrs={
-            'class': 'form-control', 'placeholder': '500 ml, 2 puff…'})
-        self.fields['indicaciones'].widget = forms.Textarea(attrs={'class': 'form-control', 'rows': 2})
+        # Obligatorio en el formulario aunque el modelo lo deje en blanco:
+        # ahora es el unico dato, y un cuadro vacio no le dice nada a quien
+        # tiene que aplicarlo.
+        self.fields['indicaciones'].required = True
+        # Texto de ayuda que dice QUE va, sin valores de ejemplo (CD-04).
+        self.fields['indicaciones'].widget = forms.Textarea(attrs={
+            'class': 'form-control', 'rows': 4,
+            'placeholder': 'Qué medicamentos, en qué dosis y cómo se aplican'})
+
+    def clean_indicaciones(self):
+        texto = self.cleaned_data['indicaciones'].strip()
+        if not texto:
+            raise forms.ValidationError('Escriba qué medicamentos se aplican.')
+        return texto
 
 
 class OrdenExamenForm(forms.Form):
@@ -252,11 +265,11 @@ class OrdenExamenForm(forms.Form):
     examenes = forms.CharField(
         label='Exámenes solicitados', max_length=1000,
         widget=forms.TextInput(attrs={'class': 'form-control',
-                                      'placeholder': 'Hemograma, glucosa, orina…'}))
+                                      'placeholder': 'Exámenes separados por coma'}))
     indicaciones = forms.CharField(
         label='Indicaciones', required=False, max_length=1000,
         widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2,
-                                     'placeholder': 'En ayunas de 8 horas…'}))
+                                     'placeholder': 'Preparación o cuidados antes del examen'}))
 
     def clean_examenes(self):
         # "Hemograma, , glucosa," no debe crear filas vacias.
@@ -336,7 +349,7 @@ class AdjuntoForm(forms.ModelForm):
         self.fields['descripcion'].required = True
         self.fields['descripcion'].widget.attrs.update({
             'class': 'form-control',
-            'placeholder': 'Ej.: Radiografía de tórax 12/09 · Examen de sangre de laboratorio externo',
+            'placeholder': 'Qué documento es y de qué fecha',
         })
 
     def clean_descripcion(self):

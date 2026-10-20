@@ -121,6 +121,8 @@ class RegistroAuditoria(models.Model):
         EDITAR_ROL = 'editar_rol', 'Modificó un rol'
         ELIMINAR_ROL = 'eliminar_rol', 'Eliminó un rol'
         EDITAR_PRECONSULTA = 'editar_preconsulta', 'Corrigió una preconsulta'
+        # Unica accion de la bitacora sobre datos clinicos que SI borra (CD-08).
+        ELIMINAR_ADJUNTO = 'eliminar_adjunto', 'Eliminó un adjunto'
 
     fecha = models.DateTimeField(auto_now_add=True, db_index=True)
 

@@ -256,6 +256,11 @@
     if (!lista || !window.fetch) { return; }
     var acciones = document.getElementById('receta-acciones');
 
+    function avisarSiSePuede(texto, tipo) {
+        if (window.avisar) { window.avisar(texto, tipo); }
+    }
+
+    // Devuelve una promesa con `true` solo si el servidor confirmó el cambio.
     function enviar(formulario) {
         return fetch(formulario.action, {
             method: 'POST',
@@ -264,16 +269,25 @@
         }).then(function (respuesta) {
             // Un 403 de permisos o un 500 devuelven HTML, no JSON: sin esto
             // reventaría al parsearlo y el clic se quedaría sin respuesta.
+            if (respuesta.status === 403) { throw new Error('permiso'); }
             if (!respuesta.ok) { throw new Error(respuesta.status); }
             return respuesta.json();
         }).then(function (datos) {
             lista.innerHTML = datos.medicamentos;
             if (acciones) { acciones.innerHTML = datos.acciones; }
-            if (window.avisar) { window.avisar(datos.mensaje, datos.tipo); }
-        }).catch(function () {
-            // Si algo falla se recarga: más vale una recarga molesta que
-            // dejar a la doctora creyendo que guardó algo que no guardó.
-            formulario.submit();
+            avisarSiSePuede(datos.mensaje, datos.tipo);
+            return datos.ok;
+        }).catch(function (error) {
+            // NO se reenvía el formulario. Antes se reenviaba "por si acaso",
+            // pero si el servidor alcanzó a guardar y lo que se perdió fue la
+            // respuesta, el reenvío guardaba el medicamento DOS veces
+            // (hallazgo de la revisión de Codex, 21/09/2026). Se avisa y la
+            // doctora revisa antes de repetir.
+            avisarSiSePuede(error.message === 'permiso'
+                ? 'No tiene permiso para modificar la receta.'
+                : 'No se pudo confirmar si se guardó. Recargue la página para revisar la receta antes de volver a intentarlo.',
+                'danger');
+            return false;
         });
     }
 
@@ -281,7 +295,10 @@
     if (alta) {
         alta.addEventListener('submit', function (evento) {
             evento.preventDefault();
-            enviar(alta).then(function () {
+            enviar(alta).then(function (guardado) {
+                // Si no se guardó, lo escrito se queda en los campos: vaciarlos
+                // le haría perder a la doctora lo que acababa de teclear.
+                if (!guardado) { return; }
                 alta.reset();
                 // Listo para el siguiente: una receta rara vez trae uno solo.
                 // No `querySelector('input')` a secas -- el primero es el

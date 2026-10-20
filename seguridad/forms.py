@@ -22,9 +22,12 @@ MODELOS_EXTRA = [('auth', 'group')]
 # Regla del proyecto: nada se elimina, se desactiva. Los
 # permisos delete_* no corresponden a ninguna accion real del sistema, asi
 # que se ocultan para que nadie otorgue un permiso que no hace nada.
-# Unica excepcion: los roles si se eliminan -- son configuracion, no datos
-# clinicos, y borrarlos solo desasigna a sus usuarios.
-MODELOS_ELIMINABLES = [('auth', 'group')]
+# Excepciones:
+# - Los roles si se eliminan: son configuracion, no datos clinicos, y
+#   borrarlos solo desasigna a sus usuarios.
+# - Los adjuntos (CD-08, 19/10/2026): para corregir un archivo subido por
+#   error. Solo el mismo dia en que se subio, y queda en la bitacora.
+MODELOS_ELIMINABLES = [('auth', 'group'), ('consultas', 'adjunto')]
 
 
 def permisos_asignables():

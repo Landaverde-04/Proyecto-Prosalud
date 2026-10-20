@@ -57,6 +57,27 @@
                             <i class="bi bi-x-lg"></i>
                         </button>
                         {% endif %}
+                        {% comment %}
+                        CD-08: eliminar de verdad, del sistema y del almacenamiento.
+                        Solo el mismo dia en que se subio y con delete_adjunto; la
+                        vista lo vuelve a comprobar. Pide confirmacion con un aviso
+                        claro de que no se puede deshacer.
+                        {% endcomment %}
+                        {% if perms.consultas.delete_adjunto and adjunto.se_puede_eliminar %}
+                        <button type="button" class="btn btn-sm btn-danger py-0 px-1" title="Eliminar definitivamente"
+                                data-confirmar
+                                data-url="{% url 'consultas:eliminar_adjunto' adjunto.pk %}"
+                                data-titulo="Eliminar definitivamente"
+                                data-mensaje="¿Eliminar definitivamente "
+                                data-nombre="{{ adjunto.descripcion }}"
+                                data-aviso="El archivo se borra del sistema y del almacenamiento. No se puede deshacer."
+                                data-boton="Eliminar"
+                                data-color="danger"
+                                data-icono="bi-trash"
+                                data-nota="Solo se puede el mismo día en que se subió. Queda registrado en la bitácora.">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% endif %}
                     </div>
                 </div>
             </div>
