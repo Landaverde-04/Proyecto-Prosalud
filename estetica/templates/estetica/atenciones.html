@@ -1,0 +1,37 @@
+{% extends 'core/base.html' %}
+{% block titulo %}Atenciones - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<a href="{% url 'pacientes:ver_expediente' expediente.pk %}"
+   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
+    <i class="bi bi-arrow-left"></i> Expediente de {{ expediente.persona }}
+</a>
+
+<h4 class="fw-semibold mb-4">Atenciones</h4>
+
+{% if atenciones %}
+<div class="vstack gap-2">
+    {% for atencion in atenciones %}
+    <a href="{% url 'estetica:atencion' atencion.pk %}" class="card shadow-sm border-0 text-decoration-none text-body">
+        <div class="card-body p-3 d-flex justify-content-between align-items-start gap-3">
+            <div class="min-w-0">
+                <div class="fw-semibold">{{ atencion.inicio|date:'d/m/Y' }} <span class="text-muted fw-normal small">a las {{ atencion.inicio|date:'H:i' }}</span></div>
+                <div class="text-muted small mt-1">{{ atencion.motivo|default:'Sin motivo escrito'|truncatechars:90 }}</div>
+            </div>
+            {% if atencion.cerrada %}
+            <span class="badge rounded-pill text-bg-secondary">Finalizada</span>
+            {% else %}
+            <span class="badge rounded-pill text-bg-warning">En atención</span>
+            {% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+    <i class="bi bi-calendar-heart fs-1 d-block mb-3 opacity-25"></i>
+    <p class="mb-0">Esta paciente todavía no tiene atenciones.</p>
+</div>
+{% endif %}
+
+{% endblock %}

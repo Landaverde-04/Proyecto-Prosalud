@@ -1,0 +1,164 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block titulo %}Atención estética - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<div class="mb-3">
+    <a href="{% url 'pacientes:ver_expediente' expediente.pk %}" data-salir class="text-decoration-none small text-muted">
+        <i class="bi bi-arrow-left me-1"></i> Regresar al expediente
+    </a>
+</div>
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+        <h4 class="fw-semibold mb-1">Atención — {{ persona }}</h4>
+        <div class="text-muted small">
+            {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}
+            {{ atencion.inicio|date:'d/m/Y' }} a las {{ atencion.inicio|date:'H:i' }}
+            · {{ atencion.doctor_nombre|default:atencion.doctor.get_full_name }}
+        </div>
+    </div>
+    {% if atencion.cerrada %}
+    <span class="badge rounded-pill text-bg-secondary align-self-center">Finalizada</span>
+    {% else %}
+    <span class="badge rounded-pill text-bg-warning align-self-center">En atención</span>
+    {% endif %}
+</div>
+
+{% comment %}
+Mismo preguardado que la ficha (preguardado.js): se guarda solo mientras la
+doctora escribe y nada recarga la pantalla. La descripcion del tratamiento
+va debajo de los procedimientos, como en el papel, y pertenece a este mismo
+formulario por su atributo form.
+{% endcomment %}
+<form id="form-atencion" method="post" action="{% url 'estetica:guardar_atencion' atencion.pk %}"
+      {% if editable %}data-preguardado{% endif %}>
+    {% csrf_token %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <label for="{{ form.motivo.id_for_label }}" class="form-label small fw-semibold">{{ form.motivo.label }}</label>
+            {{ form.motivo }}
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">SIGNOS VITALES</h6>
+            <div class="row g-3">
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.presion_arterial.id_for_label }}" class="form-label small">{{ form.presion_arterial.label }}</label>
+                    {{ form.presion_arterial }}
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.frecuencia_cardiaca.id_for_label }}" class="form-label small">{{ form.frecuencia_cardiaca.label }}</label>
+                    {{ form.frecuencia_cardiaca }}
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.temperatura.id_for_label }}" class="form-label small">{{ form.temperatura.label }}</label>
+                    {{ form.temperatura }}
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.saturacion.id_for_label }}" class="form-label small">{{ form.saturacion.label }}</label>
+                    {{ form.saturacion }}
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.peso.id_for_label }}" class="form-label small">{{ form.peso.label }}</label>
+                    {{ form.peso }}
+                </div>
+                <div class="col-6 col-md-4 col-lg-2">
+                    <label for="{{ form.talla.id_for_label }}" class="form-label small">{{ form.talla.label }}</label>
+                    {{ form.talla }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% comment %}
+    Zonas a tratar: el dibujo de la ficha en papel. marcas.js pone una X
+    numerada donde la doctora toca, y debajo cada marca tiene su nota y su
+    boton de borrar. Viajan como JSON en form.marcas y se preguardan.
+    {% endcomment %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <h6 class="fw-semibold text-muted mb-0" style="font-size: 0.75rem; letter-spacing: 0.03em;">ZONAS A TRATAR</h6>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Figura">
+                    {% for opcion in form.figura %}{{ opcion.tag }}<label class="btn btn-outline-secondary" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>{% endfor %}
+                </div>
+            </div>
+            {% if editable %}
+            <p class="small text-muted mb-2">Toque la figura para marcar una zona. Debajo puede escribir una nota o borrar cada marca.</p>
+            {% endif %}
+            <div id="figura" class="position-relative border rounded"
+                 data-img-mujer="{% static 'estetica/img/figura_mujer.webp' %}"
+                 data-img-hombre="{% static 'estetica/img/figura_hombre.webp' %}">
+                <img src="{% if form.figura.value == 'hombre' %}{% static 'estetica/img/figura_hombre.webp' %}{% else %}{% static 'estetica/img/figura_mujer.webp' %}{% endif %}"
+                     alt="Figura de cara, frente y espalda para marcar las zonas a tratar"
+                     class="img-fluid w-100 d-block user-select-none" draggable="false"
+                     {% if editable %}style="cursor: crosshair;"{% endif %}>
+            </div>
+            <ol id="lista-marcas" class="list-unstyled mt-3 mb-0 vstack gap-2"></ol>
+            {{ form.marcas }}
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <div class="mb-3">
+                <label for="{{ form.plan.id_for_label }}" class="form-label small fw-semibold">{{ form.plan.label }}</label>
+                {{ form.plan }}
+            </div>
+            <div>
+                <label for="{{ form.rp.id_for_label }}" class="form-label small fw-semibold">{{ form.rp.label }}</label>
+                {{ form.rp }}
+            </div>
+        </div>
+    </div>
+</form>
+
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-4">
+        <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">PROCEDIMIENTOS</h6>
+        <div id="procedimientos">{% include 'estetica/_procedimientos.html' %}</div>
+    </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3">
+    <div class="card-body p-4">
+        <label for="{{ form.descripcion_tratamiento.id_for_label }}" class="form-label small fw-semibold">{{ form.descripcion_tratamiento.label }}</label>
+        {{ form.descripcion_tratamiento }}
+    </div>
+</div>
+
+{% if editable %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span id="estado-guardado" class="small text-muted">Guardada el {{ atencion.fecha_modificacion|date:'d/m/Y' }} a las {{ atencion.fecha_modificacion|date:'H:i' }}</span>
+    <button type="button" class="btn btn-primary" data-abrir-finalizar>Finalizar atención</button>
+</div>
+
+<div class="modal fade" id="modalFinalizar" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+        <div class="modal-content">
+            <div class="modal-body p-4">
+                <h5 class="fw-semibold mb-2">¿Finalizar la atención?</h5>
+                <p class="text-muted small mb-0">Después ya no se podrá modificar. Lo escrito queda guardado en el historial de la paciente.</p>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Seguir escribiendo</button>
+                <form method="post" action="{% url 'estetica:finalizar_atencion' atencion.pk %}" data-finalizar>
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">Finalizar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'estetica/js/preguardado.js' %}"></script>
+<script src="{% static 'estetica/js/procedimientos.js' %}"></script>
+<script src="{% static 'estetica/js/marcas.js' %}"></script>
+{% endblock %}

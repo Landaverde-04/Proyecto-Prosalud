@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'seguridad',
     'pacientes',
     'consultas',
+    'estetica',
 ]
 
 MIDDLEWARE = [
