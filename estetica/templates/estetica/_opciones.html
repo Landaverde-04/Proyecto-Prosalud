@@ -1,0 +1,10 @@
+{% comment %}
+Opciones de marcar una (Si/No, resultado), en linea como en el papel. Se
+desmarcan tocandolas otra vez (ficha.js): sin marcar es "sin responder".
+{% endcomment %}
+{% for opcion in campo %}
+<div class="form-check form-check-inline mb-0">
+    {{ opcion.tag }}
+    <label class="form-check-label" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>
+</div>
+{% endfor %}

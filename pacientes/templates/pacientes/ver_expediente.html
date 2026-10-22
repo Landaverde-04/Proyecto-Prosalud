@@ -12,7 +12,15 @@
     {% comment %} Iniciar la atencion desde el expediente -- HU-EXP-17. Cuando exista
        la cola de consulta (HU-EXP-12) este sera el camino alterno, no el
        unico: ahi la consulta llega ya creada desde preconsulta. {% endcomment %}
-    {% if perms.consultas.add_consulta %}
+    {% if expediente.clinica.tipo == 'estetica' %}
+    {# Las clinicas son independientes: la Estetica registra su propia atencion (HU-EST-03). #}
+    <form method="post" action="{% url 'estetica:nueva_atencion' expediente.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary btn-sm d-flex align-items-center gap-2">
+            <i class="bi bi-clipboard2-pulse"></i> Nueva atención
+        </button>
+    </form>
+    {% elif perms.consultas.add_consulta %}
     <a href="{% url 'consultas:nueva_consulta' expediente.pk %}" class="btn btn-primary btn-sm d-flex align-items-center gap-2">
         <i class="bi bi-clipboard2-pulse"></i> Registrar consulta
     </a>
@@ -132,6 +140,12 @@
         <p class="text-muted small mb-1"><i class="bi bi-info-circle me-1"></i>Sin contactos registrados.</p>
         {% endif %}
 
+        {% comment %}
+        Antecedentes, controles y preconsulta son de ProSalud. En la Estetica
+        los antecedentes van en su ficha (HU-EST-02): las dos clinicas son
+        independientes y no comparten estos datos.
+        {% endcomment %}
+        {% if expediente.clinica.tipo != 'estetica' %}
         <hr>
 
         <div class="row g-4">
@@ -171,6 +185,7 @@
                 </p>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 
@@ -184,6 +199,31 @@ como "Próximamente" en vez de fingir un enlace que daria 404.
 {% endcomment %}
 <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.8rem; letter-spacing: 0.03em;">HISTORIAL DEL PACIENTE</h6>
 <div class="row row-cols-2 row-cols-md-3 g-3">
+    {% comment %}
+    Ficha de ingreso de la clinica estetica (HU-EST-01, Samuel). Solo en
+    expedientes de esa clinica; en la medica no existe. Mismo permiso que
+    abrir el expediente, por eso no se pregunta por otro.
+    {% endcomment %}
+    {% if expediente.clinica.tipo == 'estetica' %}
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft);">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-person-vcard fs-2 mb-2" style="color: var(--accent);"></i>
+                <a class="fw-semibold small stretched-link text-decoration-none" href="{% url 'estetica:ficha' expediente.pk %}">Ficha estética</a>
+                <div class="text-muted mt-1 small">{% if expediente.ficha_estetica %}Ver y corregir{% else %}Completar ficha{% endif %}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft);">
+            <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
+                <i class="bi bi-calendar-heart fs-2 mb-2" style="color: var(--accent);"></i>
+                <a class="fw-semibold small stretched-link text-decoration-none" href="{% url 'estetica:atenciones' expediente.pk %}">Atenciones</a>
+                <div class="text-muted mt-1 small">Ver historial</div>
+            </div>
+        </div>
+    </div>
+    {% else %}
     <div class="col">
         <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft);">
             <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">
@@ -250,6 +290,7 @@ como "Próximamente" en vez de fingir un enlace que daria 404.
             </div>
         </div>
     </div>
+    {% endif %}
     <div class="col">
         <div class="card border-0 h-100 tarjeta-atajo" style="background-color: var(--accent-soft);">
             <div class="card-body d-flex flex-column align-items-center justify-content-center text-center py-4">

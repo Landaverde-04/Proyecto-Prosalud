@@ -677,6 +677,18 @@ class UnPacienteALaVezTests(PruebaCore):
         self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[otro.pk]),
                              fetch_redirect_response=False)
 
+    def test_una_consulta_abierta_en_otra_clinica_no_bloquea(self):
+        """Las clínicas son independientes (Samuel, 22/10/2026)."""
+        estetica = Clinica.objects.create(nombre='Estética', tipo=Clinica.Tipo.ESTETICA)
+        self.doctor.clinicas.add(estetica)
+        paciente = Expediente.objects.create(
+            persona=Persona.objects.create(nombres='Estetica', apellidos='Prueba'), clinica=estetica)
+        self.client.post(reverse('core:cambiar_clinica'), {'clinica': estetica.pk})
+
+        respuesta = self.client.get(reverse('consultas:nueva_consulta', args=[paciente.pk]))
+
+        self.assertEqual(respuesta.status_code, 200)
+
 
 class VisitaRetiradaTests(PruebaCore):
     """Una visita donde el paciente se fue sin atenderse."""
