@@ -386,3 +386,15 @@ class PasswordSinValidadoresTests(PruebaSeguridad):
         self.assertRedirects(respuesta, reverse('seguridad:mi_perfil'))
         usuario.refresh_from_db()
         self.assertTrue(usuario.check_password('123'))
+
+
+class PermisosEliminablesTests(PruebaSeguridad):
+    """CD-08: el permiso de eliminar adjuntos es la unica excepcion clinica a "nada se elimina"."""
+
+    def test_eliminar_adjunto_se_puede_asignar_en_roles(self):
+        from .forms import permisos_asignables
+        codenames = set(permisos_asignables().values_list('codename', flat=True))
+        self.assertIn('delete_adjunto', codenames)
+        # Los demas datos clinicos siguen sin permiso de eliminar.
+        for codename in ('delete_persona', 'delete_consulta', 'delete_receta', 'delete_antecedente'):
+            self.assertNotIn(codename, codenames)

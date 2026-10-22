@@ -109,7 +109,7 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
                 S  Motivo · Historia de la enfermedad actual   lo que cuenta el paciente
                 O  Examen físico                               lo que encuentra la doctora
                 A  Diagnóstico                                 el juicio clínico
-                P  Tratamiento · Indicaciones                  qué se hace
+                P  Plan · Indicaciones                         qué se hace
 
             Los signos vitales son parte de la O y van arriba, en su propia
             sección, porque los toma enfermería antes de la consulta.
@@ -213,20 +213,22 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <div class="d-flex justify-content-between align-items-center gap-2 small">
                 <div>
                     <i class="bi bi-eyedropper me-1" style="color: var(--accent);"></i>
-                    {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}
+                    {{ aplicacion.resumen }}
                     <span class="text-muted">· {% if aplicacion.ejecutada %}aplicada{% else %}por aplicar{% endif %}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary"
                         data-ver-detalle="detalle-aplicacion-{{ aplicacion.pk }}"
-                        data-titulo="{{ aplicacion.get_tipo_display }}">Ver</button>
+                        data-titulo="Aplicación">Ver</button>
             </div>
             <div id="detalle-aplicacion-{{ aplicacion.pk }}" hidden>
                 <dl class="row mb-0">
+                    {% if aplicacion.tipo %}
                     <dt class="col-4 text-muted fw-normal">Tipo</dt>
                     <dd class="col-8">{{ aplicacion.get_tipo_display }}</dd>
                     <dt class="col-4 text-muted fw-normal">Dosis</dt>
                     <dd class="col-8">{{ aplicacion.dosis|default:"—" }}</dd>
-                    <dt class="col-4 text-muted fw-normal">Indicaciones</dt>
+                    {% endif %}
+                    <dt class="col-4 text-muted fw-normal">Medicamentos</dt>
                     <dd class="col-8" style="white-space: pre-wrap;">{{ aplicacion.indicaciones|default:"—" }}</dd>
                     <dt class="col-4 text-muted fw-normal">Estado</dt>
                     <dd class="col-8">{% if aplicacion.ejecutada %}Aplicada{% else %}Por aplicar{% endif %}</dd>
@@ -279,7 +281,7 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <div class="d-flex justify-content-between align-items-center gap-2 small">
                 <div>
                     <i class="bi bi-send me-1" style="color: var(--accent);"></i>
-                    Referencia a {{ referencia.especialidad }}
+                    Referencia a {{ referencia.especialidad }}{% if referencia.hospital %} · {{ referencia.hospital }}{% endif %}
                     <span class="text-muted">· {{ referencia.fecha|date:'d/m/Y' }}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -303,7 +305,7 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             {% endif %}
             {% if perms.consultas.add_aplicacion %}
             <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-aplicacion">
-                <i class="bi bi-eyedropper"></i> Aplicación
+                <i class="bi bi-eyedropper"></i> Aplicaciones
             </button>
             {% endif %}
             {% if perms.consultas.add_referenciamedica %}
@@ -352,9 +354,13 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
               id="panel-referencia" class="border rounded p-3 mt-3" hidden>
             {% csrf_token %}
             <div class="row g-2 align-items-end">
-                <div class="col-sm-6">
+                <div class="col-sm-4">
                     <label for="{{ form_referencia.especialidad.id_for_label }}" class="form-label small fw-semibold">Especialidad</label>
                     {{ form_referencia.especialidad }}
+                </div>
+                <div class="col-sm-5">
+                    <label for="{{ form_referencia.hospital.id_for_label }}" class="form-label small fw-semibold">Hospital (opcional)</label>
+                    {{ form_referencia.hospital }}
                 </div>
                 <div class="col-sm-3">
                     <button type="submit" class="btn btn-primary w-100">Agregar</button>
@@ -395,23 +401,15 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
         <form method="post" action="{% url 'consultas:agregar_aplicacion' consulta.pk %}"
               id="panel-aplicacion" class="border rounded p-3 mt-3" hidden>
             {% csrf_token %}
-            <div class="row g-2 align-items-end">
-                <div class="col-sm-4">
-                    <label for="{{ form_aplicacion.tipo.id_for_label }}" class="form-label small fw-semibold">Tipo</label>
-                    {{ form_aplicacion.tipo }}
-                </div>
-                <div class="col-sm-5">
-                    <label for="{{ form_aplicacion.dosis.id_for_label }}" class="form-label small fw-semibold">Dosis</label>
-                    {{ form_aplicacion.dosis }}
-                </div>
-                <div class="col-sm-3">
-                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
-                </div>
-                <div class="col-12">
-                    <label for="{{ form_aplicacion.indicaciones.id_for_label }}" class="form-label small fw-semibold">Indicaciones</label>
-                    {{ form_aplicacion.indicaciones }}
-                </div>
-            </div>
+            {% comment %}
+            CD-01 (pedido de la doctora, 09/10/2026): un solo cuadro de texto
+            libre. Antes eran tipo de lista, dosis e indicaciones por separado.
+            {% endcomment %}
+            <h6 class="small fw-semibold mb-0">{{ form_aplicacion.instance.TITULO }}</h6>
+            <p class="small text-muted mb-2">{{ form_aplicacion.instance.DESCRIPCION }}</p>
+            <label for="{{ form_aplicacion.indicaciones.id_for_label }}" class="form-label small fw-semibold">{{ form_aplicacion.indicaciones.label }}</label>
+            {{ form_aplicacion.indicaciones }}
+            <button type="submit" class="btn btn-primary mt-2">Agregar</button>
         </form>
         {% endif %}
 
@@ -565,7 +563,7 @@ aquí hace falta una lista.
                     {% endfor %}
                     {% for aplicacion in aplicaciones %}
                     <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
-                        {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}</li>
+                        Aplicación: {{ aplicacion.resumen }}</li>
                     {% endfor %}
                     {% for control in controles %}
                     <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>

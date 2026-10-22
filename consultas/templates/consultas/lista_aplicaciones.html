@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% block titulo %}Aplicaciones y servicios - Sistema ProSalud{% endblock %}
+{% block titulo %}Aplicaciones - Sistema ProSalud{% endblock %}
 {% block contenido %}
 
 <a href="{% url 'pacientes:ver_expediente' expediente.pk %}"
@@ -7,8 +7,8 @@
     <i class="bi bi-arrow-left"></i> Expediente de {{ expediente.persona }}
 </a>
 
-<h4 class="fw-semibold mb-1">Aplicaciones y servicios</h4>
-<p class="text-muted small mb-4">{{ expediente.persona }} · {{ expediente.clinica }}</p>
+<h4 class="fw-semibold mb-1">{{ titulo }}</h4>
+<p class="text-muted small mb-4">{{ descripcion }} · {{ expediente.persona }} · {{ expediente.clinica }}</p>
 
 <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">POR APLICAR</h6>
 {% if pendientes %}
@@ -17,12 +17,21 @@
     <div class="card shadow-sm border-0">
         <div class="card-body p-3 d-flex justify-content-between align-items-start gap-3 flex-wrap">
             <div class="min-w-0">
+                {% comment %}
+                Lo anterior a CD-01 tiene tipo y dosis, que van de titulo. Lo
+                nuevo es texto libre: se muestra entero, sin un titulo que
+                repetiria su primera linea.
+                {% endcomment %}
+                {% if aplicacion.tipo %}
                 <div class="fw-semibold">
                     {{ aplicacion.get_tipo_display }}
                     {% if aplicacion.dosis %}<span class="text-muted fw-normal">· {{ aplicacion.dosis }}</span>{% endif %}
                 </div>
                 {% if aplicacion.indicaciones %}
                 <div class="text-muted small mt-1" style="white-space: pre-wrap;">{{ aplicacion.indicaciones }}</div>
+                {% endif %}
+                {% else %}
+                <div style="white-space: pre-wrap;">{{ aplicacion.indicaciones }}</div>
                 {% endif %}
                 <div class="text-muted small mt-1">
                     Indicada en la
@@ -41,7 +50,7 @@
     {% endfor %}
 </div>
 {% else %}
-<p class="text-muted small mb-4">No hay aplicaciones pendientes para este paciente.</p>
+<p class="text-muted small mb-4">No hay medicamentos pendientes de aplicar para este paciente.</p>
 {% endif %}
 
 {% if ejecutadas %}
@@ -50,13 +59,12 @@
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-dark">
-                <tr><th>Tipo</th><th>Dosis</th><th>Aplicada por</th><th>Cuándo</th></tr>
+                <tr><th>Medicamentos</th><th>Aplicado por</th><th>Cuándo</th></tr>
             </thead>
             <tbody>
                 {% for aplicacion in ejecutadas %}
                 <tr>
-                    <td class="fw-medium">{{ aplicacion.get_tipo_display }}</td>
-                    <td class="text-muted small">{{ aplicacion.dosis|default:"—" }}</td>
+                    <td class="fw-medium">{{ aplicacion.resumen }}</td>
                     <td class="text-muted small">
                         {{ aplicacion.ejecutada_por.get_full_name|default:aplicacion.ejecutada_por.username|default:"—" }}
                     </td>

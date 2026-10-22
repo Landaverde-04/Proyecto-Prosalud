@@ -19,6 +19,13 @@ def _accesos_rapidos(usuario, clinica):
     atiende = usuario.has_perm('consultas.change_consulta') and not usuario.has_perm('auth.change_group')
     # La cola solo existe en la clinica que la usa; en la que atiende por cita no hay acceso.
     permiso_cola = 'consultas.view_consulta' if clinica and clinica.usa_cola else False
+    # Plantillas en blanco (HU-EXP-27, Samuel): se ven con permiso de ver
+    # CUALQUIERA de los cuatro documentos. Se toma el primero que tenga el
+    # usuario; False si no tiene ninguno.
+    permiso_plantillas = next((permiso for permiso in (
+        'consultas.view_incapacidad', 'consultas.view_receta',
+        'consultas.view_referenciamedica', 'consultas.view_ordenexamen',
+    ) if usuario.has_perm(permiso)), False)
     secciones = [
         ('Atención', [
             ('pacientes.add_persona', 'Nuevo paciente', 'Adulto o menor, con su contacto',
@@ -28,6 +35,8 @@ def _accesos_rapidos(usuario, clinica):
             (permiso_cola, 'Cola de consulta',
              'Tus pacientes en espera' if atiende else 'En espera, por médico',
              'bi-list-ol', reverse('pacientes:cola_consultas')),
+            (permiso_plantillas, 'Plantillas', 'Documentos en blanco, por si no hay sistema',
+             'bi-printer', reverse('consultas:plantillas')),
         ]),
         ('Administración', [
             ('seguridad.view_usuario', 'Usuarios', 'Cuentas y contraseñas',
