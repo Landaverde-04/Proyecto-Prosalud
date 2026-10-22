@@ -25,7 +25,7 @@ esta trabajando: no se muestra nada clinico, solo se ofrece cambiar.
                     <i class="bi bi-arrow-left-right"></i> Cambiar a {{ expediente.clinica.nombre }}
                 </button>
             </form>
-            <a href="{% url 'pacientes:lista_pacientes' %}" class="btn btn-outline-secondary">Volver a pacientes</a>
+            <a href="{{ url_regresar }}" class="btn btn-outline-secondary">Regresar</a>
         </div>
     </div>
 </div>
