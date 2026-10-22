@@ -21,7 +21,7 @@
                 {% for referencia in pagina %}
                 <tr>
                     <td>{{ referencia.fecha|date:'d/m/Y' }}</td>
-                    <td class="fw-medium">{{ referencia.especialidad }}</td>
+                    <td class="fw-medium">{{ referencia.especialidad }}{% if referencia.hospital %}<div class="text-muted small fw-normal">{{ referencia.hospital }}</div>{% endif %}</td>
                     <td class="text-muted small">{{ referencia.motivo|truncatechars:70 }}</td>
                     <td class="text-muted small">{{ referencia.nombre_profesional }}</td>
                     <td><a href="{% url 'consultas:ver_referencia' referencia.pk %}">Ver documento</a></td>

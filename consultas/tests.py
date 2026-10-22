@@ -1,7 +1,11 @@
 from datetime import date, timedelta
+import base64
 import os
+import re
 import shutil
 import tempfile
+import uuid
+import zlib
 from unittest.mock import patch
 from reportlab.platypus import Paragraph
 from django.conf import settings
@@ -10,11 +14,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
-from core.models import Clinica
+from core.models import Clinica, RegistroAuditoria
 from core.tests import PruebaCore
 from pacientes.models import Persona, Expediente
 from seguridad.models import Usuario
-from .forms import ConsultaClinicaForm, DocumentoMedicoForm
+from .forms import (AdjuntoForm, AntecedenteForm, ConsultaClinicaForm, DocumentoMedicoForm,
+                    OrdenExamenForm, RecetaForm, ReferenciaMedicaForm)
 from .models import (Adjunto, Antecedente, Aplicacion, Consulta, DetalleReceta,
                      Incapacidad, OrdenExamen, Receta, ReferenciaMedica)
 from .documentos import generar_pdf, anio_en_letras
@@ -311,6 +316,10 @@ class ConsultaTests(PruebaCore):
         # Entrar a atenderla lleva al detalle: cerrada ya no se edita.
         self.assertRedirects(self.client.get(reverse('consultas:atender_consulta', args=[consulta.pk])),
                              reverse('consultas:ver_consulta', args=[consulta.pk]))
+
+    def test_el_campo_tratamiento_se_muestra_como_plan(self):
+        """CD-03: pedido de la doctora. Solo cambia la etiqueta, no la columna."""
+        self.assertEqual(ConsultaClinicaForm().fields['tratamiento'].label, 'Plan')
 
     def test_finalizar_no_depende_de_emitir_receta(self):
         consulta = self.crear()
@@ -668,6 +677,18 @@ class UnPacienteALaVezTests(PruebaCore):
         self.assertRedirects(respuesta, reverse('pacientes:ver_expediente', args=[otro.pk]),
                              fetch_redirect_response=False)
 
+    def test_una_consulta_abierta_en_otra_clinica_no_bloquea(self):
+        """Las clínicas son independientes (Samuel, 22/10/2026)."""
+        estetica = Clinica.objects.create(nombre='Estética', tipo=Clinica.Tipo.ESTETICA)
+        self.doctor.clinicas.add(estetica)
+        paciente = Expediente.objects.create(
+            persona=Persona.objects.create(nombres='Estetica', apellidos='Prueba'), clinica=estetica)
+        self.client.post(reverse('core:cambiar_clinica'), {'clinica': estetica.pk})
+
+        respuesta = self.client.get(reverse('consultas:nueva_consulta', args=[paciente.pk]))
+
+        self.assertEqual(respuesta.status_code, 200)
+
 
 class VisitaRetiradaTests(PruebaCore):
     """Una visita donde el paciente se fue sin atenderse."""
@@ -813,6 +834,37 @@ class RecetaTests(PruebaDeDocumentos):
         self.assertEqual(respuesta.status_code, 302)
         self.assertTrue(DetalleReceta.objects.exists())
 
+    def test_los_textos_de_ayuda_no_parecen_datos_ya_escritos(self):
+        """
+        CD-04: la doctora creyó que "7 días" ya estaba cargado. Un texto de
+        ayuda con números parece un valor; sin ellos, se lee como guía.
+        """
+        for nombre, campo in RecetaForm().fields.items():
+            ayuda = campo.widget.attrs.get('placeholder', '')
+            self.assertTrue(ayuda, f'{nombre} no tiene texto de ayuda')
+            self.assertFalse(any(c.isdigit() for c in ayuda),
+                             f'{nombre}: "{ayuda}" parece un dato ya escrito')
+
+    def test_los_demas_formularios_tampoco_traen_valores_de_ejemplo(self):
+        """
+        CD-04 extendido: exámenes, antecedentes, especialidad y descripción del
+        adjunto decían "Ej.: ..." o listaban valores. Ahora dicen qué escribir.
+        """
+        campos = [
+            (AntecedenteForm(), 'detalle'),
+            (ReferenciaMedicaForm(), 'especialidad'),
+            (OrdenExamenForm(), 'examenes'),
+            (OrdenExamenForm(), 'indicaciones'),
+            (AdjuntoForm(), 'descripcion'),
+        ]
+        for formulario, nombre in campos:
+            ayuda = formulario.fields[nombre].widget.attrs.get('placeholder', '')
+            self.assertTrue(ayuda, f'{nombre} no tiene texto de ayuda')
+            self.assertNotIn('Ej.', ayuda)
+            self.assertNotIn('…', ayuda)
+            self.assertFalse(any(c.isdigit() for c in ayuda),
+                             f'{nombre}: "{ayuda}" parece un dato ya escrito')
+
     def test_un_medicamento_vacio_no_se_guarda(self):
         respuesta = self.agregar(medicamento='', **self.AJAX)
         self.assertEqual(respuesta.json()['tipo'], 'danger')
@@ -839,6 +891,129 @@ class RecetaTests(PruebaDeDocumentos):
         detalle.refresh_from_db()
         self.assertEqual(detalle.medicamento, 'Amoxicilina 500 mg')
 
+    def quitar_permiso(self, codename):
+        self.doctora.user_permissions.remove(Permission.objects.get(codename=codename))
+        # El permiso se cachea por request; recargar al usuario lo limpia.
+        self.client.force_login(Usuario.objects.get(pk=self.doctora.pk))
+
+    def test_sin_permiso_de_agregar_no_se_guarda_nada(self):
+        """
+        Hallazgo 1 de la revisión de seguridad del 23/09/2026: la vista
+        guardaba el medicamento y RECIÉN DESPUÉS revisaba los permisos. El
+        usuario veía un 403, pero el medicamento ya estaba en la receta.
+        """
+        self.quitar_permiso('add_receta')
+        respuesta = self.agregar(medicamento='Oxicodona 80 mg')
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertFalse(DetalleReceta.objects.exists())
+        self.assertFalse(Receta.objects.exists())
+
+    def test_sin_sesion_no_se_guarda_nada(self):
+        self.client.logout()
+        respuesta = self.agregar()
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn('/login', respuesta['Location'])
+        self.assertFalse(DetalleReceta.objects.exists())
+
+    def test_por_get_no_se_guarda_nada(self):
+        respuesta = self.client.get(
+            reverse('consultas:agregar_medicamento', args=[self.consulta.pk]),
+            {'medicamento': 'X', 'dosis': 'Y', 'duracion': 'Z'})
+        self.assertEqual(respuesta.status_code, 405)
+        self.assertFalse(DetalleReceta.objects.exists())
+
+    def test_corregir_y_quitar_piden_change_receta_no_add_receta(self):
+        """Hallazgo de Codex: también exigían add_receta, y el 403 llegaba después de guardar."""
+        self.agregar()
+        detalle = DetalleReceta.objects.get()
+        self.quitar_permiso('add_receta')
+        respuesta = self.client.post(reverse('consultas:editar_medicamento', args=[detalle.pk]),
+                                     {'medicamento': 'Amoxicilina 500 mg', 'dosis': '1 cada 12 horas',
+                                      'duracion': '5 dias'})
+        self.assertEqual(respuesta.status_code, 302)
+        detalle.refresh_from_db()
+        self.assertEqual(detalle.dosis, '1 cada 12 horas')
+        respuesta = self.client.post(reverse('consultas:quitar_medicamento', args=[detalle.pk]))
+        self.assertEqual(respuesta.status_code, 302)
+        detalle.refresh_from_db()
+        self.assertFalse(detalle.activo)
+
+    def finalizar_consulta(self):
+        self.consulta.cierre = timezone.now()
+        self.consulta.save(update_fields=['cierre'])
+
+    def test_consulta_finalizada_no_admite_receta_nueva(self):
+        """Pedido del 19/10/2026: después de finalizar no se crea otra receta."""
+        self.finalizar_consulta()
+        respuesta = self.agregar(**self.AJAX)
+        self.assertEqual(respuesta.json()['tipo'], 'danger')
+        self.assertIn('finalizada', respuesta.json()['mensaje'])
+        self.assertFalse(Receta.objects.exists())
+        self.assertFalse(DetalleReceta.objects.exists())
+
+    def test_consulta_finalizada_no_admite_mas_medicamentos(self):
+        self.agregar()
+        self.finalizar_consulta()
+        self.agregar(medicamento='Ibuprofeno 400 mg')
+        self.assertEqual(DetalleReceta.objects.count(), 1)
+
+    def test_consulta_finalizada_no_admite_corregir_ni_quitar(self):
+        self.agregar()
+        detalle = DetalleReceta.objects.get()
+        self.finalizar_consulta()
+        self.client.post(reverse('consultas:editar_medicamento', args=[detalle.pk]),
+                         {'medicamento': 'Otro', 'dosis': 'x', 'duracion': 'y'})
+        self.client.post(reverse('consultas:quitar_medicamento', args=[detalle.pk]))
+        detalle.refresh_from_db()
+        self.assertEqual(detalle.medicamento, 'Amoxicilina 500 mg')
+        self.assertTrue(detalle.activo)
+
+    def otro_medico(self, administra=False):
+        """Un medico de la misma clinica, con todos los permisos de receta."""
+        otro = Usuario.objects.create_user(username='otro_medico', password='x',
+                                           first_name='Carlos', last_name='Rivas',
+                                           debe_cambiar_password=False)
+        codenames = ['view_expediente', 'view_receta', 'add_receta', 'change_receta']
+        if administra:
+            codenames.append('change_group')
+        otro.user_permissions.add(*Permission.objects.filter(codename__in=codenames))
+        otro.clinicas.add(self.clinica)
+        self.client.force_login(otro)
+        return otro
+
+    def test_otro_medico_no_modifica_una_receta_ajena(self):
+        """
+        Hallazgo 7 de la revisión del 23/09/2026: la receta se imprime con el
+        nombre congelado de quien la emitió. Si otro le agregaba un
+        medicamento, salía firmado por el primero.
+        """
+        self.agregar()
+        detalle = DetalleReceta.objects.get()
+        self.otro_medico()
+        respuesta = self.agregar(medicamento='Tramadol 50 mg', **self.AJAX)
+        self.assertEqual(respuesta.json()['tipo'], 'danger')
+        self.client.post(reverse('consultas:editar_medicamento', args=[detalle.pk]),
+                         {'medicamento': 'Otro', 'dosis': 'x', 'duracion': 'y'})
+        self.client.post(reverse('consultas:quitar_medicamento', args=[detalle.pk]))
+        detalle.refresh_from_db()
+        self.assertEqual(DetalleReceta.objects.count(), 1)
+        self.assertEqual(detalle.medicamento, 'Amoxicilina 500 mg')
+        self.assertTrue(detalle.activo)
+
+    def test_la_administradora_si_modifica_una_receta_ajena(self):
+        self.agregar()
+        self.otro_medico(administra=True)
+        self.agregar(medicamento='Ibuprofeno 400 mg')
+        self.assertEqual(DetalleReceta.objects.count(), 2)
+
+    def test_otro_medico_si_puede_emitir_una_receta_nueva(self):
+        """HU-EXP-17 lo permite: emitir sobre una consulta ajena, con su propio nombre."""
+        otro = self.otro_medico()
+        self.agregar()
+        receta = Receta.objects.get()
+        self.assertEqual(receta.creado_por, otro)
+        self.assertEqual(receta.doctor_nombre, 'Carlos Rivas')
+
     def test_emitir_la_receta_no_finaliza_la_consulta(self):
         """
         La regla del mockup ("Generar receta y cerrar") se descartó el
@@ -848,6 +1023,33 @@ class RecetaTests(PruebaDeDocumentos):
         self.consulta.refresh_from_db()
         self.assertIsNone(self.consulta.cierre)
         self.assertTrue(self.consulta.en_atencion)
+
+    @staticmethod
+    def texto_del_pdf(contenido):
+        """
+        El texto de un PDF de ReportLab, en el orden en que se dibuja.
+
+        ReportLab guarda cada pagina en ASCII85 y comprimida con zlib
+        (`/Filter [/ASCII85Decode /FlateDecode]`): hay que deshacer las dos.
+        """
+        partes = []
+        # El fin del flujo va pegado a los datos (`...~>endstream`).
+        for flujo in re.findall(rb'stream\r?\n(.*?)endstream', contenido, re.S):
+            try:
+                crudo = base64.a85decode(flujo.strip().removesuffix(b'~>'))
+                partes.append(zlib.decompress(crudo).decode('latin-1'))
+            except (ValueError, zlib.error):
+                continue  # imagenes o fuentes: no traen texto
+        return '\n'.join(partes)
+
+    def test_el_nombre_del_paciente_va_arriba_de_los_medicamentos(self):
+        """CD-02, pedido de la doctora: el paciente, arriba; antes iba al pie."""
+        self.agregar(medicamento='Metocarbamol')
+        receta = Receta.objects.get()
+        pdf = self.client.get(reverse('consultas:pdf_receta', args=[receta.pk])).content
+        texto = self.texto_del_pdf(pdf)
+        self.assertLess(texto.index('Nombre del paciente'), texto.index('Metocarbamol'))
+        self.assertLess(texto.index('Metocarbamol'), texto.index('Firma'))
 
     def test_el_pdf_no_incluye_los_medicamentos_quitados(self):
         self.agregar()
@@ -929,10 +1131,24 @@ class ReferenciaMedicaTests(PruebaDeDocumentos):
 
     permisos = ['view_referenciamedica', 'add_referenciamedica']
 
-    def referir(self, especialidad='Cardiología', motivo='Soplo a descartar'):
+    def referir(self, especialidad='Cardiología', motivo='Soplo a descartar', hospital=''):
         return self.client.post(
             reverse('consultas:agregar_referencia', args=[self.consulta.pk]),
-            {'especialidad': especialidad, 'motivo': motivo, 'observaciones': ''})
+            {'especialidad': especialidad, 'hospital': hospital,
+             'motivo': motivo, 'observaciones': ''})
+
+    def test_la_referencia_guarda_el_hospital_de_destino(self):
+        """CD-06: pedido de la doctora, la referencia va dirigida a un hospital."""
+        self.referir(hospital='  Hospital Rosales  ')
+        self.assertEqual(ReferenciaMedica.objects.get().hospital, 'Hospital Rosales')
+
+    def test_el_hospital_es_opcional(self):
+        """Las referencias emitidas antes de CD-06 no lo tienen y siguen valiendo."""
+        self.referir()
+        referencia = ReferenciaMedica.objects.get()
+        self.assertEqual(referencia.hospital, '')
+        respuesta = self.client.get(reverse('consultas:pdf_referencia', args=[referencia.pk]))
+        self.assertEqual(respuesta['Content-Type'], 'application/pdf')
 
     def test_la_referencia_congela_el_nombre_del_medico(self):
         self.referir()
@@ -969,6 +1185,37 @@ class AplicacionTests(PruebaDeDocumentos):
         return self.client.post(
             reverse('consultas:agregar_aplicacion', args=[self.consulta.pk]),
             {'tipo': tipo, 'dosis': dosis, 'indicaciones': 'Cada 6 horas'})
+
+    def test_se_registra_solo_con_el_texto_libre(self):
+        """CD-01, pedido de la doctora: un solo cuadro de texto, sin tipo ni dosis."""
+        self.client.post(reverse('consultas:agregar_aplicacion', args=[self.consulta.pk]),
+                         {'indicaciones': 'Ketorolaco 30 mg IM, dosis única'})
+        aplicacion = Aplicacion.objects.get()
+        self.assertEqual(aplicacion.indicaciones, 'Ketorolaco 30 mg IM, dosis única')
+        self.assertEqual(aplicacion.tipo, '')
+        self.assertEqual(aplicacion.resumen, 'Ketorolaco 30 mg IM, dosis única')
+
+    def test_sin_texto_no_se_crea(self):
+        self.client.post(reverse('consultas:agregar_aplicacion', args=[self.consulta.pk]),
+                         {'indicaciones': '   '})
+        self.assertFalse(Aplicacion.objects.exists())
+
+    def test_se_llama_aplicaciones_con_la_descripcion_de_la_doctora(self):
+        respuesta = self.client.get(reverse('consultas:lista_aplicaciones', args=[self.expediente.pk]))
+        self.assertContains(respuesta, '<h4 class="fw-semibold mb-1">Aplicaciones</h4>', html=True)
+        self.assertContains(respuesta, 'Cuadro con medicamentos de cumplimiento en clínica')
+
+    def test_los_registros_anteriores_conservan_tipo_y_dosis(self):
+        """Lo cargado antes de CD-01 no queda en blanco en las listas."""
+        anterior = Aplicacion.objects.create(
+            consulta=self.consulta, tipo='suero', dosis='500 ml',
+            creado_por=self.doctora, modificado_por=self.doctora)
+        self.assertEqual(anterior.resumen, 'Suero · 500 ml')
+
+    def test_el_resumen_usa_la_primera_linea_recortada(self):
+        aplicacion = Aplicacion(indicaciones='A' * 100 + '\nsegunda línea')
+        self.assertEqual(len(aplicacion.resumen), 70)
+        self.assertTrue(aplicacion.resumen.endswith('…'))
 
     def test_se_indica_sin_quedar_aplicada(self):
         """Indicarla y aplicarla son dos momentos distintos."""
@@ -1007,7 +1254,7 @@ class AdjuntoTests(PruebaDeDocumentos):
     escribir en la carpeta real de archivos clínicos.
     """
 
-    permisos = ['view_adjunto', 'add_adjunto', 'change_adjunto']
+    permisos = ['view_adjunto', 'add_adjunto', 'change_adjunto', 'delete_adjunto']
 
     # Cabeceras reales de cada formato. Lo que se valida no es la extensión.
     PDF = b'%PDF-1.4\n%fin'
@@ -1108,11 +1355,280 @@ class AdjuntoTests(PruebaDeDocumentos):
         self.assertTrue(os.path.exists(ruta))
 
     def test_un_adjunto_retirado_deja_de_aparecer(self):
-        # Descripción que no exista en ningún otro lado de la plantilla: el
-        # placeholder del formulario también dice "Radiografía de tórax".
+        # Descripción que no exista en ningún otro lado de la plantilla.
         self.subir(descripcion='Electrocardiograma del 12 de agosto')
         adjunto = Adjunto.objects.get()
         self.client.post(reverse('consultas:retirar_adjunto', args=[adjunto.pk]))
         respuesta = self.client.get(reverse('consultas:adjuntos', args=[self.expediente.pk]))
         self.assertNotContains(respuesta, 'Electrocardiograma del 12 de agosto')
         self.assertContains(respuesta, 'todavía no tiene archivos adjuntos')
+
+    # --- CD-08: eliminar de verdad, solo el mismo dia ---
+
+    def eliminar(self, adjunto):
+        return self.client.post(reverse('consultas:eliminar_adjunto', args=[adjunto.pk]))
+
+    def subido_ayer(self, adjunto):
+        Adjunto.objects.filter(pk=adjunto.pk).update(
+            fecha_creacion=timezone.now() - timedelta(days=1))
+
+    def test_eliminar_lo_borra_del_almacenamiento_y_del_sistema(self):
+        self.subir(descripcion='Radiografía equivocada')
+        adjunto = Adjunto.objects.get()
+        ruta = adjunto.archivo.path
+        self.assertEqual(self.eliminar(adjunto).status_code, 302)
+        self.assertFalse(Adjunto.objects.exists())
+        self.assertFalse(os.path.exists(ruta))
+
+    def test_eliminar_queda_en_la_bitacora(self):
+        """El archivo desaparece, la constancia de que existió y de quién lo borró, no."""
+        self.subir(descripcion='Radiografía equivocada')
+        self.eliminar(Adjunto.objects.get())
+        registro = RegistroAuditoria.objects.get(accion=RegistroAuditoria.Accion.ELIMINAR_ADJUNTO)
+        self.assertEqual(registro.usuario, self.doctora)
+        self.assertIn('Radiografía equivocada', registro.detalle)
+
+    def test_al_dia_siguiente_ya_no_se_elimina(self):
+        """Pasado el día, el adjunto ya es parte del expediente: solo se retira."""
+        self.subir()
+        adjunto = Adjunto.objects.get()
+        self.subido_ayer(adjunto)
+        self.eliminar(adjunto)
+        adjunto.refresh_from_db()
+        self.assertTrue(os.path.exists(adjunto.archivo.path))
+        self.assertFalse(RegistroAuditoria.objects.exists())
+
+    def test_el_boton_solo_aparece_el_mismo_dia(self):
+        self.subir()
+        adjunto = Adjunto.objects.get()
+        url = reverse('consultas:eliminar_adjunto', args=[adjunto.pk])
+        pantalla = reverse('consultas:adjuntos', args=[self.expediente.pk])
+        self.assertContains(self.client.get(pantalla), url)
+        self.subido_ayer(adjunto)
+        self.assertNotContains(self.client.get(pantalla), url)
+
+    def test_sin_permiso_de_eliminar_no_se_borra(self):
+        self.subir()
+        adjunto = Adjunto.objects.get()
+        self.doctora.user_permissions.remove(Permission.objects.get(codename='delete_adjunto'))
+        self.client.force_login(Usuario.objects.get(pk=self.doctora.pk))
+        self.assertEqual(self.eliminar(adjunto).status_code, 403)
+        self.assertTrue(Adjunto.objects.filter(pk=adjunto.pk).exists())
+        self.assertTrue(os.path.exists(adjunto.archivo.path))
+
+    def test_por_get_no_se_elimina(self):
+        self.subir()
+        adjunto = Adjunto.objects.get()
+        respuesta = self.client.get(reverse('consultas:eliminar_adjunto', args=[adjunto.pk]))
+        self.assertEqual(respuesta.status_code, 405)
+        self.assertTrue(Adjunto.objects.exists())
+
+    def test_no_se_elimina_un_adjunto_de_otra_clinica(self):
+        otra = Clinica.objects.create(nombre='Estética')
+        persona = Persona.objects.create(nombres='Ajeno', apellidos='Paciente')
+        ajeno = Expediente.objects.create(persona=persona, clinica=otra)
+        adjunto = Adjunto.objects.create(
+            expediente=ajeno, descripcion='Ajeno', tipo=Adjunto.Tipo.PDF,
+            archivo=SimpleUploadedFile('x.pdf', self.PDF),
+            creado_por=self.doctora, modificado_por=self.doctora)
+        self.assertEqual(self.eliminar(adjunto).status_code, 403)
+        self.assertTrue(Adjunto.objects.filter(pk=adjunto.pk).exists())
+
+
+class PlantillasTests(PruebaDeDocumentos):
+    """HU-EXP-27 (CD-07): plantillas en blanco para imprimir."""
+
+    permisos = ['view_incapacidad', 'view_receta', 'view_referenciamedica', 'view_ordenexamen']
+    TIPOS = ('constancia', 'receta', 'referencia', 'examenes')
+
+    def pdf(self, tipo):
+        return self.client.get(reverse('consultas:plantilla_pdf', args=[tipo]))
+
+    def test_cada_plantilla_se_genera(self):
+        for tipo in self.TIPOS:
+            respuesta = self.pdf(tipo)
+            self.assertEqual(respuesta.status_code, 200, tipo)
+            self.assertEqual(respuesta['Content-Type'], 'application/pdf', tipo)
+
+    def test_imprimir_una_plantilla_no_crea_registros(self):
+        """Criterio 8: sin folio, sin expediente, sin consulta."""
+        for tipo in self.TIPOS:
+            self.pdf(tipo)
+        for modelo in (Incapacidad, Receta, ReferenciaMedica, OrdenExamen):
+            self.assertFalse(modelo.objects.exists(), modelo.__name__)
+
+    def test_salen_en_blanco_sin_datos_de_paciente(self):
+        for tipo in self.TIPOS:
+            texto = RecetaTests.texto_del_pdf(self.pdf(tipo).content)
+            self.assertNotIn('Munoz', texto, tipo)
+            # La receta en blanco no lleva lineas de guiones: sus renglones son
+            # lineas dibujadas. Las demas, si.
+            if tipo != 'receta':
+                self.assertIn('________', texto, tipo)
+
+    def test_la_receta_en_blanco_conserva_su_formato(self):
+        texto = RecetaTests.texto_del_pdf(self.pdf('receta').content)
+        self.assertIn('Nombre del paciente', texto)
+        self.assertIn('Firma', texto)
+
+    def test_la_pantalla_muestra_solo_las_permitidas(self):
+        """Criterio 10: solo quien puede ver un tipo de documento imprime su plantilla."""
+        for codename in ('view_incapacidad', 'view_referenciamedica', 'view_ordenexamen'):
+            self.doctora.user_permissions.remove(Permission.objects.get(codename=codename))
+        self.client.force_login(Usuario.objects.get(pk=self.doctora.pk))
+        respuesta = self.client.get(reverse('consultas:plantillas'))
+        self.assertContains(respuesta, reverse('consultas:plantilla_pdf', args=['receta']))
+        self.assertNotContains(respuesta, reverse('consultas:plantilla_pdf', args=['constancia']))
+        self.assertEqual(self.pdf('constancia').status_code, 403)
+
+    def test_las_plantillas_se_ven_en_vista_previa(self):
+        """Se abren en el visor de la misma pantalla, no en otra pestaña."""
+        respuesta = self.client.get(reverse('consultas:plantillas'))
+        self.assertContains(respuesta, 'id="modalDocumento"')
+        self.assertContains(
+            respuesta, f'data-ver-pdf="{reverse("consultas:plantilla_pdf", args=["receta"])}"')
+        self.assertContains(respuesta, 'consultas/js/consulta.js')
+
+    def test_sin_permiso_de_ningun_documento_da_403(self):
+        self.doctora.user_permissions.clear()
+        self.client.force_login(Usuario.objects.get(pk=self.doctora.pk))
+        self.assertEqual(self.client.get(reverse('consultas:plantillas')).status_code, 403)
+
+    def test_un_tipo_que_no_existe_da_404(self):
+        self.assertEqual(self.pdf('inventada').status_code, 404)
+
+    def test_sin_sesion_no_se_llega(self):
+        self.client.logout()
+        respuesta = self.pdf('receta')
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn('/login', respuesta['Location'])
+
+    def test_lleva_el_membrete_de_la_clinica_activa(self):
+        """Criterio 9: el de la clinica en la que se trabaja, no siempre ProSalud."""
+        otra = Clinica.objects.create(nombre='Clinica Dermika')
+        medica = Usuario.objects.create_user(username='dermatologa', password='x',
+                                             first_name='Ana', last_name='Lopez',
+                                             debe_cambiar_password=False)
+        medica.user_permissions.add(Permission.objects.get(codename='view_receta'))
+        medica.clinicas.add(otra)
+        self.client.force_login(medica)
+        texto = RecetaTests.texto_del_pdf(self.pdf('receta').content)
+        self.assertIn('Clinica Dermika', texto)
+        self.assertIn('ANA LOPEZ', texto)
+
+
+class ConstanciaConsultaFinalizadaTests(PruebaDeDocumentos):
+    """
+    CD-05 (pedido de la doctora): despues de finalizar una consulta, la
+    constancia la emite solo la administradora.
+    """
+
+    permisos = ['view_consulta', 'view_incapacidad', 'add_incapacidad']
+
+    def setUp(self):
+        super().setUp()
+        self.consulta.cierre = timezone.now()
+        self.consulta.save(update_fields=['cierre'])
+
+    def hacerla_administradora(self):
+        self.doctora.user_permissions.add(Permission.objects.get(codename='change_group'))
+        self.client.force_login(Usuario.objects.get(pk=self.doctora.pk))
+
+    def emitir_en_linea(self):
+        return self.client.post(
+            reverse('consultas:agregar_incapacidad', args=[self.consulta.pk]),
+            {'solicitud_id': str(uuid.uuid4()), 'motivo': 'Migraña', 'inicio_opcion': 'hoy',
+             'dias': 2})
+
+    def test_un_medico_no_emite_constancia_en_una_consulta_finalizada(self):
+        self.assertEqual(self.emitir_en_linea().status_code, 403)
+        respuesta = self.client.get(reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertFalse(Incapacidad.objects.exists())
+
+    def test_el_detalle_no_le_ofrece_el_boton(self):
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+        self.assertNotContains(respuesta, reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+
+    def test_la_administradora_si_puede(self):
+        self.hacerla_administradora()
+        respuesta = self.client.get(reverse('consultas:ver_consulta', args=[self.consulta.pk]))
+        self.assertContains(respuesta, reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+        respuesta = self.client.get(reverse('consultas:nuevo_documento', args=[self.consulta.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_en_una_consulta_abierta_cualquier_medico_emite(self):
+        """La regla es solo para consultas finalizadas: durante la atencion, igual que antes."""
+        self.consulta.cierre = None
+        self.consulta.save(update_fields=['cierre'])
+        self.emitir_en_linea()
+        self.assertEqual(Incapacidad.objects.count(), 1)
+
+
+class VerImprimirDocumentoTests(PruebaDeDocumentos):
+    """
+    HU-EXP-26: los cuatro documentos se ven dentro del modal (PDF inline en
+    un iframe del propio sitio) y se pueden descargar con ?descargar=1.
+    """
+
+    permisos = ['view_consulta', 'view_incapacidad', 'add_incapacidad',
+                'view_receta', 'add_receta', 'view_referenciamedica', 'add_referenciamedica',
+                'view_ordenexamen', 'add_ordenexamen']
+
+    def urls_de_los_pdf(self):
+        consulta = [self.consulta.pk]
+        self.client.post(reverse('consultas:agregar_incapacidad', args=consulta),
+                         {'solicitud_id': str(uuid.uuid4()), 'motivo': 'Migraña',
+                          'inicio_opcion': 'hoy', 'dias': 2})
+        self.client.post(reverse('consultas:agregar_medicamento', args=consulta),
+                         {'medicamento': 'Acetaminofén', 'dosis': 'Cada 8 horas', 'duracion': 'Tres días'})
+        self.client.post(reverse('consultas:agregar_referencia', args=consulta),
+                         {'especialidad': 'Neurología', 'hospital': '', 'motivo': 'Cefalea persistente',
+                          'observaciones': ''})
+        self.client.post(reverse('consultas:agregar_orden', args=consulta),
+                         {'examenes': 'Hemograma', 'indicaciones': ''})
+        return {
+            'incapacidad': reverse('consultas:pdf_documento', args=[Incapacidad.objects.get().pk]),
+            'receta': reverse('consultas:pdf_receta', args=[Receta.objects.get().pk]),
+            'referencia': reverse('consultas:pdf_referencia', args=[ReferenciaMedica.objects.get().pk]),
+            'orden': reverse('consultas:pdf_orden', args=[OrdenExamen.objects.get().pk]),
+        }
+
+    def test_los_cuatro_se_abren_dentro_del_visor(self):
+        for documento, url in self.urls_de_los_pdf().items():
+            with self.subTest(documento):
+                respuesta = self.client.get(url)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(respuesta['Content-Type'], 'application/pdf')
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+                self.assertTrue(respuesta['Content-Disposition'].startswith('inline'))
+
+    def test_el_iframe_solo_se_permite_desde_el_propio_sitio(self):
+        """Sin SAMEORIGIN el navegador bloquea el PDF en el modal (DENY por defecto)."""
+        for documento, url in self.urls_de_los_pdf().items():
+            with self.subTest(documento):
+                self.assertEqual(self.client.get(url)['X-Frame-Options'], 'SAMEORIGIN')
+
+    def test_no_se_guardan_en_cache_ni_se_reinterpretan(self):
+        for documento, url in self.urls_de_los_pdf().items():
+            with self.subTest(documento):
+                respuesta = self.client.get(url)
+                self.assertIn('no-store', respuesta['Cache-Control'])
+                self.assertEqual(respuesta['X-Content-Type-Options'], 'nosniff')
+
+    def test_con_descargar_se_baja_el_archivo(self):
+        for documento, url in self.urls_de_los_pdf().items():
+            with self.subTest(documento):
+                respuesta = self.client.get(url + '?descargar=1')
+                self.assertTrue(respuesta['Content-Disposition'].startswith('attachment'))
+                self.assertIn('.pdf"', respuesta['Content-Disposition'])
+
+    def test_sin_permiso_no_se_ve_el_pdf(self):
+        urls = self.urls_de_los_pdf()
+        sin_permisos = Usuario.objects.create_user(username='recepcion', password='prueba',
+                                                   debe_cambiar_password=False)
+        sin_permisos.clinicas.add(self.clinica)
+        self.client.force_login(sin_permisos)
+        for documento, url in urls.items():
+            with self.subTest(documento):
+                self.assertIn(self.client.get(url).status_code, (403, 404))

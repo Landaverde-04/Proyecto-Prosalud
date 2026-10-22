@@ -3,6 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from core.models import ModeloBase
 from pacientes.models import Expediente, Persona
@@ -297,6 +298,10 @@ class ReferenciaMedica(DocumentoDeConsulta, ModeloBase):
     doctor_nombre = models.CharField(max_length=150, blank=True)
     fecha = models.DateField(auto_now_add=True)
     especialidad = models.CharField(max_length=100)
+    # Hospital al que se refiere al paciente (CD-06, pedido de la doctora del
+    # 09/10/2026). Revierte la decision del 06/09 de no llevar destinatario.
+    # Opcional: las referencias emitidas antes no lo tienen y siguen validas.
+    hospital = models.CharField(max_length=150, blank=True)
     motivo = models.TextField()
     observaciones = models.TextField(blank=True)
 
@@ -335,6 +340,20 @@ class ControlPosterior(ModeloBase):
 
 
 class Aplicacion(ModeloBase):
+    """
+    En pantalla se llama "Aplicaciones", con la descripcion "Cuadro con
+    medicamentos de cumplimiento en clinica" (CD-01, pedido de la doctora del
+    09/10/2026; el nombre lo corrigio Samuel el 19/10/2026).
+
+    Desde CD-01 la doctora lo escribe como TEXTO LIBRE en `indicaciones`:
+    que medicamentos, en que dosis y como se aplican. `tipo` y `dosis` ya no
+    se piden, pero se conservan para los registros anteriores.
+    """
+
+    # Nombre y descripcion que se muestran en las pantallas, en un solo lugar.
+    TITULO = 'Aplicaciones'
+    DESCRIPCION = 'Cuadro con medicamentos de cumplimiento en clínica'
+
     class Tipo(models.TextChoices):
         SUERO = 'suero', 'Suero'
         CURACION = 'curacion', 'Curación'
@@ -344,7 +363,8 @@ class Aplicacion(ModeloBase):
     consulta = models.ForeignKey(
         Consulta, on_delete=models.PROTECT, related_name='aplicaciones',
     )
-    tipo = models.CharField(max_length=15, choices=Tipo.choices)
+    # Opcional desde CD-01: solo lo tienen los registros anteriores.
+    tipo = models.CharField(max_length=15, choices=Tipo.choices, blank=True, default='')
     dosis = models.CharField(max_length=100, blank=True)
     indicaciones = models.TextField(blank=True)
 
@@ -361,7 +381,20 @@ class Aplicacion(ModeloBase):
         verbose_name_plural = 'aplicaciones'
 
     def __str__(self):
-        return f'{self.get_tipo_display()} · {self.consulta}'
+        return f'{self.resumen} · {self.consulta}'
+
+    @property
+    def resumen(self):
+        """
+        Una linea para las listas. Lo nuevo es texto libre: se muestra su
+        primera linea, recortada. Lo anterior a CD-01 tiene tipo y dosis, y
+        se sigue mostrando asi para que no quede en blanco.
+        """
+        if self.tipo:
+            return self.get_tipo_display() + (f' · {self.dosis}' if self.dosis else '')
+        primera = (self.indicaciones or '').strip().splitlines()
+        texto = primera[0] if primera else ''
+        return texto if len(texto) <= 70 else texto[:69].rstrip() + '…'
 
 
 class OrdenExamen(DocumentoDeConsulta, ModeloBase):
@@ -518,3 +551,12 @@ class Adjunto(ModeloBase):
     @property
     def es_imagen(self):
         return self.tipo == self.Tipo.IMAGEN
+
+    @property
+    def se_puede_eliminar(self):
+        """
+        Eliminar de verdad solo el mismo dia en que se subio (CD-08). Sirve
+        para corregir el archivo equivocado, que se nota enseguida; pasado
+        ese dia, el adjunto ya es parte del expediente y solo se retira.
+        """
+        return timezone.localdate(self.fecha_creacion) == timezone.localdate()

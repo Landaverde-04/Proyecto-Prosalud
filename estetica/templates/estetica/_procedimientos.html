@@ -1,0 +1,55 @@
+{% comment %}
+La tabla "Procedimiento | 1 ... 10" de la ficha en papel (HU-EST-03). Se
+redibuja entera despues de cada cambio (atencion.js), sin recargar la
+pagina. Cada casilla marcada muestra la fecha de esa sesion.
+{% endcomment %}
+{% if renglones %}
+<div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle text-center mb-3 small">
+        <thead class="table-light">
+            <tr>
+                <th class="text-start">Procedimiento</th>
+                {% for numero in numeros %}<th style="width: 7%;">{{ numero }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for renglon in renglones %}
+            <tr>
+                <td class="text-start fw-medium">{{ renglon.procedimiento.nombre }}</td>
+                {% for celda in renglon.celdas %}
+                <td>
+                    {% if celda.sesion %}
+                        <div>{{ celda.sesion.atencion.inicio|date:'d/m' }}</div>
+                        {% if celda.puede_quitar %}
+                        <form method="post" action="{% url 'estetica:quitar_sesion' atencion.pk celda.sesion.pk %}" data-procedimiento>
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-link btn-sm text-danger p-0" title="Quitar esta sesión">Quitar</button>
+                        </form>
+                        {% endif %}
+                    {% elif celda.puede_marcar %}
+                        <form method="post" action="{% url 'estetica:marcar_sesion' atencion.pk renglon.procedimiento.pk %}" data-procedimiento>
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-1" title="Marcar la sesión {{ celda.numero }} en esta atención">
+                                <i class="bi bi-check-lg"></i>
+                            </button>
+                        </form>
+                    {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="small text-muted mb-3">Todavía no hay procedimientos para esta paciente.</p>
+{% endif %}
+
+{% if editable %}
+<form method="post" action="{% url 'estetica:agregar_procedimiento' atencion.pk %}" data-procedimiento
+      class="d-flex gap-2" style="max-width: 480px;">
+    {% csrf_token %}
+    {{ form_procedimiento.nombre }}
+    <button type="submit" class="btn btn-outline-primary text-nowrap">Agregar</button>
+</form>
+{% endif %}

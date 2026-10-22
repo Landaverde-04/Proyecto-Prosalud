@@ -10,16 +10,25 @@ from django.contrib import messages
 from django.db.models import F, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
+from core.auditoria import registrar
+from core.clinica_activa import clinica_activa
+from core.models import RegistroAuditoria
 from core.paginacion import es_ajax, paginar
 from pacientes.models import Expediente
-from .documentos import (generar_pdf, generar_pdf_orden, generar_pdf_receta,
-                         generar_pdf_referencia)
+from pacientes.forms import SignosVitalesForm
+from pacientes.preconsulta import campos_de_preconsulta, corregir_signos
+from .navegacion import origen_seguro, regreso_consulta
+from .documentos import (documento_en_blanco, generar_pdf, generar_pdf_orden,
+                         generar_pdf_receta, generar_pdf_referencia)
+
 from .forms import (AdjuntoForm, AntecedenteForm, AplicacionForm, ConsultaClinicaForm,
                     ConsultaManualForm, ControlPosteriorForm, DocumentoMedicoForm,
                     OrdenExamenForm, RecetaForm, ReferenciaMedicaForm,
@@ -67,6 +76,30 @@ def consulta_para_documento(request, consulta_id):
     return consulta
 
 
+def puede_documentar_consulta_cerrada(usuario):
+    """
+    Despues de finalizar una consulta, la constancia la emite solo la
+    administradora (CD-05, pedido de la doctora del 09/10/2026: "con su
+    rol"). Se reconoce como en todo el sistema, por `auth.change_group`.
+    """
+    return usuario.has_perm('auth.change_group')
+
+
+def consulta_para_constancia(request, consulta_id):
+    """
+    Consulta sobre la que se puede emitir una constancia. Como cualquier
+    documento, mas una regla: si ya se finalizo, solo la administradora.
+
+    Antes, el detalle de una consulta finalizada ofrecia emitir la
+    constancia a cualquier medico, y la doctora pidio quitarlo porque se
+    presta a confusiones y errores.
+    """
+    consulta = consulta_para_documento(request, consulta_id)
+    if consulta.cerrada and not puede_documentar_consulta_cerrada(request.user):
+        raise PermissionDenied
+    return consulta
+
+
 def datos_documento(consulta, datos):
     return dict(consulta=consulta, tipo=datos['tipo'], motivo=datos['motivo'],
                 dias=datos.get('dias'), fecha_inicio_incapacidad=datos.get('fecha_inicio_incapacidad'),
@@ -81,6 +114,10 @@ def recuperar_previa(request, previa_id):
             or 'fecha_inicio_incapacidad' not in dato['campos']):
         raise Http404('La vista previa venció. Vuelva al formulario para revisarla.')
     consulta = consulta_autorizada(request, dato['consulta_id'])
+    # La vista previa tambien se cierra: si la consulta se finalizo mientras
+    # tanto, emitirla queda solo para la administradora (CD-05).
+    if consulta.cerrada and not puede_documentar_consulta_cerrada(request.user):
+        raise PermissionDenied
     campos = dict(dato['campos'])
     for campo in ('fecha', 'fecha_inicio_incapacidad', 'fecha_atencion'):
         campos[campo] = date.fromisoformat(campos[campo]) if campos[campo] else None
@@ -108,7 +145,7 @@ def lista_documentos(request, expediente_id):
 @login_required
 @permission_required(('pacientes.view_expediente', 'consultas.view_incapacidad', 'consultas.add_incapacidad'), raise_exception=True)
 def nuevo_documento(request, consulta_id):
-    consulta = consulta_para_documento(request, consulta_id)
+    consulta = consulta_para_constancia(request, consulta_id)
     inicial = {'motivo': consulta.diagnostico or consulta.motivo,
                'inicio_opcion': 'hoy', 'fecha_inicio_incapacidad': timezone.localdate()}
     editar = request.GET.get('previa')
@@ -220,9 +257,15 @@ def pdf_documento(request, documento_id):
 # La consulta es el molde: todos los documentos cuelgan de ella.
 # --------------------------------------------------------------------------
 
-def consulta_en_curso(usuario, excepto=None):
-    """Consulta que el medico ya inicio y no ha finalizado: atiende uno a la vez."""
-    return (Consulta.objects.filter(doctor=usuario, inicio__isnull=False, cierre__isnull=True, activo=True)
+def consulta_en_curso(usuario, clinica, excepto=None):
+    """
+    Consulta que el medico ya inicio y no ha finalizado en ESTA clinica:
+    atiende uno a la vez en cada una. Las clinicas son independientes
+    (Samuel, 22/10/2026): una consulta abierta en ProSalud no bloquea la
+    Estetica, ni al reves.
+    """
+    return (Consulta.objects.filter(doctor=usuario, expediente__clinica=clinica, inicio__isnull=False,
+                                    cierre__isnull=True, activo=True)
             .exclude(pk=excepto).select_related('expediente__persona').first())
 
 
@@ -249,8 +292,9 @@ def nueva_consulta(request, expediente_id):
     abierta = Consulta.objects.filter(expediente=expediente, cierre__isnull=True, activo=True).first()
     if abierta:
         messages.info(request, 'Este paciente ya tiene una consulta sin finalizar; se retomó esa.')
+        regreso_consulta(request, abierta)
         return redirect('consultas:atender_consulta', consulta_id=abierta.pk)
-    en_curso = consulta_en_curso(request.user)
+    en_curso = consulta_en_curso(request.user, expediente.clinica_id)
     if en_curso:
         messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} antes de registrar otra.')
         return redirect('pacientes:ver_expediente', expediente_id=expediente.pk)
@@ -265,12 +309,16 @@ def nueva_consulta(request, expediente_id):
             inicio=form.cleaned_data['inicio'], motivo='',
             creado_por=request.user, modificado_por=request.user,
         )
+        regreso_consulta(request, consulta)
         return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
 
     ahora = timezone.localtime()
     return render(request, 'consultas/nueva_consulta.html', {
         'expediente': expediente, 'form': form,
         'hoy': ahora.date().isoformat(), 'hora_actual': ahora.strftime('%H:%M'),
+        'url_regresar': (origen_seguro(request, request.POST.get('volver') or request.GET.get('volver'))
+                         or origen_seguro(request, request.META.get('HTTP_REFERER'))
+                         or reverse('pacientes:ver_expediente', args=[expediente.pk])),
     })
 
 
@@ -285,9 +333,10 @@ def iniciar_consulta(request, consulta_id):
     expediente no inicia nada por si solo.
     """
     consulta = consulta_editable(request, consulta_id)
+    regreso_consulta(request, consulta)
     if consulta.en_cola:
         # Una emergencia no espera a que termine la consulta en curso.
-        en_curso = None if consulta.es_emergencia else consulta_en_curso(request.user, excepto=consulta.pk)
+        en_curso = None if consulta.es_emergencia else consulta_en_curso(request.user, consulta.expediente.clinica_id, excepto=consulta.pk)
         if en_curso:
             messages.error(request, f'Finalice la consulta de {en_curso.expediente.persona} '
                                     'antes de atender a otro paciente.')
@@ -304,10 +353,12 @@ def iniciar_consulta(request, consulta_id):
 def atender_consulta(request, consulta_id):
     """Pantalla de atencion: los ocho campos, con preguardado automatico."""
     consulta = consulta_propia(request, consulta_id)
+    url_regresar = regreso_consulta(request, consulta)
     if consulta.cerrada:
         return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     return render(request, 'consultas/atender_consulta.html', {
         'consulta': consulta, 'form': ConsultaClinicaForm(instance=consulta, borrador=True),
+        'url_regresar': url_regresar,
         # Los documentos se emiten durante la atencion, no despues: es
         # cuando la doctora tiene al paciente enfrente (mockup).
         'incapacidades': consulta.incapacidades.filter(activo=True).order_by('-fecha', '-pk'),
@@ -343,6 +394,49 @@ def signos_vitales_consulta(request, consulta_id):
     return render(request, 'consultas/signos_vitales.html', {'signos': signos})
 
 
+@require_http_methods(['GET', 'POST'])
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.change_consulta'), raise_exception=True)
+def editar_preconsulta_consulta(request, consulta_id):
+    """Corrige la preconsulta dentro de su propia atencion, nunca despues del cierre."""
+    consulta = consulta_propia(request, consulta_id)
+    # El mismo bloqueo lo usan enfermeria y finalizar_consulta.
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if not consulta.en_atencion:
+            return JsonResponse({'ok': False, 'mensaje': 'La preconsulta solo se puede corregir durante la atención.'}, status=409)
+        signos = get_object_or_404(SignosVitales, consulta=consulta, activo=True)
+        persona = consulta.expediente.persona
+        es_menor = persona.edad is not None and persona.edad < 18
+        campos = campos_de_preconsulta(es_menor)
+        form = SignosVitalesForm(
+            request.POST if request.method == 'POST' else None,
+            initial={c: getattr(signos, c) for c in campos})
+        # No validar ni aceptar campos que la preconsulta no muestra por edad.
+        for campo in list(form.fields):
+            if campo not in campos:
+                del form.fields[campo]
+        if request.method == 'GET':
+            return JsonResponse({'ok': True, 'version': signos.fecha_modificacion.isoformat(),
+                                 'campos': render_to_string('pacientes/campos_signos_vitales.html',
+                                                           {'form': form, 'es_menor': es_menor}, request=request)})
+        if not form.is_valid():
+            return JsonResponse({'ok': False, 'mensaje': 'Revise los datos de la preconsulta.',
+                                 'errores': form.errors}, status=400)
+        try:
+            version = parse_datetime(request.POST.get('version_preconsulta', ''))
+        except ValueError:
+            version = None
+        if version != signos.fecha_modificacion:
+            return JsonResponse({'ok': False, 'mensaje': 'La preconsulta cambió mientras la editaba. Cancele y vuelva a editar para revisar los datos actuales.'}, status=409)
+        corregir_signos(request, signos, form.cleaned_data, campos)
+        return JsonResponse({'ok': True, 'version': signos.fecha_modificacion.isoformat(),
+                             'mensaje': 'Preconsulta guardada.',
+                             'signos': render_to_string('consultas/signos_vitales.html',
+                                                       {'signos': signos}, request=request)})
+
+
 @require_POST
 @never_cache
 @login_required
@@ -354,14 +448,16 @@ def guardar_borrador(request, consulta_id):
     no en el navegador, porque cambiar de maquina perderia el texto.
     """
     consulta = consulta_propia(request, consulta_id)
-    if consulta.cerrada:
-        return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
-    form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
-    if not form.is_valid():
-        return JsonResponse({'ok': False, 'mensaje': 'No se pudo guardar.'}, status=400)
-    consulta = form.save(commit=False)
-    consulta.modificado_por = request.user
-    consulta.save()
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if consulta.cerrada:
+            return JsonResponse({'ok': False, 'mensaje': 'La consulta ya fue finalizada.'}, status=409)
+        form = ConsultaClinicaForm(request.POST, instance=consulta, borrador=True)
+        if not form.is_valid():
+            return JsonResponse({'ok': False, 'mensaje': 'No se pudo guardar.'}, status=400)
+        consulta = form.save(commit=False)
+        consulta.modificado_por = request.user
+        consulta.save()
     return JsonResponse({'ok': True, 'hora': timezone.localtime().strftime('%H:%M')})
 
 
@@ -376,19 +472,43 @@ def finalizar_consulta(request, consulta_id):
     05/09/2026, deja obsoleta la regla anterior).
     """
     consulta = consulta_propia(request, consulta_id)
-    if consulta.cerrada:
-        return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
     # Finaliza sobre lo ya preguardado: el modal de confirmacion manda su
     # propio POST y no arrastra el formulario, y el borrador ya esta en la
     # fila. El motivo es el unico campo que la consulta no puede no tener.
-    if not consulta.motivo.strip():
-        messages.error(request, 'Escriba el motivo de consulta antes de finalizar.')
-        return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
-    consulta.modificado_por = request.user
-    consulta.cierre = timezone.now()
-    if consulta.inicio is None:
-        consulta.inicio = consulta.cierre
-    consulta.save()
+    with transaction.atomic():
+        consulta = Consulta.objects.select_for_update().get(pk=consulta.pk)
+        if consulta.cerrada:
+            return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
+        if request.POST.get('preconsulta_pendiente') not in (None, '', '0'):
+            messages.error(request, 'Guarde los cambios de la preconsulta antes de finalizar la consulta.')
+            return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        if request.POST.get('preconsulta_version'):
+            signos = SignosVitales.objects.filter(consulta=consulta, activo=True).first()
+            try:
+                version = parse_datetime(request.POST['preconsulta_version'])
+            except ValueError:
+                version = None
+            if signos is None or version != signos.fecha_modificacion:
+                messages.error(request, 'La preconsulta se actualizó. Vuelva a editar para revisar sus datos antes de finalizar.')
+                return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+            persona = consulta.expediente.persona
+            campos = campos_de_preconsulta(persona.edad is not None and persona.edad < 18)
+            form = SignosVitalesForm({c: request.POST.get('preconsulta_' + c, '') for c in campos})
+            for campo in list(form.fields):
+                if campo not in campos:
+                    del form.fields[campo]
+            if not form.is_valid() or any(
+                    getattr(signos, c) != form.cleaned_data[c] for c in campos):
+                messages.error(request, 'Guarde los cambios de la preconsulta antes de finalizar la consulta.')
+                return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        if not consulta.motivo.strip():
+            messages.error(request, 'Escriba el motivo de consulta antes de finalizar.')
+            return redirect('consultas:atender_consulta', consulta_id=consulta.pk)
+        consulta.modificado_por = request.user
+        consulta.cierre = timezone.now()
+        if consulta.inicio is None:
+            consulta.inicio = consulta.cierre
+        consulta.save()
     messages.success(request, 'Consulta finalizada.')
     return redirect('consultas:ver_consulta', consulta_id=consulta.pk)
 
@@ -435,6 +555,7 @@ def ver_consulta(request, consulta_id):
     etiquetas = ConsultaClinicaForm().fields
     return render(request, 'consultas/ver_consulta.html', {
         'consulta': consulta,
+        'url_regresar': regreso_consulta(request, consulta),
         'campos': [(campo.label, getattr(consulta, nombre)) for nombre, campo in etiquetas.items()],
         'incapacidades': consulta.incapacidades.filter(activo=True).order_by('-fecha', '-pk'),
         'referencias': consulta.referencias.filter(activo=True).order_by('-fecha', '-pk'),
@@ -551,7 +672,7 @@ def agregar_incapacidad(request, consulta_id):
     dibujarlo; si ya existe un documento con ese identificador, no se crea
     otro. Es la misma proteccion que usa el camino con vista previa.
     """
-    consulta = consulta_para_documento(request, consulta_id)
+    consulta = consulta_para_constancia(request, consulta_id)
     try:
         solicitud = uuid.UUID(request.POST.get('solicitud_id', ''))
     except ValueError:
@@ -757,14 +878,15 @@ def agregar_aplicacion(request, consulta_id):
     consulta = consulta_para_documento(request, consulta_id)
     form = AplicacionForm(request.POST)
     if not form.is_valid():
-        messages.error(request, 'Revise los datos de la aplicación: %s' %
+        messages.error(request, 'Revise la aplicación: %s' %
                        '; '.join(e for errores in form.errors.values() for e in errores))
     else:
         aplicacion = form.save(commit=False)
         aplicacion.consulta = consulta
         aplicacion.creado_por = aplicacion.modificado_por = request.user
         aplicacion.save()
-        messages.success(request, f'{aplicacion.get_tipo_display()} indicada en la consulta.')
+        # El tipo ya no se pide (CD-01): el mensaje no puede depender de el.
+        messages.success(request, 'Aplicación agregada a la consulta.')
     destino = 'ver_consulta' if consulta.cerrada else 'atender_consulta'
     return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
 
@@ -777,6 +899,8 @@ def lista_aplicaciones(request, expediente_id):
     aplicaciones = Aplicacion.objects.filter(
         consulta__expediente=expediente, activo=True).select_related('consulta', 'ejecutada_por')
     return render(request, 'consultas/lista_aplicaciones.html', {
+        'titulo': Aplicacion.TITULO,
+        'descripcion': Aplicacion.DESCRIPCION,
         'expediente': expediente,
         'pendientes': aplicaciones.filter(ejecutada=False).order_by('-pk'),
         'ejecutadas': aplicaciones.filter(ejecutada=True).order_by('-fecha_ejecucion'),
@@ -801,7 +925,7 @@ def marcar_aplicacion(request, aplicacion_id):
         aplicacion.fecha_ejecucion = timezone.now()
         aplicacion.modificado_por = request.user
         aplicacion.save()
-        messages.success(request, f'{aplicacion.get_tipo_display()} marcada como aplicada.')
+        messages.success(request, f'Marcado como aplicado: {aplicacion.resumen}.')
     return redirect('consultas:lista_aplicaciones',
                    expediente_id=aplicacion.consulta.expediente_id)
 
@@ -910,14 +1034,40 @@ def _receta_de(consulta, usuario):
     return receta
 
 
-@require_POST
-@never_cache
-@login_required
-@permission_required(('pacientes.view_expediente', 'consultas.view_receta',
-                      'consultas.add_receta'), raise_exception=True)
+# Mensaje unico para las tres acciones de la receta cuando la consulta ya se
+# finalizo: el mismo texto en pantalla, con o sin JavaScript.
+RECETA_CERRADA = 'La consulta ya fue finalizada: su receta no se puede modificar.'
+RECETA_AJENA = 'Esta receta la emitió otro médico: solo él o la administradora pueden modificarla.'
+
+
+def _puede_modificar_receta(usuario, receta):
+    """
+    Una receta ya emitida solo la modifica quien la emitio, o quien
+    administra (hallazgo 7 de la revision de seguridad del 23/09/2026).
+
+    La receta se imprime con el nombre CONGELADO de quien la creo. Si otro
+    medico le agregaba un medicamento, salia firmado con el nombre del
+    primero sin que este lo supiera.
+
+    Emitir documentos sobre la consulta de otro medico sigue permitido
+    (HU-EXP-17): esto es solo para MODIFICAR una receta que ya existe.
+    `profesional_emisor` cae en el medico de la consulta para las recetas
+    viejas que no tienen `creado_por`. La administradora se reconoce como en
+    todo el sistema: por `auth.change_group`.
+    """
+    return receta.profesional_emisor == usuario or usuario.has_perm('auth.change_group')
+
+
 def _respuesta_receta(request, consulta, mensaje, tipo='success'):
     """
     Lo que se devuelve despues de tocar la receta.
+
+    Es una funcion auxiliar, NO una vista: no lleva decoradores. Antes los
+    tenia encima por error (21/09/2026), y la vista `agregar_medicamento`
+    quedo sin ellos: guardaba el medicamento y recien despues revisaba los
+    permisos. Ademas exigia `add_receta` tambien al corregir y al quitar,
+    que se autorizan con `change_receta`. Cada vista declara sus propios
+    permisos.
 
     Si la pidio el navegador por fetch, solo el pedazo que cambio: agregar o
     corregir un medicamento no tiene por que recargar la pantalla de
@@ -944,8 +1094,17 @@ def _respuesta_receta(request, consulta, mensaje, tipo='success'):
     return redirect(f'consultas:{destino}', consulta_id=consulta.pk)
 
 
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.view_receta',
+                      'consultas.add_receta'), raise_exception=True)
 def agregar_medicamento(request, consulta_id):
     consulta = consulta_para_documento(request, consulta_id)
+    # Una consulta finalizada no admite receta nueva ni medicamentos nuevos
+    # (pedido del 19/10/2026). Se revisa antes de escribir nada.
+    if consulta.cerrada:
+        return _respuesta_receta(request, consulta, RECETA_CERRADA, tipo='danger')
     form = RecetaForm(request.POST)
     if not form.is_valid():
         return _respuesta_receta(request, consulta, 'Revise el medicamento: %s' %
@@ -955,6 +1114,9 @@ def agregar_medicamento(request, consulta_id):
         # Serializa dos envios seguidos: la receta se crea una sola vez.
         Consulta.objects.select_for_update().get(pk=consulta.pk)
         receta = _receta_de(consulta, request.user)
+        # Si la receta acaba de nacer, la emitio este usuario y pasa sola.
+        if not _puede_modificar_receta(request.user, receta):
+            return _respuesta_receta(request, consulta, RECETA_AJENA, tipo='danger')
         DetalleReceta.objects.create(
             receta=receta, medicamento=form.cleaned_data['medicamento'].strip(),
             dosis=form.cleaned_data['dosis'].strip(),
@@ -967,7 +1129,7 @@ def agregar_medicamento(request, consulta_id):
 
 def _medicamento_autorizado(request, detalle_id):
     detalle = get_object_or_404(
-        DetalleReceta.objects.select_related('receta__consulta__expediente'),
+        DetalleReceta.objects.select_related('receta__consulta__expediente', 'receta__creado_por'),
         pk=detalle_id, activo=True)
     expediente_autorizado(request, detalle.receta.consulta.expediente_id)
     return detalle
@@ -990,6 +1152,10 @@ def editar_medicamento(request, detalle_id):
     a un documento ya entregado.
     """
     detalle = _medicamento_autorizado(request, detalle_id)
+    if detalle.receta.consulta.cerrada:
+        return _respuesta_receta(request, detalle.receta.consulta, RECETA_CERRADA, tipo='danger')
+    if not _puede_modificar_receta(request.user, detalle.receta):
+        return _respuesta_receta(request, detalle.receta.consulta, RECETA_AJENA, tipo='danger')
     form = RecetaForm(request.POST)
     if not form.is_valid():
         return _respuesta_receta(request, detalle.receta.consulta, 'Revise el medicamento: %s' %
@@ -1015,6 +1181,10 @@ def quitar_medicamento(request, detalle_id):
     (regla del proyecto): se desactiva y deja de salir en el PDF.
     """
     detalle = _medicamento_autorizado(request, detalle_id)
+    if detalle.receta.consulta.cerrada:
+        return _respuesta_receta(request, detalle.receta.consulta, RECETA_CERRADA, tipo='danger')
+    if not _puede_modificar_receta(request.user, detalle.receta):
+        return _respuesta_receta(request, detalle.receta.consulta, RECETA_AJENA, tipo='danger')
     detalle.activo = False
     detalle.modificado_por = request.user
     detalle.save(update_fields=['activo', 'modificado_por', 'fecha_modificacion'])
@@ -1168,3 +1338,112 @@ def retirar_adjunto(request, adjunto_id):
     adjunto.save(update_fields=['activo', 'modificado_por', 'fecha_modificacion'])
     messages.success(request, 'Archivo retirado del expediente.')
     return redirect('consultas:adjuntos', expediente_id=adjunto.expediente_id)
+
+
+@require_POST
+@never_cache
+@login_required
+@permission_required(('pacientes.view_expediente', 'consultas.delete_adjunto'), raise_exception=True)
+def eliminar_adjunto(request, adjunto_id):
+    """
+    Eliminar DE VERDAD un adjunto: del sistema y del almacenamiento (CD-08).
+
+    Es la unica excepcion a "nada se elimina" en datos clinicos, para
+    corregir el error humano de subir el archivo equivocado. Por eso:
+    - pide confirmacion en pantalla antes de llegar aqui;
+    - solo el mismo dia en que se subio (`se_puede_eliminar`);
+    - solo con `delete_adjunto`, que se asigna en Roles;
+    - y queda en la bitacora: el archivo desaparece, pero no la constancia
+      de que existio, de que era y de quien lo borro.
+
+    "Retirar" sigue existiendo y es lo normal: conserva el archivo.
+    """
+    adjunto = adjunto_autorizado(request, adjunto_id)
+    if not adjunto.se_puede_eliminar:
+        messages.error(request, 'Solo se puede eliminar el mismo día en que se subió. '
+                                'Puede retirarlo: deja de verse y el archivo se conserva.')
+        return redirect('consultas:adjuntos', expediente_id=adjunto.expediente_id)
+
+    expediente_id = adjunto.expediente_id
+    detalle = (f'"{adjunto.descripcion}" ({adjunto.get_tipo_display() or "archivo"}), '
+               f'subido el {timezone.localtime(adjunto.fecha_creacion):%d/%m/%Y a las %H:%M} '
+               f'por {adjunto.creado_por.username if adjunto.creado_por else "desconocido"}. '
+               f'Expediente {expediente_id}.')
+    # Primero el archivo: si falla (red, permisos del bucket), la fila queda
+    # y se puede reintentar. Al reves quedaria un archivo huerfano en el
+    # bucket que nadie ve ni puede borrar.
+    try:
+        adjunto.archivo.delete(save=False)
+    except Exception:
+        messages.error(request, 'No se pudo eliminar el archivo del almacenamiento. Intente de nuevo.')
+        return redirect('consultas:adjuntos', expediente_id=expediente_id)
+    with transaction.atomic():
+        registrar(request, RegistroAuditoria.Accion.ELIMINAR_ADJUNTO,
+                  objetivo=str(adjunto.expediente.persona), detalle=detalle)
+        adjunto.delete()
+    messages.success(request, 'Archivo eliminado del expediente y del almacenamiento.')
+    return redirect('consultas:adjuntos', expediente_id=expediente_id)
+
+
+# --------------------------------------------------------------------------
+# HU-EXP-27 (CD-07) -- plantillas en blanco para imprimir, por si se va la
+# luz o el internet. Se imprimen ANTES: si no hay sistema, esta pantalla
+# tampoco abre.
+# --------------------------------------------------------------------------
+
+# clave de la URL -> (titulo, permiso para verla, funcion que la dibuja, icono)
+# Cada plantilla sale de la MISMA funcion que su documento real, con
+# `plantilla=True`: si cambia el formato del documento, la plantilla cambia
+# con el (criterio 7 de la historia).
+PLANTILLAS = {
+    'constancia': ('Constancia de incapacidad', 'consultas.view_incapacidad',
+                   generar_pdf, 'bi-file-earmark-medical'),
+    'receta': ('Receta', 'consultas.view_receta', generar_pdf_receta, 'bi-capsule'),
+    'referencia': ('Referencia médica', 'consultas.view_referenciamedica',
+                   generar_pdf_referencia, 'bi-send'),
+    'examenes': ('Orden de exámenes', 'consultas.view_ordenexamen',
+                 generar_pdf_orden, 'bi-clipboard2-pulse'),
+}
+
+
+def plantillas_del_usuario(usuario):
+    """Solo las de los documentos que el usuario puede ver (criterio 10)."""
+    return [{'clave': clave, 'titulo': titulo, 'icono': icono}
+            for clave, (titulo, permiso, _, icono) in PLANTILLAS.items()
+            if usuario.has_perm(permiso)]
+
+
+# Sin `permission_required`, a diferencia del resto: el permiso depende de
+# QUE plantilla se pide, asi que se revisa adentro. Quien no puede ver
+# ningun tipo de documento recibe 403, igual que con el decorador.
+@never_cache
+@login_required
+def plantillas(request):
+    disponibles = plantillas_del_usuario(request.user)
+    if not disponibles:
+        raise PermissionDenied
+    return render(request, 'consultas/plantillas.html', {'plantillas': disponibles})
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+def plantilla_pdf(request, tipo):
+    """
+    La plantilla en blanco. No crea ningun registro ni folio (criterio 8):
+    se dibuja en memoria y se entrega.
+    """
+    if tipo not in PLANTILLAS:
+        raise Http404
+    _, permiso, dibujar, _ = PLANTILLAS[tipo]
+    if not request.user.has_perm(permiso):
+        raise PermissionDenied
+    # El membrete es el de la clinica en la que se esta trabajando (criterio 9).
+    clinica = clinica_activa(request)
+    if clinica is None:
+        raise PermissionDenied
+    respuesta = HttpResponse(dibujar(documento_en_blanco(clinica, request.user), plantilla=True),
+                             content_type='application/pdf')
+    respuesta['Content-Disposition'] = f'inline; filename="plantilla-{tipo}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta

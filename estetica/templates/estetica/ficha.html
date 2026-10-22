@@ -1,0 +1,291 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block titulo %}Ficha estética - Sistema ProSalud{% endblock %}
+{% block contenido %}
+
+<div class="mb-3">
+    <a href="{% url 'pacientes:ver_expediente' expediente.pk %}" data-salir class="text-decoration-none small text-muted">
+        <i class="bi bi-arrow-left me-1"></i> Regresar al expediente
+    </a>
+</div>
+
+<div class="mb-3">
+    <h4 class="fw-semibold mb-1">Ficha estética — {{ persona }}</h4>
+    <div class="text-muted small">
+        {% if persona.edad is not None %}{{ persona.edad }} años · {% endif %}
+        {% if persona.dui %}DUI {{ persona.dui }} · {% endif %}
+        {% if persona.telefono %}Tel. {{ persona.telefono }}{% else %}Sin teléfono registrado{% endif %}
+    </div>
+</div>
+
+{% comment %}
+Mismo preguardado que la consulta (preguardado.js): se guarda solo mientras la
+doctora escribe y nada recarga la pantalla, asi que no se pierde lo escrito
+ni se mueve de lugar. Sin JavaScript, el boton envia el formulario y la
+vista lo guarda igual.
+{% endcomment %}
+<form id="form-ficha" method="post" action="{% url 'estetica:guardar_ficha' expediente.pk %}"
+      data-preguardado data-url-volver="{% url 'pacientes:ver_expediente' expediente.pk %}">
+    {% csrf_token %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">DATOS PERSONALES</h6>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.estado_civil.id_for_label }}" class="form-label small fw-semibold">{{ form.estado_civil.label }}</label>
+                    {{ form.estado_civil }}{{ form.estado_civil.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.religion.id_for_label }}" class="form-label small fw-semibold">{{ form.religion.label }}</label>
+                    {{ form.religion }}{{ form.religion.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.ocupacion.id_for_label }}" class="form-label small fw-semibold">{{ form.ocupacion.label }}</label>
+                    {{ form.ocupacion }}{{ form.ocupacion.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.email.id_for_label }}" class="form-label small fw-semibold">{{ form.email.label }}</label>
+                    {{ form.email }}{{ form.email.errors }}
+                </div>
+                <div class="col-12">
+                    <label for="{{ form.direccion.id_for_label }}" class="form-label small fw-semibold">{{ form.direccion.label }}</label>
+                    {{ form.direccion }}{{ form.direccion.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.medico.id_for_label }}" class="form-label small fw-semibold">{{ form.medico.label }}</label>
+                    {{ form.medico }}{{ form.medico.errors }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="{{ form.como_conocio.id_for_label }}" class="form-label small fw-semibold">{{ form.como_conocio.label }}</label>
+                    {{ form.como_conocio }}{{ form.como_conocio.errors }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.referido_por.id_for_label }}" class="form-label small fw-semibold">{{ form.referido_por.label }}</label>
+                    {{ form.referido_por }}{{ form.referido_por.errors }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% comment %}
+    Antecedentes esteticos (HU-EST-02), en el orden y con las casillas de la
+    ficha en papel. Todo puede quedar sin marcar ni escribir.
+    {% endcomment %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <h6 class="fw-semibold text-muted mb-1" style="font-size: 0.75rem; letter-spacing: 0.03em;">ANTECEDENTES ESTÉTICOS</h6>
+            <p class="small text-muted mb-3">Para desmarcar una opción, tóquela otra vez.</p>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.tratamiento_estetico.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.tratamiento_estetico %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.tratamiento_estetico_cual }}</div>
+                </div>
+            </div>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.cirugia.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.cirugia %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.cirugia_cuales }}</div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">{{ form.cirugia_donde }}</div>
+                    <div class="col-md-6">{{ form.cirugia_doctor }}</div>
+                </div>
+            </div>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.moldeamiento_corporal.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.moldeamiento_corporal %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.moldeamiento_corporal_cuales }}</div>
+                </div>
+            </div>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.depilacion.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-4">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.depilacion %}</div>
+                    <div class="text-nowrap">
+                        {% include 'estetica/_casilla.html' with campo=form.depilacion_laser %}
+                        {% include 'estetica/_casilla.html' with campo=form.depilacion_ipl %}
+                    </div>
+                    <div class="text-nowrap">
+                        <span class="small text-muted me-2">{{ form.depilacion_resultado.label }}:</span>
+                        {% include 'estetica/_opciones.html' with campo=form.depilacion_resultado %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.tratamientos_faciales.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.tratamientos_faciales %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.tratamientos_faciales_cuales }}</div>
+                </div>
+            </div>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div>
+                        {% include 'estetica/_casilla.html' with campo=form.botox %}
+                        {% include 'estetica/_casilla.html' with campo=form.rellenos %}
+                        {% include 'estetica/_casilla.html' with campo=form.prp %}
+                        {% include 'estetica/_casilla.html' with campo=form.laser %}
+                        {% include 'estetica/_casilla.html' with campo=form.hilos %}
+                    </div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.otros_procedimientos }}</div>
+                </div>
+            </div>
+
+            <div>
+                <label for="{{ form.productos_en_casa.id_for_label }}" class="form-label small fw-semibold">{{ form.productos_en_casa.label }}</label>
+                {{ form.productos_en_casa }}
+            </div>
+        </div>
+    </div>
+
+    {% comment %}
+    Antecedentes medicos de la Estetica (HU-EST-02), hoja 2 de la ficha en
+    papel. Son propios de esta clinica: no usan los Antecedentes de ProSalud.
+    {% endcomment %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body p-4">
+            <h6 class="fw-semibold text-muted mb-1" style="font-size: 0.75rem; letter-spacing: 0.03em;">ANTECEDENTES MÉDICOS</h6>
+            <p class="small text-muted mb-3">Para desmarcar una opción, tóquela otra vez.</p>
+
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.enfermedad.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.enfermedad %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.enfermedad_cuales }}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.cirugia_medica.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.cirugia_medica %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.cirugia_medica_cual }}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.alergico.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.alergico %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.alergico_a_que }}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.fracturas.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.fracturas %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.fracturas_donde }}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-2">
+                        <label for="{{ form.embarazos.id_for_label }}" class="form-label small">{{ form.embarazos.label }}</label>
+                        {{ form.embarazos }}
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label for="{{ form.abortos.id_for_label }}" class="form-label small">{{ form.abortos.label }}</label>
+                        {{ form.abortos }}
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label for="{{ form.partos.id_for_label }}" class="form-label small">{{ form.partos.label }}</label>
+                        {{ form.partos }}
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label for="{{ form.cesareas.id_for_label }}" class="form-label small">{{ form.cesareas.label }}</label>
+                        {{ form.cesareas }}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label for="{{ form.fur.id_for_label }}" class="form-label small">{{ form.fur.label }}</label>
+                        {{ form.fur }}
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
+                    <span class="small fw-semibold">{{ form.ciclo_regular.label }}</span>
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.ciclo_regular %}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.anticonceptivos.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.anticonceptivos %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.anticonceptivos_cual }}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.menopausia_andropausia.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.menopausia_andropausia %}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.anestesia_previa.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.anestesia_previa %}</div>
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <label for="{{ form.enfermedades_familia.id_for_label }}" class="form-label small fw-semibold">{{ form.enfermedades_familia.label }}</label>
+                {{ form.enfermedades_familia }}
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div>
+                    {% include 'estetica/_casilla.html' with campo=form.problemas_orinar %}
+                    {% include 'estetica/_casilla.html' with campo=form.problemas_defecar %}
+                    {% include 'estetica/_casilla.html' with campo=form.problemas_dormir %}
+                    {% include 'estetica/_casilla.html' with campo=form.hace_ejercicio %}
+                    {% include 'estetica/_casilla.html' with campo=form.fuma %}
+                    {% include 'estetica/_casilla.html' with campo=form.alcohol %}
+                </div>
+            </div>
+            <div class="row g-3 border-bottom pb-3 mb-3">
+                <div class="col-md-6">
+                    <label for="{{ form.dieta.id_for_label }}" class="form-label small fw-semibold">{{ form.dieta.label }}</label>
+                    {{ form.dieta }}
+                </div>
+                <div class="col-md-6">
+                    <label for="{{ form.vitaminas_suplementos.id_for_label }}" class="form-label small fw-semibold">{{ form.vitaminas_suplementos.label }}</label>
+                    {{ form.vitaminas_suplementos }}
+                </div>
+            </div>
+            <div class="border-bottom pb-3 mb-3">
+                <div class="small fw-semibold mb-2">{{ form.droga_recreacional.label }}</div>
+                <div class="d-flex flex-wrap align-items-center gap-3">
+                    <div class="text-nowrap">{% include 'estetica/_opciones.html' with campo=form.droga_recreacional %}</div>
+                    <div class="flex-grow-1" style="min-width: 220px;">{{ form.droga_recreacional_cual }}</div>
+                </div>
+            </div>
+            <div>
+                <label for="{{ form.pastillas_para_dormir.id_for_label }}" class="form-label small fw-semibold">{{ form.pastillas_para_dormir.label }}</label>
+                {{ form.pastillas_para_dormir }}
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span id="estado-guardado" class="small text-muted">
+            {% if ficha %}Guardada el {{ ficha.fecha_modificacion|date:'d/m/Y' }} a las {{ ficha.fecha_modificacion|date:'H:i' }}{% else %}Todavía sin guardar{% endif %}
+        </span>
+        <button type="submit" class="btn btn-primary">Guardar y volver al expediente</button>
+    </div>
+</form>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'estetica/js/preguardado.js' %}"></script>
+{% endblock %}

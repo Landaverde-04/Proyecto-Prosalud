@@ -16,7 +16,7 @@
 
     function revisar() {
         // Sin pedir nada mientras la pestaña no se ve.
-        if (document.hidden) return;
+        if (document.hidden || bloque.dataset.editandoPreconsulta === 'true') return;
         fetch(bloque.dataset.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (resp) {
                 // Sesion vencida u otro error: se deja lo que hay y no se navega,
@@ -25,9 +25,12 @@
                 return resp.text();
             })
             .then(function (html) {
+                // El GET pudo empezar antes de abrir el editor o guardar una correccion.
+                if (bloque.dataset.editandoPreconsulta === 'true') return;
                 var nuevo = document.createElement('div');
                 nuevo.innerHTML = html;
                 if (version(nuevo) === version(contenido)) return;
+                if (version(nuevo) < version(contenido)) return;
                 contenido.innerHTML = html;
                 if (aviso) aviso.hidden = false;
                 // border-0 de Bootstrap gana a border: hay que quitarlo para resaltar.

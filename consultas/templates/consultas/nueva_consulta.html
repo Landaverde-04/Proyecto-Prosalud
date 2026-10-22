@@ -23,6 +23,7 @@
 
         <form method="post">
             {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ url_regresar }}">
             {{ form.non_field_errors }}
             <div class="row g-3">
                 <div class="col-sm-6">

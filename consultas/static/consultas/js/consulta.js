@@ -20,8 +20,7 @@
     var url = form.dataset.urlBorrador;
     var token = form.querySelector('[name=csrfmiddlewaretoken]').value;
     var espera = null;
-    var guardando = false;
-    var pendiente = false;
+    var peticion = null;
     // Cambios escritos contra cambios confirmados por el servidor.
     var version = 0;
     var versionGuardada = 0;
@@ -35,32 +34,52 @@
     function guardar() {
         // Una petición a la vez: si el usuario sigue escribiendo mientras
         // se guarda, se encola una sola repetición al terminar.
-        if (guardando) { pendiente = true; return Promise.resolve(); }
-        guardando = true;
+        if (peticion) {
+            return peticion.then(function (ok) {
+                return ok && version !== versionGuardada ? guardar() : ok;
+            });
+        }
         var enviada = version;
         avisar('Guardando…');
-        return fetch(url, {
+        peticion = fetch(url, {
             method: 'POST',
             headers: {'X-CSRFToken': token, 'X-Requested-With': 'XMLHttpRequest'},
             body: new FormData(form),
         })
             .then(function (respuesta) {
-                if (!respuesta.ok) { throw new Error(respuesta.status); }
+                if (!respuesta.ok || respuesta.redirected) { throw new Error(respuesta.status); }
                 return respuesta.json();
             })
             .then(function (datos) {
                 versionGuardada = Math.max(versionGuardada, enviada);
                 avisar('Guardado ' + datos.hora);
+                return true;
             })
             .catch(function () {
                 // Falla visible: en silencio, la doctora creería que quedó
                 // guardado y podría cerrar la ventana perdiendo lo escrito.
                 avisar('No se pudo guardar. Revise su conexión y no cierre esta ventana.', true);
+                return false;
             })
             .finally(function () {
-                guardando = false;
-                if (pendiente) { pendiente = false; guardar(); }
+                peticion = null;
             });
+        return peticion.then(function (ok) {
+            return ok && version !== versionGuardada ? guardar() : ok;
+        });
+    }
+
+    function guardarTodo(finalizando) {
+        clearTimeout(espera);
+        if (finalizando && window.validarPreconsultaGuardada && !window.validarPreconsultaGuardada()) {
+            return Promise.resolve(false);
+        }
+        return guardar().then(function (ok) {
+            if (!ok) return false;
+            // Puede haber editado la preconsulta mientras esperaba el borrador.
+            if (finalizando) return !window.validarPreconsultaGuardada || window.validarPreconsultaGuardada();
+            return window.guardarPreconsultaPendiente ? window.guardarPreconsultaPendiente() : true;
+        });
     }
 
     form.addEventListener('input', function () {
@@ -83,11 +102,18 @@
     if (finalizar) {
         finalizar.addEventListener('click', function () {
             clearTimeout(espera);
-            guardar().finally(function () {
-                new bootstrap.Modal(document.getElementById('modalFinalizar')).show();
+            guardarTodo(true).then(function (ok) {
+                if (ok) new bootstrap.Modal(document.getElementById('modalFinalizar')).show();
             });
         });
     }
+
+    // Comprueba otra vez al confirmar, por si se edito tras abrir el modal.
+    var formFinalizar = document.querySelector('#modalFinalizar form');
+    if (formFinalizar) formFinalizar.addEventListener('submit', function (evento) {
+        evento.preventDefault();
+        guardarTodo(true).then(function (ok) { if (ok) formFinalizar.submit(); });
+    });
 
     // "Agregar documento (opcional)" del mockup: el botón despliega sus
     // campos aquí mismo, sin salir de la consulta.
@@ -140,8 +166,8 @@
         enlace.addEventListener('click', function (evento) {
             evento.preventDefault();
             clearTimeout(espera);
-            guardar().finally(function () {
-                window.location.href = enlace.href;
+            guardarTodo().then(function (ok) {
+                if (ok) window.location.href = enlace.href;
             });
         });
     });
@@ -256,6 +282,11 @@
     if (!lista || !window.fetch) { return; }
     var acciones = document.getElementById('receta-acciones');
 
+    function avisarSiSePuede(texto, tipo) {
+        if (window.avisar) { window.avisar(texto, tipo); }
+    }
+
+    // Devuelve una promesa con `true` solo si el servidor confirmó el cambio.
     function enviar(formulario) {
         return fetch(formulario.action, {
             method: 'POST',
@@ -264,16 +295,25 @@
         }).then(function (respuesta) {
             // Un 403 de permisos o un 500 devuelven HTML, no JSON: sin esto
             // reventaría al parsearlo y el clic se quedaría sin respuesta.
+            if (respuesta.status === 403) { throw new Error('permiso'); }
             if (!respuesta.ok) { throw new Error(respuesta.status); }
             return respuesta.json();
         }).then(function (datos) {
             lista.innerHTML = datos.medicamentos;
             if (acciones) { acciones.innerHTML = datos.acciones; }
-            if (window.avisar) { window.avisar(datos.mensaje, datos.tipo); }
-        }).catch(function () {
-            // Si algo falla se recarga: más vale una recarga molesta que
-            // dejar a la doctora creyendo que guardó algo que no guardó.
-            formulario.submit();
+            avisarSiSePuede(datos.mensaje, datos.tipo);
+            return datos.ok;
+        }).catch(function (error) {
+            // NO se reenvía el formulario. Antes se reenviaba "por si acaso",
+            // pero si el servidor alcanzó a guardar y lo que se perdió fue la
+            // respuesta, el reenvío guardaba el medicamento DOS veces
+            // (hallazgo de la revisión de Codex, 21/09/2026). Se avisa y la
+            // doctora revisa antes de repetir.
+            avisarSiSePuede(error.message === 'permiso'
+                ? 'No tiene permiso para modificar la receta.'
+                : 'No se pudo confirmar si se guardó. Recargue la página para revisar la receta antes de volver a intentarlo.',
+                'danger');
+            return false;
         });
     }
 
@@ -281,7 +321,10 @@
     if (alta) {
         alta.addEventListener('submit', function (evento) {
             evento.preventDefault();
-            enviar(alta).then(function () {
+            enviar(alta).then(function (guardado) {
+                // Si no se guardó, lo escrito se queda en los campos: vaciarlos
+                // le haría perder a la doctora lo que acababa de teclear.
+                if (!guardado) { return; }
                 alta.reset();
                 // Listo para el siguiente: una receta rara vez trae uno solo.
                 // No `querySelector('input')` a secas -- el primero es el

@@ -3,10 +3,14 @@
 {% block titulo %}Atender consulta - Sistema ProSalud{% endblock %}
 {% block contenido %}
 
-<a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir
-   class="text-decoration-none small text-muted d-inline-flex align-items-center gap-1 mb-3">
-    <i class="bi bi-arrow-left"></i> Expediente de {{ consulta.expediente.persona }}
-</a>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <a href="{{ url_regresar }}" data-salir class="text-decoration-none small text-muted">
+        <i class="bi bi-arrow-left me-1"></i> Regresar
+    </a>
+    <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" data-salir class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-folder2-open me-1"></i> Ver expediente
+    </a>
+</div>
 
 {% if consulta.en_cola %}
 {% comment %}
@@ -20,6 +24,7 @@ cuando la doctora pulsa el boton, no al abrir el expediente (HU-EXP-17).
         <p class="text-muted small">Este paciente está en espera. La atención empieza cuando inicie la consulta.</p>
         <form method="post" action="{% url 'consultas:iniciar_consulta' consulta.pk %}">
             {% csrf_token %}
+            <input type="hidden" name="volver" value="{{ url_regresar }}">
             <button type="submit" class="btn btn-primary">Iniciar consulta</button>
         </form>
     </div>
@@ -60,13 +65,36 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
 {% endcomment %}
 <div class="card shadow-sm border-0 mb-3">
     <div class="card-body p-3" data-signos-vivos data-url="{% url 'consultas:signos_vitales_consulta' consulta.pk %}">
-        <h6 class="fw-semibold text-muted mb-2" style="font-size: 0.75rem; letter-spacing: 0.03em;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h6 class="fw-semibold text-muted mb-0" style="font-size: 0.75rem; letter-spacing: 0.03em;">
             <i class="bi bi-activity me-1"></i>SIGNOS VITALES
-            <span class="badge text-bg-warning fw-normal ms-2" data-signos-aviso hidden>Actualizados por enfermería</span>
+            <span class="badge text-bg-warning fw-normal ms-2" data-signos-aviso hidden>Preconsulta actualizada</span>
         </h6>
+        {% if signos %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-editar-preconsulta
+                aria-expanded="false" aria-controls="editor-preconsulta">
+            <i class="bi bi-pencil-square me-1"></i> Editar preconsulta
+        </button>
+        {% endif %}
+        </div>
         <div data-signos-contenido>
             {% include "consultas/signos_vitales.html" %}
         </div>
+        {% if signos %}
+        <div id="editor-preconsulta" class="mt-3 pt-3 border-top" hidden>
+            <p class="text-muted small">Corrija los datos tomados en enfermería. Se guardan sin salir de la consulta y quedan registrados con su usuario.</p>
+            <form id="form-preconsulta-consulta" method="post" action="{% url 'consultas:editar_preconsulta_consulta' consulta.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="version_preconsulta">
+                <fieldset data-preconsulta-campos></fieldset>
+                <div class="small mb-2" data-preconsulta-estado role="status" aria-live="polite"></div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+                    <button type="button" class="btn btn-outline-secondary" data-cancelar-preconsulta>Cancelar</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -81,7 +109,7 @@ la preconsulta (HU-EXP-09, de Kevin), que todavía no existe.
                 S  Motivo · Historia de la enfermedad actual   lo que cuenta el paciente
                 O  Examen físico                               lo que encuentra la doctora
                 A  Diagnóstico                                 el juicio clínico
-                P  Tratamiento · Indicaciones                  qué se hace
+                P  Plan · Indicaciones                         qué se hace
 
             Los signos vitales son parte de la O y van arriba, en su propia
             sección, porque los toma enfermería antes de la consulta.
@@ -185,20 +213,22 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <div class="d-flex justify-content-between align-items-center gap-2 small">
                 <div>
                     <i class="bi bi-eyedropper me-1" style="color: var(--accent);"></i>
-                    {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}
+                    {{ aplicacion.resumen }}
                     <span class="text-muted">· {% if aplicacion.ejecutada %}aplicada{% else %}por aplicar{% endif %}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary"
                         data-ver-detalle="detalle-aplicacion-{{ aplicacion.pk }}"
-                        data-titulo="{{ aplicacion.get_tipo_display }}">Ver</button>
+                        data-titulo="Aplicación">Ver</button>
             </div>
             <div id="detalle-aplicacion-{{ aplicacion.pk }}" hidden>
                 <dl class="row mb-0">
+                    {% if aplicacion.tipo %}
                     <dt class="col-4 text-muted fw-normal">Tipo</dt>
                     <dd class="col-8">{{ aplicacion.get_tipo_display }}</dd>
                     <dt class="col-4 text-muted fw-normal">Dosis</dt>
                     <dd class="col-8">{{ aplicacion.dosis|default:"—" }}</dd>
-                    <dt class="col-4 text-muted fw-normal">Indicaciones</dt>
+                    {% endif %}
+                    <dt class="col-4 text-muted fw-normal">Medicamentos</dt>
                     <dd class="col-8" style="white-space: pre-wrap;">{{ aplicacion.indicaciones|default:"—" }}</dd>
                     <dt class="col-4 text-muted fw-normal">Estado</dt>
                     <dd class="col-8">{% if aplicacion.ejecutada %}Aplicada{% else %}Por aplicar{% endif %}</dd>
@@ -251,7 +281,7 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             <div class="d-flex justify-content-between align-items-center gap-2 small">
                 <div>
                     <i class="bi bi-send me-1" style="color: var(--accent);"></i>
-                    Referencia a {{ referencia.especialidad }}
+                    Referencia a {{ referencia.especialidad }}{% if referencia.hospital %} · {{ referencia.hospital }}{% endif %}
                     <span class="text-muted">· {{ referencia.fecha|date:'d/m/Y' }}</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary"
@@ -275,7 +305,7 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
             {% endif %}
             {% if perms.consultas.add_aplicacion %}
             <button type="button" class="btn btn-sm btn-outline-primary" data-panel="panel-aplicacion">
-                <i class="bi bi-eyedropper"></i> Aplicación
+                <i class="bi bi-eyedropper"></i> Aplicaciones
             </button>
             {% endif %}
             {% if perms.consultas.add_referenciamedica %}
@@ -324,9 +354,13 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
               id="panel-referencia" class="border rounded p-3 mt-3" hidden>
             {% csrf_token %}
             <div class="row g-2 align-items-end">
-                <div class="col-sm-6">
+                <div class="col-sm-4">
                     <label for="{{ form_referencia.especialidad.id_for_label }}" class="form-label small fw-semibold">Especialidad</label>
                     {{ form_referencia.especialidad }}
+                </div>
+                <div class="col-sm-5">
+                    <label for="{{ form_referencia.hospital.id_for_label }}" class="form-label small fw-semibold">Hospital (opcional)</label>
+                    {{ form_referencia.hospital }}
                 </div>
                 <div class="col-sm-3">
                     <button type="submit" class="btn btn-primary w-100">Agregar</button>
@@ -367,23 +401,15 @@ reflejar la navegación prevista, no para fingir un botón que no hace nada.
         <form method="post" action="{% url 'consultas:agregar_aplicacion' consulta.pk %}"
               id="panel-aplicacion" class="border rounded p-3 mt-3" hidden>
             {% csrf_token %}
-            <div class="row g-2 align-items-end">
-                <div class="col-sm-4">
-                    <label for="{{ form_aplicacion.tipo.id_for_label }}" class="form-label small fw-semibold">Tipo</label>
-                    {{ form_aplicacion.tipo }}
-                </div>
-                <div class="col-sm-5">
-                    <label for="{{ form_aplicacion.dosis.id_for_label }}" class="form-label small fw-semibold">Dosis</label>
-                    {{ form_aplicacion.dosis }}
-                </div>
-                <div class="col-sm-3">
-                    <button type="submit" class="btn btn-primary w-100">Agregar</button>
-                </div>
-                <div class="col-12">
-                    <label for="{{ form_aplicacion.indicaciones.id_for_label }}" class="form-label small fw-semibold">Indicaciones</label>
-                    {{ form_aplicacion.indicaciones }}
-                </div>
-            </div>
+            {% comment %}
+            CD-01 (pedido de la doctora, 09/10/2026): un solo cuadro de texto
+            libre. Antes eran tipo de lista, dosis e indicaciones por separado.
+            {% endcomment %}
+            <h6 class="small fw-semibold mb-0">{{ form_aplicacion.instance.TITULO }}</h6>
+            <p class="small text-muted mb-2">{{ form_aplicacion.instance.DESCRIPCION }}</p>
+            <label for="{{ form_aplicacion.indicaciones.id_for_label }}" class="form-label small fw-semibold">{{ form_aplicacion.indicaciones.label }}</label>
+            {{ form_aplicacion.indicaciones }}
+            <button type="submit" class="btn btn-primary mt-2">Agregar</button>
         </form>
         {% endif %}
 
@@ -489,7 +515,7 @@ consulta", que es acción aparte.
         Lo que escriba se guarda solo.
     </output>
     <div class="d-flex gap-2">
-        <a href="{% url 'pacientes:ver_expediente' consulta.expediente_id %}" class="btn btn-outline-secondary" data-salir>Salir</a>
+        <a href="{{ url_regresar }}" class="btn btn-outline-secondary" data-salir>Regresar</a>
         <button type="button" class="btn btn-primary" data-abrir-finalizar>
             Finalizar consulta
         </button>
@@ -537,7 +563,7 @@ aquí hace falta una lista.
                     {% endfor %}
                     {% for aplicacion in aplicaciones %}
                     <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
-                        {{ aplicacion.get_tipo_display }}{% if aplicacion.dosis %} · {{ aplicacion.dosis }}{% endif %}</li>
+                        Aplicación: {{ aplicacion.resumen }}</li>
                     {% endfor %}
                     {% for control in controles %}
                     <li class="mb-1"><i class="bi bi-check2 me-2" style="color: var(--accent);"></i>
@@ -575,6 +601,7 @@ aquí hace falta una lista.
                 </button>
                 <form method="post" action="{% url 'consultas:finalizar_consulta' consulta.pk %}">
                     {% csrf_token %}
+                    <input type="hidden" name="preconsulta_pendiente" value="0">
                     <button type="submit" class="btn btn-primary">Sí, finalizar</button>
                 </form>
             </div>
@@ -630,6 +657,8 @@ costaba abandonar la atención.
 {% endblock %}
 
 {% block scripts_extra %}
+<script src="{% static 'pacientes/js/formato-campos.js' %}"></script>
+<script src="{% static 'consultas/js/preconsulta.js' %}"></script>
 <script src="{% static 'consultas/js/consulta.js' %}"></script>
 <script src="{% static 'consultas/js/signos-vivos.js' %}"></script>
 {% endblock %}

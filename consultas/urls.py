@@ -8,10 +8,15 @@ urlpatterns = [
     path('antecedentes/<int:antecedente_id>/editar/', views.editar_antecedente, name='editar_antecedente'),
     path('antecedentes/<int:antecedente_id>/desactivar/', views.desactivar_antecedente, name='desactivar_antecedente'),
 
+    # Plantillas en blanco para imprimir -- HU-EXP-27 (CD-07)
+    path('plantillas/', views.plantillas, name='plantillas'),
+    path('plantillas/<str:tipo>/', views.plantilla_pdf, name='plantilla_pdf'),
+
     # Adjuntos del expediente -- HU-EXP-08
     path('expediente/<int:expediente_id>/adjuntos/', views.adjuntos, name='adjuntos'),
     path('adjuntos/<int:adjunto_id>/archivo/', views.descargar_adjunto, name='descargar_adjunto'),
     path('adjuntos/<int:adjunto_id>/retirar/', views.retirar_adjunto, name='retirar_adjunto'),
+    path('adjuntos/<int:adjunto_id>/eliminar/', views.eliminar_adjunto, name='eliminar_adjunto'),
 
     # Receta -- HU-EXP-25
     path('expediente/<int:expediente_id>/recetas/', views.lista_recetas, name='lista_recetas'),
@@ -49,6 +54,7 @@ urlpatterns = [
     path('expediente/<int:expediente_id>/nueva/', views.nueva_consulta, name='nueva_consulta'),
     path('<int:consulta_id>/iniciar/', views.iniciar_consulta, name='iniciar_consulta'),
     path('<int:consulta_id>/signos-vitales/', views.signos_vitales_consulta, name='signos_vitales_consulta'),
+    path('<int:consulta_id>/preconsulta/editar/', views.editar_preconsulta_consulta, name='editar_preconsulta_consulta'),
     path('<int:consulta_id>/atender/', views.atender_consulta, name='atender_consulta'),
     path('<int:consulta_id>/borrador/', views.guardar_borrador, name='guardar_borrador'),
     path('<int:consulta_id>/finalizar/', views.finalizar_consulta, name='finalizar_consulta'),
