@@ -209,28 +209,43 @@ class AtencionEsteticaForm(forms.ModelForm):
         return valor
 
     MAXIMO_MARCAS = 60
+    MAXIMO_VECTORES = 12
     LARGO_NOTA = 150
+
+    @staticmethod
+    def _punto(dato):
+        """Un punto de la figura: x e y en porcentaje, dentro de la imagen."""
+        try:
+            x, y = round(float(dato['x']), 2), round(float(dato['y']), 2)
+        except (TypeError, KeyError, ValueError):
+            raise forms.ValidationError('Las marcas no se pudieron leer.')
+        if not (0 <= x <= 100 and 0 <= y <= 100):
+            raise forms.ValidationError('Una marca quedó fuera de la figura.')
+        return x, y
 
     def clean_marcas(self):
         """
-        Lista de marcas sobre la figura. Se valida en el servidor aunque la
-        arme el navegador: x e y entre 0 y 100, nota corta.
+        Puntos sobre la figura, cada uno con su nota y las flechas (vectores)
+        que salen de el: [{"x", "y", "nota", "vectores": [{"x", "y"}]}].
+        Se valida en el servidor aunque lo arme el navegador.
         """
         marcas = self.cleaned_data.get('marcas') or []
         if not isinstance(marcas, list) or len(marcas) > self.MAXIMO_MARCAS:
             raise forms.ValidationError('Las marcas no se pudieron leer.')
         limpias = []
         for marca in marcas:
-            try:
-                x, y = round(float(marca['x']), 2), round(float(marca['y']), 2)
-            except (TypeError, KeyError, ValueError):
+            if not isinstance(marca, dict):
                 raise forms.ValidationError('Las marcas no se pudieron leer.')
+            x, y = self._punto(marca)
             nota = str(marca.get('nota', '')).strip()
-            if not (0 <= x <= 100 and 0 <= y <= 100):
-                raise forms.ValidationError('Una marca quedó fuera de la figura.')
             if len(nota) > self.LARGO_NOTA:
                 raise forms.ValidationError(f'Cada nota puede tener hasta {self.LARGO_NOTA} letras.')
-            limpias.append({'x': x, 'y': y, 'nota': nota})
+            # Las marcas anteriores a las flechas no traen la clave: sin flechas.
+            vectores = marca.get('vectores') or []
+            if not isinstance(vectores, list) or len(vectores) > self.MAXIMO_VECTORES:
+                raise forms.ValidationError(f'Cada punto puede tener hasta {self.MAXIMO_VECTORES} flechas.')
+            limpias.append({'x': x, 'y': y, 'nota': nota,
+                            'vectores': [dict(zip(('x', 'y'), self._punto(v))) for v in vectores]})
         return limpias
 
     def _en_rango(self, nombre, minimo, maximo):

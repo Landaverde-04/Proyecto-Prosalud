@@ -3,17 +3,19 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Max
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 from core.clinica_activa import clinica_activa
 from core.models import Clinica
 from core.paginacion import es_ajax
 from pacientes.models import Expediente
+from .documentos import generar_pdf_atencion, generar_plantilla_atencion
 from .forms import AtencionEsteticaForm, FichaEsteticaForm, ProcedimientoForm
 from .models import AtencionEstetica, FichaEstetica, ProcedimientoEstetico, SesionProcedimiento
 
@@ -363,4 +365,40 @@ def atenciones(request, expediente_id):
         'expediente': expediente,
         'atenciones': expediente.atenciones_esteticas.filter(activo=True).order_by('-inicio'),
     })
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required('pacientes.view_expediente', raise_exception=True)
+def pdf_atencion(request, atencion_id):
+    """
+    La atencion en PDF, con la figura y sus marcas en una sola pagina. Se
+    abre en el visor de la pantalla; ?descargar=1 baja el archivo.
+    """
+    atencion = atencion_autorizada(request, atencion_id)
+    respuesta = HttpResponse(generar_pdf_atencion(atencion), content_type='application/pdf')
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    fecha = timezone.localtime(atencion.inicio).strftime('%Y-%m-%d')
+    respuesta['Content-Disposition'] = f'{modo}; filename="atencion-estetica-{fecha}-{atencion.pk}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required('pacientes.view_expediente', raise_exception=True)
+def plantilla_atencion(request, figura):
+    """
+    La atencion estetica en blanco, de mujer o de hombre (HU-EST-04), para
+    llenarla a mano. Solo con la clinica Estetica activa. No crea registros.
+    """
+    clinica = clinica_activa(request)
+    if clinica is None or clinica.tipo != Clinica.Tipo.ESTETICA or figura not in AtencionEstetica.Figura.values:
+        raise Http404
+    respuesta = HttpResponse(generar_plantilla_atencion(clinica, request.user, figura), content_type='application/pdf')
+    respuesta['Content-Disposition'] = f'inline; filename="plantilla-atencion-estetica-{figura}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
 

@@ -161,6 +161,12 @@
         });
     });
 
+    // Para el PDF (visor.js): que salga con lo último escrito.
+    window.guardarPendiente = function () {
+        clearTimeout(espera);
+        return guardar();
+    };
+
     // Cualquier otra salida (menú lateral, cerrar la pestaña, recargar): si
     // queda algo sin confirmar se envía con keepalive, que el navegador
     // completa aunque la página ya se esté descargando.

@@ -336,8 +336,20 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertEqual(self.guardar_atencion(figura='hombre', marcas=json.dumps(marcas)).status_code, 200)
         self.atencion.refresh_from_db()
         self.assertEqual(self.atencion.figura, 'hombre')
-        self.assertEqual(self.atencion.marcas, [{'x': 25.5, 'y': 40.0, 'nota': 'Hilos'},
-                                                {'x': 70.0, 'y': 30.25, 'nota': ''}])
+        self.assertEqual(self.atencion.marcas, [{'x': 25.5, 'y': 40.0, 'nota': 'Hilos', 'vectores': []},
+                                                {'x': 70.0, 'y': 30.25, 'nota': '', 'vectores': []}])
+
+    def test_las_flechas_salen_de_un_punto(self):
+        marcas = [{'x': 30, 'y': 40, 'nota': 'Hilos', 'vectores': [{'x': 35, 'y': 30}, {'x': 38, 'y': 45}]}]
+        self.assertEqual(self.guardar_atencion(marcas=json.dumps(marcas)).status_code, 200)
+        self.atencion.refresh_from_db()
+        self.assertEqual(self.atencion.marcas[0]['vectores'], [{'x': 35.0, 'y': 30.0}, {'x': 38.0, 'y': 45.0}])
+
+    def test_una_flecha_fuera_de_la_figura_no_se_guarda(self):
+        marcas = [{'x': 30, 'y': 40, 'vectores': [{'x': 130, 'y': 30}]}]
+        self.assertEqual(self.guardar_atencion(marcas=json.dumps(marcas)).status_code, 400)
+        self.atencion.refresh_from_db()
+        self.assertEqual(self.atencion.marcas, [])
 
     def test_al_recargar_vuelven_las_marcas(self):
         self.guardar_atencion(marcas=json.dumps([{'x': 10, 'y': 20, 'nota': 'Frente'}]))
@@ -468,3 +480,72 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertNotContains(respuesta, 'Recetas')
         self.assertNotContains(respuesta, 'CONTROLES PENDIENTES')
         self.assertContains(respuesta, 'Adjuntos')
+
+
+class PdfAtencionTests(PruebaDeFicha):
+    """HU-EST-03: la atención en PDF, con la figura y sus marcas."""
+
+    def setUp(self):
+        super().setUp()
+        self.atencion = AtencionEstetica.objects.create(
+            expediente=self.expediente, doctor=self.doctora, doctor_nombre='Elsa Miranda',
+            motivo='Flacidez', figura='mujer',
+            marcas=[{'x': 17, 'y': 52, 'nota': 'Hilos', 'vectores': [{'x': 12, 'y': 40}]}])
+        self.url = reverse('estetica:pdf_atencion', args=[self.atencion.pk])
+
+    def test_se_abre_en_el_visor(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta['Content-Type'], 'application/pdf')
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
+        self.assertTrue(respuesta['Content-Disposition'].startswith('inline'))
+        self.assertEqual(respuesta['X-Frame-Options'], 'SAMEORIGIN')
+        self.assertEqual(respuesta['X-Content-Type-Options'], 'nosniff')
+
+    def test_con_descargar_se_baja(self):
+        self.assertTrue(self.client.get(self.url + '?descargar=1')['Content-Disposition'].startswith('attachment'))
+
+    def test_sin_marcas_tambien_sale(self):
+        self.atencion.marcas = []
+        self.atencion.save()
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_quien_no_es_de_la_clinica_no_lo_ve(self):
+        ajena = Usuario.objects.create_user(username='ajena', password='x', debe_cambiar_password=False)
+        ajena.user_permissions.add(Permission.objects.get(codename='view_expediente'))
+        ajena.clinicas.add(self.prosalud)
+        self.client.force_login(ajena)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_la_atencion_ofrece_el_pdf(self):
+        respuesta = self.client.get(reverse('estetica:atencion', args=[self.atencion.pk]))
+        self.assertContains(respuesta, f'data-ver-pdf="{self.url}"')
+
+
+class PlantillaAtencionTests(PruebaDeFicha):
+    """HU-EST-04: la atención estética en blanco, de mujer y de hombre."""
+
+    def test_las_dos_figuras_salen_en_pdf(self):
+        for figura in ('mujer', 'hombre'):
+            with self.subTest(figura):
+                respuesta = self.client.get(reverse('estetica:plantilla_atencion', args=[figura]))
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+                self.assertTrue(respuesta['Content-Disposition'].startswith('inline'))
+
+    def test_una_figura_desconocida_da_404(self):
+        self.assertEqual(self.client.get(reverse('estetica:plantilla_atencion', args=['otra'])).status_code, 404)
+
+    def test_no_crea_ningun_registro(self):
+        self.client.get(reverse('estetica:plantilla_atencion', args=['mujer']))
+        self.assertFalse(AtencionEstetica.objects.exists())
+
+    def test_con_prosalud_activa_no_existe(self):
+        self.trabajar_en(self.prosalud)
+        self.assertEqual(self.client.get(reverse('estetica:plantilla_atencion', args=['mujer'])).status_code, 404)
+
+    def test_la_pantalla_de_plantillas_ofrece_solo_las_de_estetica(self):
+        respuesta = self.client.get(reverse('consultas:plantillas'))
+        self.assertContains(respuesta, reverse('estetica:plantilla_atencion', args=['mujer']))
+        self.assertContains(respuesta, reverse('estetica:plantilla_atencion', args=['hombre']))
+        self.assertNotContains(respuesta, reverse('consultas:plantilla_pdf', args=['receta']))

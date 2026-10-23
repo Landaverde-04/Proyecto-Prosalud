@@ -1406,9 +1406,21 @@ PLANTILLAS = {
 }
 
 
-def plantillas_del_usuario(usuario):
-    """Solo las de los documentos que el usuario puede ver (criterio 10)."""
-    return [{'clave': clave, 'titulo': titulo, 'icono': icono}
+def plantillas_del_usuario(usuario, clinica=None):
+    """
+    Solo las de los documentos que el usuario puede ver (criterio 10). Las
+    clinicas son independientes: con la Estetica activa se ofrecen sus
+    plantillas (HU-EST-04), no las de ProSalud.
+    """
+    if clinica is not None and clinica.tipo == clinica.Tipo.ESTETICA:
+        if not usuario.has_perm('pacientes.view_expediente'):
+            return []
+        return [{'titulo': f'Atención estética — {etiqueta}', 'icono': icono,
+                 'url': reverse('estetica:plantilla_atencion', args=[figura])}
+                for figura, etiqueta, icono in (('mujer', 'Mujer', 'bi-gender-female'),
+                                                ('hombre', 'Hombre', 'bi-gender-male'))]
+    return [{'clave': clave, 'titulo': titulo, 'icono': icono,
+             'url': reverse('consultas:plantilla_pdf', args=[clave])}
             for clave, (titulo, permiso, _, icono) in PLANTILLAS.items()
             if usuario.has_perm(permiso)]
 
@@ -1419,7 +1431,7 @@ def plantillas_del_usuario(usuario):
 @never_cache
 @login_required
 def plantillas(request):
-    disponibles = plantillas_del_usuario(request.user)
+    disponibles = plantillas_del_usuario(request.user, clinica_activa(request))
     if not disponibles:
         raise PermissionDenied
     return render(request, 'consultas/plantillas.html', {'plantillas': disponibles})
