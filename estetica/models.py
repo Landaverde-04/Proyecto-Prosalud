@@ -29,6 +29,21 @@ class FichaEstetica(ModeloBase):
         NO_ESPECIFICA = 'no_especifica', 'No especifica'
         PAGINA_WEB = 'pagina_web', 'Página web'
 
+    # Opciones para marcar en vez de escribir (pedido de Samuel, 29/10/2026):
+    # la doctora escribe lo menos posible.
+    class EstadoCivil(models.TextChoices):
+        SOLTERA = 'soltera', 'Soltera/o'
+        CASADA = 'casada', 'Casada/o'
+        ACOMPANADA = 'acompanada', 'Acompañada/o'
+        DIVORCIADA = 'divorciada', 'Divorciada/o'
+        VIUDA = 'viuda', 'Viuda/o'
+
+    class Religion(models.TextChoices):
+        CATOLICA = 'catolica', 'Católica'
+        EVANGELICA = 'evangelica', 'Evangélica'
+        OTRA = 'otra', 'Otra'
+        NINGUNA = 'ninguna', 'Ninguna'
+
     class ResultadoDepilacion(models.TextChoices):
         BUENO = 'bueno', 'Bueno'
         MEDIO = 'medio', 'Medio'
@@ -37,14 +52,16 @@ class FichaEstetica(ModeloBase):
     expediente = models.OneToOneField(
         Expediente, on_delete=models.PROTECT, related_name='ficha_estetica',
     )
-    estado_civil = models.CharField(max_length=30, blank=True)
-    religion = models.CharField(max_length=50, blank=True)
+    estado_civil = models.CharField(max_length=30, choices=EstadoCivil.choices, blank=True)
+    religion = models.CharField(max_length=50, choices=Religion.choices, blank=True)
     email = models.EmailField(blank=True)
     ocupacion = models.CharField(max_length=100, blank=True)
     direccion = models.CharField(max_length=255, blank=True)
     # El "Medico:" de la ficha: su medico de cabecera o quien la refiere.
     medico = models.CharField(max_length=100, blank=True)
-    como_conocio = models.CharField(max_length=20, choices=ComoConocio.choices, blank=True)
+    # Lista de casillas, como en el papel: se puede marcar mas de una.
+    # Guarda las claves de ComoConocio, por ejemplo ["facebook", "amigo"].
+    como_conocio = models.JSONField(default=list, blank=True)
     # El "¿Quien?" de la ficha, para los referidos.
     referido_por = models.CharField(max_length=100, blank=True)
 
@@ -184,9 +201,12 @@ class ProcedimientoEstetico(ModeloBase):
     Un renglon de la tabla "Procedimiento | 1 ... 10" de la ficha en papel.
     Es de la paciente, no de una visita: sus sesiones se van marcando en
     atenciones distintas.
+
+    Sin tope de sesiones (Samuel, 29/10/2026): la tabla muestra al menos 10
+    columnas, como el papel, y crece si un procedimiento pasa de ahi.
     """
 
-    MAXIMO_SESIONES = 10
+    COLUMNAS_MINIMAS = 10
 
     expediente = models.ForeignKey(
         Expediente, on_delete=models.PROTECT, related_name='procedimientos_esteticos',

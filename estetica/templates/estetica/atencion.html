@@ -18,11 +18,23 @@
             · {{ atencion.doctor_nombre|default:atencion.doctor.get_full_name }}
         </div>
     </div>
-    {% if atencion.cerrada %}
-    <span class="badge rounded-pill text-bg-secondary align-self-center">Finalizada</span>
-    {% else %}
-    <span class="badge rounded-pill text-bg-warning align-self-center">En atención</span>
-    {% endif %}
+    <div class="d-flex align-items-center gap-2 align-self-center">
+        {% if corrigiendo %}
+        <span class="badge rounded-pill text-bg-info">Finalizada · editando</span>
+        {% elif atencion.cerrada %}
+        <span class="badge rounded-pill text-bg-secondary">Finalizada</span>
+        {% else %}
+        <span class="badge rounded-pill text-bg-warning">En atención</span>
+        {% endif %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-ver-pdf="{% url 'estetica:pdf_atencion' atencion.pk %}">
+            <i class="bi bi-file-earmark-pdf me-1"></i>Ver PDF
+        </button>
+        {% if puede_corregir %}
+        <a href="?editar=1" class="btn btn-sm btn-primary"><i class="bi bi-pencil me-1"></i>Editar</a>
+        {% elif corrigiendo %}
+        <a href="{% url 'estetica:atencion' atencion.pk %}" data-salir class="btn btn-sm btn-primary">Terminar edición</a>
+        {% endif %}
+    </div>
 </div>
 
 {% comment %}
@@ -34,6 +46,7 @@ formulario por su atributo form.
 <form id="form-atencion" method="post" action="{% url 'estetica:guardar_atencion' atencion.pk %}"
       {% if editable %}data-preguardado{% endif %}>
     {% csrf_token %}
+    {% if corrigiendo %}<input type="hidden" name="editar" value="1">{% endif %}
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
             <label for="{{ form.motivo.id_for_label }}" class="form-label small fw-semibold">{{ form.motivo.label }}</label>
@@ -74,9 +87,10 @@ formulario por su atributo form.
     </div>
 
     {% comment %}
-    Zonas a tratar: el dibujo de la ficha en papel. marcas.js pone una X
-    numerada donde la doctora toca, y debajo cada marca tiene su nota y su
-    boton de borrar. Viajan como JSON en form.marcas y se preguardan.
+    Zonas a tratar: el dibujo de la ficha en papel. marcas.js pone un punto
+    donde la doctora toca y una flecha cuando arrastra desde un punto; debajo
+    cada punto tiene su nota y sus botones. Viajan como JSON en form.marcas y
+    se preguardan.
     {% endcomment %}
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
@@ -87,15 +101,24 @@ formulario por su atributo form.
                 </div>
             </div>
             {% if editable %}
-            <p class="small text-muted mb-2">Toque la figura para marcar una zona. Debajo puede escribir una nota o borrar cada marca.</p>
+            {% comment %}
+            Que dibuja el toque: un punto, o una flecha que sale de un punto.
+            Son botones, no campos del formulario: no se guardan.
+            {% endcomment %}
+            <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Qué dibujar" id="modo-marcas">
+                    <button type="button" class="btn btn-outline-danger active" data-modo="punto" aria-pressed="true">● Punto</button>
+                    <button type="button" class="btn btn-outline-danger" data-modo="flecha" aria-pressed="false">↗ Flecha</button>
+                </div>
+                <span class="small text-muted" id="ayuda-marcas">Toque la figura donde va el punto.</span>
+            </div>
             {% endif %}
             <div id="figura" class="position-relative border rounded"
                  data-img-mujer="{% static 'estetica/img/figura_mujer.webp' %}"
                  data-img-hombre="{% static 'estetica/img/figura_hombre.webp' %}">
                 <img src="{% if form.figura.value == 'hombre' %}{% static 'estetica/img/figura_hombre.webp' %}{% else %}{% static 'estetica/img/figura_mujer.webp' %}{% endif %}"
                      alt="Figura de cara, frente y espalda para marcar las zonas a tratar"
-                     class="img-fluid w-100 d-block user-select-none" draggable="false"
-                     {% if editable %}style="cursor: crosshair;"{% endif %}>
+                     class="img-fluid w-100 d-block user-select-none" draggable="false">
             </div>
             <ol id="lista-marcas" class="list-unstyled mt-3 mb-0 vstack gap-2"></ol>
             {{ form.marcas }}
@@ -133,7 +156,9 @@ formulario por su atributo form.
 {% if editable %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span id="estado-guardado" class="small text-muted">Guardada el {{ atencion.fecha_modificacion|date:'d/m/Y' }} a las {{ atencion.fecha_modificacion|date:'H:i' }}</span>
+    {% if not atencion.cerrada %}
     <button type="button" class="btn btn-primary" data-abrir-finalizar>Finalizar atención</button>
+    {% endif %}
 </div>
 
 <div class="modal fade" id="modalFinalizar" tabindex="-1" aria-hidden="true">
@@ -155,10 +180,29 @@ formulario por su atributo form.
 </div>
 {% endif %}
 
+<div class="modal fade" id="modalDocumento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title h6 fw-semibold">Atención estética</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body p-0">
+                <iframe id="modalDocumentoVisor" title="Atención estética" style="width:100%; height:70vh; border:0;"></iframe>
+            </div>
+            <div class="modal-footer py-2">
+                <a id="modalDocumentoNuevaPestana" href="#" target="_blank" rel="noopener" class="small me-auto">Abrir en otra pestaña</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts_extra %}
 <script src="{% static 'estetica/js/preguardado.js' %}"></script>
 <script src="{% static 'estetica/js/procedimientos.js' %}"></script>
 <script src="{% static 'estetica/js/marcas.js' %}"></script>
+<script src="{% static 'estetica/js/visor.js' %}"></script>
 {% endblock %}

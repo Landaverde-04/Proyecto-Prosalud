@@ -30,14 +30,15 @@ vista lo guarda igual.
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
             <h6 class="fw-semibold text-muted mb-3" style="font-size: 0.75rem; letter-spacing: 0.03em;">DATOS PERSONALES</h6>
+            <p class="small text-muted mb-3">Para desmarcar una opción, tóquela otra vez.</p>
             <div class="row g-3">
-                <div class="col-md-6">
-                    <label for="{{ form.estado_civil.id_for_label }}" class="form-label small fw-semibold">{{ form.estado_civil.label }}</label>
-                    {{ form.estado_civil }}{{ form.estado_civil.errors }}
+                <div class="col-12">
+                    <div class="small fw-semibold mb-1">{{ form.estado_civil.label }}</div>
+                    {% include 'estetica/_opciones.html' with campo=form.estado_civil %}
                 </div>
-                <div class="col-md-6">
-                    <label for="{{ form.religion.id_for_label }}" class="form-label small fw-semibold">{{ form.religion.label }}</label>
-                    {{ form.religion }}{{ form.religion.errors }}
+                <div class="col-12">
+                    <div class="small fw-semibold mb-1">{{ form.religion.label }}</div>
+                    {% include 'estetica/_opciones.html' with campo=form.religion %}
                 </div>
                 <div class="col-md-6">
                     <label for="{{ form.ocupacion.id_for_label }}" class="form-label small fw-semibold">{{ form.ocupacion.label }}</label>
@@ -61,15 +62,23 @@ vista lo guarda igual.
 
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label for="{{ form.como_conocio.id_for_label }}" class="form-label small fw-semibold">{{ form.como_conocio.label }}</label>
-                    {{ form.como_conocio }}{{ form.como_conocio.errors }}
+            {% comment %}
+            Casillas como en el papel: se puede marcar mas de una.
+            {% endcomment %}
+            <div class="small fw-semibold mb-2">{{ form.como_conocio.label }}</div>
+            <div class="row row-cols-2 row-cols-md-3 g-1 mb-3">
+                {% for opcion in form.como_conocio %}
+                <div class="col">
+                    <div class="form-check mb-0">
+                        {{ opcion.tag }}
+                        <label class="form-check-label" for="{{ opcion.id_for_label }}">{{ opcion.choice_label }}</label>
+                    </div>
                 </div>
-                <div class="col-md-6">
-                    <label for="{{ form.referido_por.id_for_label }}" class="form-label small fw-semibold">{{ form.referido_por.label }}</label>
-                    {{ form.referido_por }}{{ form.referido_por.errors }}
-                </div>
+                {% endfor %}
+            </div>
+            <div style="max-width: 420px;">
+                <label for="{{ form.referido_por.id_for_label }}" class="form-label small fw-semibold">{{ form.referido_por.label }}</label>
+                {{ form.referido_por }}{{ form.referido_por.errors }}
             </div>
         </div>
     </div>

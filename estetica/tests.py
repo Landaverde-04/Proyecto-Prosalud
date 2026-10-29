@@ -57,16 +57,16 @@ class FichaEsteticaTests(PruebaDeFicha):
         ficha = FichaEstetica.objects.get()
         self.assertEqual(ficha.expediente, self.expediente)
         self.assertEqual(ficha.ocupacion, 'Contadora')
-        self.assertEqual(ficha.como_conocio, 'facebook')
+        self.assertEqual(ficha.como_conocio, ['facebook'])
         self.assertEqual(ficha.creado_por, self.doctora)
         self.assertEqual(ficha.modificado_por, self.doctora)
 
     def test_todos_los_campos_se_pueden_dejar_vacios(self):
-        respuesta = self.guardar(estado_civil='', religion='', ocupacion='', email='', direccion='',
-                                 medico='', como_conocio='', referido_por='')
+        # Sin marcar, las opciones y las casillas no llegan en el envio.
+        respuesta = self.guardar(ocupacion='', email='', direccion='', medico='', referido_por='')
         self.assertEqual(respuesta.status_code, 200)
         ficha = FichaEstetica.objects.get()
-        self.assertEqual((ficha.religion, ficha.email, ficha.como_conocio), ('', '', ''))
+        self.assertEqual((ficha.estado_civil, ficha.religion, ficha.email, ficha.como_conocio), ('', '', '', []))
 
     def test_los_siguientes_guardados_corrigen_la_misma_ficha(self):
         self.guardar(ocupacion='Contadora')
@@ -77,14 +77,24 @@ class FichaEsteticaTests(PruebaDeFicha):
         self.assertEqual(ficha.email, 'rosa@correo.com')
 
     def test_al_recargar_se_ve_lo_guardado(self):
-        self.guardar(estado_civil='Casada', direccion='Col. Escalón', como_conocio='referido_paciente',
-                     referido_por='Ana Pérez')
+        self.guardar(estado_civil='casada', religion='catolica', direccion='Col. Escalón',
+                     como_conocio=['referido_paciente', 'facebook'], referido_por='Ana Pérez')
         respuesta = self.client.get(self.url)
-        self.assertContains(respuesta, 'value="Casada"')
+        contenido = respuesta.content.decode()
+        self.assertRegex(contenido, r'value="casada"[^>]*checked')
+        self.assertRegex(contenido, r'value="catolica"[^>]*checked')
+        self.assertRegex(contenido, r'value="referido_paciente"[^>]*checked')
+        self.assertRegex(contenido, r'value="facebook"[^>]*checked')
+        self.assertNotRegex(contenido, r'value="amigo"[^>]*checked')
         self.assertContains(respuesta, 'value="Col. Escalón"')
         self.assertContains(respuesta, 'value="Ana Pérez"')
-        self.assertContains(respuesta, '<option value="referido_paciente" selected>', html=False)
         self.assertContains(respuesta, 'Guardada el')
+
+    def test_estado_civil_y_religion_son_opciones(self):
+        """Se marcan, no se escriben: un texto libre se rechaza."""
+        self.assertEqual(self.guardar(estado_civil='Casada por la iglesia').status_code, 400)
+        self.assertEqual(self.guardar(religion='Budista').status_code, 400)
+        self.assertFalse(FichaEstetica.objects.exists())
 
     def test_un_correo_mal_escrito_no_se_guarda_y_lo_dice(self):
         respuesta = self.guardar(email='no-es-correo')
@@ -336,8 +346,20 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertEqual(self.guardar_atencion(figura='hombre', marcas=json.dumps(marcas)).status_code, 200)
         self.atencion.refresh_from_db()
         self.assertEqual(self.atencion.figura, 'hombre')
-        self.assertEqual(self.atencion.marcas, [{'x': 25.5, 'y': 40.0, 'nota': 'Hilos'},
-                                                {'x': 70.0, 'y': 30.25, 'nota': ''}])
+        self.assertEqual(self.atencion.marcas, [{'x': 25.5, 'y': 40.0, 'nota': 'Hilos', 'vectores': []},
+                                                {'x': 70.0, 'y': 30.25, 'nota': '', 'vectores': []}])
+
+    def test_las_flechas_salen_de_un_punto(self):
+        marcas = [{'x': 30, 'y': 40, 'nota': 'Hilos', 'vectores': [{'x': 35, 'y': 30}, {'x': 38, 'y': 45}]}]
+        self.assertEqual(self.guardar_atencion(marcas=json.dumps(marcas)).status_code, 200)
+        self.atencion.refresh_from_db()
+        self.assertEqual(self.atencion.marcas[0]['vectores'], [{'x': 35.0, 'y': 30.0}, {'x': 38.0, 'y': 45.0}])
+
+    def test_una_flecha_fuera_de_la_figura_no_se_guarda(self):
+        marcas = [{'x': 30, 'y': 40, 'vectores': [{'x': 130, 'y': 30}]}]
+        self.assertEqual(self.guardar_atencion(marcas=json.dumps(marcas)).status_code, 400)
+        self.atencion.refresh_from_db()
+        self.assertEqual(self.atencion.marcas, [])
 
     def test_al_recargar_vuelven_las_marcas(self):
         self.guardar_atencion(marcas=json.dumps([{'x': 10, 'y': 20, 'nota': 'Frente'}]))
@@ -373,6 +395,39 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertContains(respuesta, 'Finalizada')
         self.assertNotContains(respuesta, 'Finalizar atención')
         self.assertContains(respuesta, 'disabled')
+        self.assertContains(respuesta, 'href="?editar=1"')
+
+    # --- Editar una finalizada (pedido de Samuel, 29/10/2026) ---
+
+    def test_la_doctora_corrige_una_finalizada_con_editar(self):
+        self.guardar_atencion(plan='Peeling')
+        self.finalizar()
+        respuesta = self.client.get(self.url_de('atencion') + '?editar=1')
+        self.assertContains(respuesta, 'Finalizada · editando')
+        self.assertContains(respuesta, 'Terminar edición')
+        self.assertNotContains(respuesta, 'Finalizar atención')
+        self.assertEqual(self.guardar_atencion(plan='Peeling y vitaminas', editar='1').status_code, 200)
+        self.atencion.refresh_from_db()
+        self.assertEqual(self.atencion.plan, 'Peeling y vitaminas')
+        self.assertTrue(self.atencion.cerrada)
+
+    def test_al_editar_tambien_se_corrigen_los_procedimientos(self):
+        self.agregar()
+        procedimiento = ProcedimientoEstetico.objects.get()
+        self.finalizar()
+        respuesta = self.client.post(self.url_de('marcar_sesion', procedimiento.pk), {'editar': '1'}, **self.AJAX)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(procedimiento.sesiones.count(), 1)
+
+    def test_otro_doctor_no_edita_una_finalizada(self):
+        self.finalizar()
+        colega = Usuario.objects.create_user(username='colega', password='x', debe_cambiar_password=False)
+        colega.user_permissions.add(Permission.objects.get(codename='view_expediente'))
+        colega.clinicas.add(self.estetica)
+        self.client.force_login(colega)
+        self.trabajar_en(self.estetica)
+        self.assertNotContains(self.client.get(self.url_de('atencion')), 'href="?editar=1"')
+        self.assertEqual(self.guardar_atencion(plan='Ajeno', editar='1').status_code, 403)
 
     def test_el_historial_muestra_las_atenciones(self):
         self.guardar_atencion(motivo='Manchas en el rostro')
@@ -427,15 +482,29 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertEqual(list(peeling.sesiones.values_list('numero', flat=True)), [1, 2, 3])
         self.assertEqual(list(hilos.sesiones.values_list('numero', flat=True)), [1, 2])
 
-    def test_no_pasa_de_diez_sesiones(self):
+    def diez_sesiones_previas(self):
         self.agregar()
         procedimiento = ProcedimientoEstetico.objects.get()
         for numero in range(1, 11):
             otra = AtencionEstetica.objects.create(expediente=self.expediente, doctor=self.doctora,
                                                    cierre=timezone.now())
             SesionProcedimiento.objects.create(procedimiento=procedimiento, numero=numero, atencion=otra)
-        self.assertEqual(self.marcar(procedimiento).status_code, 400)
-        self.assertEqual(procedimiento.sesiones.count(), 10)
+        return procedimiento
+
+    def test_despues_de_la_decima_sigue_la_once(self):
+        """Sin tope (29/10/2026): la tabla crece con una columna mas."""
+        procedimiento = self.diez_sesiones_previas()
+        respuesta = self.marcar(procedimiento)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(procedimiento.sesiones.order_by('-numero').first().numero, 11)
+        self.assertIn('<th style="width: 7%;">12</th>', respuesta.json()['html'])
+
+    def test_el_pdf_lleva_las_sesiones_de_mas_en_otro_bloque(self):
+        procedimiento = self.diez_sesiones_previas()
+        self.marcar(procedimiento)
+        respuesta = self.client.get(reverse('estetica:pdf_atencion', args=[self.atencion.pk]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
 
     def test_quitar_la_sesion_marcada_por_error(self):
         self.agregar()
@@ -468,3 +537,72 @@ class AtencionEsteticaTests(PruebaDeFicha):
         self.assertNotContains(respuesta, 'Recetas')
         self.assertNotContains(respuesta, 'CONTROLES PENDIENTES')
         self.assertContains(respuesta, 'Adjuntos')
+
+
+class PdfAtencionTests(PruebaDeFicha):
+    """HU-EST-03: la atención en PDF, con la figura y sus marcas."""
+
+    def setUp(self):
+        super().setUp()
+        self.atencion = AtencionEstetica.objects.create(
+            expediente=self.expediente, doctor=self.doctora, doctor_nombre='Elsa Miranda',
+            motivo='Flacidez', figura='mujer',
+            marcas=[{'x': 17, 'y': 52, 'nota': 'Hilos', 'vectores': [{'x': 12, 'y': 40}]}])
+        self.url = reverse('estetica:pdf_atencion', args=[self.atencion.pk])
+
+    def test_se_abre_en_el_visor(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(respuesta['Content-Type'], 'application/pdf')
+        self.assertTrue(respuesta.content.startswith(b'%PDF'))
+        self.assertTrue(respuesta['Content-Disposition'].startswith('inline'))
+        self.assertEqual(respuesta['X-Frame-Options'], 'SAMEORIGIN')
+        self.assertEqual(respuesta['X-Content-Type-Options'], 'nosniff')
+
+    def test_con_descargar_se_baja(self):
+        self.assertTrue(self.client.get(self.url + '?descargar=1')['Content-Disposition'].startswith('attachment'))
+
+    def test_sin_marcas_tambien_sale(self):
+        self.atencion.marcas = []
+        self.atencion.save()
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_quien_no_es_de_la_clinica_no_lo_ve(self):
+        ajena = Usuario.objects.create_user(username='ajena', password='x', debe_cambiar_password=False)
+        ajena.user_permissions.add(Permission.objects.get(codename='view_expediente'))
+        ajena.clinicas.add(self.prosalud)
+        self.client.force_login(ajena)
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_la_atencion_ofrece_el_pdf(self):
+        respuesta = self.client.get(reverse('estetica:atencion', args=[self.atencion.pk]))
+        self.assertContains(respuesta, f'data-ver-pdf="{self.url}"')
+
+
+class PlantillaAtencionTests(PruebaDeFicha):
+    """HU-EST-04: la atención estética en blanco, de mujer y de hombre."""
+
+    def test_las_dos_figuras_salen_en_pdf(self):
+        for figura in ('mujer', 'hombre'):
+            with self.subTest(figura):
+                respuesta = self.client.get(reverse('estetica:plantilla_atencion', args=[figura]))
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertTrue(respuesta.content.startswith(b'%PDF'))
+                self.assertTrue(respuesta['Content-Disposition'].startswith('inline'))
+
+    def test_una_figura_desconocida_da_404(self):
+        self.assertEqual(self.client.get(reverse('estetica:plantilla_atencion', args=['otra'])).status_code, 404)
+
+    def test_no_crea_ningun_registro(self):
+        self.client.get(reverse('estetica:plantilla_atencion', args=['mujer']))
+        self.assertFalse(AtencionEstetica.objects.exists())
+
+    def test_con_prosalud_activa_no_existe(self):
+        self.trabajar_en(self.prosalud)
+        self.assertEqual(self.client.get(reverse('estetica:plantilla_atencion', args=['mujer'])).status_code, 404)
+
+    def test_la_pantalla_de_plantillas_ofrece_solo_las_de_estetica(self):
+        respuesta = self.client.get(reverse('consultas:plantillas'))
+        self.assertContains(respuesta, reverse('estetica:plantilla_atencion', args=['mujer']))
+        self.assertContains(respuesta, reverse('estetica:plantilla_atencion', args=['hombre']))
+        self.assertNotContains(respuesta, reverse('consultas:plantilla_pdf', args=['receta']))

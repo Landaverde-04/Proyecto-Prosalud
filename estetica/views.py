@@ -3,17 +3,20 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Max
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 from core.clinica_activa import clinica_activa
 from core.models import Clinica
 from core.paginacion import es_ajax
 from pacientes.models import Expediente
+from .documentos import generar_pdf_atencion, generar_plantilla_atencion
 from .forms import AtencionEsteticaForm, FichaEsteticaForm, ProcedimientoForm
 from .models import AtencionEstetica, FichaEstetica, ProcedimientoEstetico, SesionProcedimiento
 
@@ -133,28 +136,50 @@ def atencion_propia(request, atencion_id):
     return atencion
 
 
-def puede_escribir(usuario, atencion):
-    return (not atencion.cerrada
-            and (atencion.doctor_id == usuario.pk or usuario.has_perm('auth.change_group')))
+def es_propia(usuario, atencion):
+    return atencion.doctor_id == usuario.pk or usuario.has_perm('auth.change_group')
+
+
+def editando(request):
+    """
+    La doctora pidio corregir una atencion ya finalizada (boton "Editar",
+    29/10/2026). Viaja como ?editar=1 en la pantalla y como campo oculto en
+    cada envio, asi una pestaña vieja no la modifica sin querer.
+    """
+    return request.GET.get('editar') == '1' or request.POST.get('editar') == '1'
+
+
+def puede_escribir(usuario, atencion, corrigiendo=False):
+    """Abierta, o finalizada y en modo edicion; siempre la propia o la administradora."""
+    return es_propia(usuario, atencion) and (not atencion.cerrada or corrigiendo)
 
 
 def tabla_procedimientos(atencion, editable):
     """
-    Los renglones de la tabla "Procedimiento | 1 ... 10" de la paciente.
+    Los renglones de la tabla "Procedimiento | 1 ... 10" de la paciente, y
+    cuantas columnas lleva.
 
     En cada renglon solo se puede marcar la siguiente sesion, y una por
     atencion; y solo se puede quitar la ultima, si se marco en esta misma
     atencion (para corregir un error, no para reescribir visitas pasadas).
+
+    Al menos 10 columnas, como el papel; si un procedimiento llega a la
+    ultima, aparece una mas para poder seguir marcando.
     """
+    procedimientos = list(ProcedimientoEstetico.objects.filter(expediente=atencion.expediente_id, activo=True)
+                          .prefetch_related('sesiones__atencion'))
+    sesiones_por_procedimiento = {
+        p.pk: {s.numero: s for s in p.sesiones.all() if s.activo} for p in procedimientos}
+    mas_alta = max((max(sesiones, default=0) for sesiones in sesiones_por_procedimiento.values()), default=0)
+    columnas = max(ProcedimientoEstetico.COLUMNAS_MINIMAS, mas_alta + (1 if editable else 0))
+
     renglones = []
-    procedimientos = (ProcedimientoEstetico.objects.filter(expediente=atencion.expediente_id, activo=True)
-                      .prefetch_related('sesiones__atencion'))
     for procedimiento in procedimientos:
-        sesiones = {s.numero: s for s in procedimiento.sesiones.all() if s.activo}
+        sesiones = sesiones_por_procedimiento[procedimiento.pk]
         ultima = max(sesiones, default=0)
         marcada_hoy = any(s.atencion_id == atencion.pk for s in sesiones.values())
         celdas = []
-        for numero in range(1, ProcedimientoEstetico.MAXIMO_SESIONES + 1):
+        for numero in range(1, columnas + 1):
             sesion = sesiones.get(numero)
             celdas.append({
                 'numero': numero,
@@ -163,14 +188,18 @@ def tabla_procedimientos(atencion, editable):
                 'puede_marcar': editable and sesion is None and numero == ultima + 1 and not marcada_hoy,
             })
         renglones.append({'procedimiento': procedimiento, 'celdas': celdas})
-    return renglones
+    return renglones, columnas
 
 
 def contexto_procedimientos(request, atencion):
-    editable = puede_escribir(request.user, atencion)
-    return {'atencion': atencion, 'renglones': tabla_procedimientos(atencion, editable),
-            'editable': editable, 'form_procedimiento': ProcedimientoForm(),
-            'numeros': range(1, ProcedimientoEstetico.MAXIMO_SESIONES + 1)}
+    corrigiendo = atencion.cerrada and editando(request)
+    editable = puede_escribir(request.user, atencion, corrigiendo)
+    renglones, columnas = tabla_procedimientos(atencion, editable)
+    return {'atencion': atencion, 'renglones': renglones,
+            'editable': editable, 'corrigiendo': corrigiendo and editable,
+            'puede_corregir': atencion.cerrada and not corrigiendo and es_propia(request.user, atencion),
+            'form_procedimiento': ProcedimientoForm(),
+            'numeros': range(1, columnas + 1)}
 
 
 def respuesta_procedimientos(request, atencion, mensaje, tipo='success'):
@@ -182,7 +211,8 @@ def respuesta_procedimientos(request, atencion, mensaje, tipo='success'):
                                      contexto_procedimientos(request, atencion), request=request),
         }, status=200 if tipo == 'success' else 400)
     getattr(messages, 'success' if tipo == 'success' else 'error')(request, mensaje)
-    return redirect('estetica:atencion', atencion_id=atencion.pk)
+    url = reverse('estetica:atencion', args=[atencion.pk])
+    return redirect(url + '?editar=1' if editando(request) else url)
 
 
 def atencion_en_curso(usuario, clinica_id, excepto_expediente):
@@ -253,8 +283,9 @@ def guardar_atencion(request, atencion_id):
                             status=409)
     with transaction.atomic():
         atencion = AtencionEstetica.objects.select_for_update().get(pk=atencion.pk)
-        if atencion.cerrada:
-            return JsonResponse({'ok': False, 'mensaje': 'La atención ya fue finalizada.'}, status=409)
+        if atencion.cerrada and not editando(request):
+            return JsonResponse({'ok': False, 'mensaje': 'La atención ya fue finalizada. Use "Editar" para corregirla.'},
+                                status=409)
         form = AtencionEsteticaForm(request.POST, instance=atencion)
         if not form.is_valid():
             if es_ajax(request):
@@ -291,7 +322,7 @@ def finalizar_atencion(request, atencion_id):
 @permission_required('pacientes.view_expediente', raise_exception=True)
 def agregar_procedimiento(request, atencion_id):
     atencion = atencion_propia(request, atencion_id)
-    if atencion.cerrada:
+    if atencion.cerrada and not editando(request):
         return respuesta_procedimientos(request, atencion, 'La atención ya fue finalizada.', 'danger')
     form = ProcedimientoForm(request.POST)
     if not form.is_valid():
@@ -311,7 +342,7 @@ def marcar_sesion(request, atencion_id, procedimiento_id):
     atencion = atencion_propia(request, atencion_id)
     with transaction.atomic():
         atencion = AtencionEstetica.objects.select_for_update().get(pk=atencion.pk)
-        if atencion.cerrada:
+        if atencion.cerrada and not editando(request):
             return respuesta_procedimientos(request, atencion, 'La atención ya fue finalizada.', 'danger')
         # Bloquea el procedimiento: dos clics seguidos no marcan dos sesiones.
         procedimiento = get_object_or_404(ProcedimientoEstetico.objects.select_for_update(),
@@ -321,9 +352,6 @@ def marcar_sesion(request, atencion_id, procedimiento_id):
             return respuesta_procedimientos(request, atencion,
                                             'Ya se marcó una sesión de este procedimiento en esta atención.', 'danger')
         siguiente = (sesiones.aggregate(ultima=Max('numero'))['ultima'] or 0) + 1
-        if siguiente > ProcedimientoEstetico.MAXIMO_SESIONES:
-            return respuesta_procedimientos(request, atencion,
-                                            'Este procedimiento ya tiene sus diez sesiones.', 'danger')
         SesionProcedimiento.objects.create(procedimiento=procedimiento, numero=siguiente, atencion=atencion,
                                            creado_por=request.user, modificado_por=request.user)
     return respuesta_procedimientos(request, atencion, f'{procedimiento.nombre}: sesión {siguiente} marcada.')
@@ -341,7 +369,7 @@ def quitar_sesion(request, atencion_id, sesion_id):
                                    pk=sesion_id, atencion=atencion, activo=True)
         ultima = (sesion.procedimiento.sesiones.filter(activo=True)
                   .aggregate(ultima=Max('numero'))['ultima'])
-        if atencion.cerrada or sesion.numero != ultima:
+        if (atencion.cerrada and not editando(request)) or sesion.numero != ultima:
             return respuesta_procedimientos(request, atencion, 'Esa sesión ya no se puede quitar.', 'danger')
         # Se retira, no se borra: queda el rastro de que se marco y se corrigio.
         sesion.activo = False
@@ -363,4 +391,40 @@ def atenciones(request, expediente_id):
         'expediente': expediente,
         'atenciones': expediente.atenciones_esteticas.filter(activo=True).order_by('-inicio'),
     })
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required('pacientes.view_expediente', raise_exception=True)
+def pdf_atencion(request, atencion_id):
+    """
+    La atencion en PDF, con la figura y sus marcas en una sola pagina. Se
+    abre en el visor de la pantalla; ?descargar=1 baja el archivo.
+    """
+    atencion = atencion_autorizada(request, atencion_id)
+    respuesta = HttpResponse(generar_pdf_atencion(atencion), content_type='application/pdf')
+    modo = 'attachment' if request.GET.get('descargar') == '1' else 'inline'
+    fecha = timezone.localtime(atencion.inicio).strftime('%Y-%m-%d')
+    respuesta['Content-Disposition'] = f'{modo}; filename="atencion-estetica-{fecha}-{atencion.pk}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
+
+
+@never_cache
+@xframe_options_sameorigin
+@login_required
+@permission_required('pacientes.view_expediente', raise_exception=True)
+def plantilla_atencion(request, figura):
+    """
+    La atencion estetica en blanco, de mujer o de hombre (HU-EST-04), para
+    llenarla a mano. Solo con la clinica Estetica activa. No crea registros.
+    """
+    clinica = clinica_activa(request)
+    if clinica is None or clinica.tipo != Clinica.Tipo.ESTETICA or figura not in AtencionEstetica.Figura.values:
+        raise Http404
+    respuesta = HttpResponse(generar_plantilla_atencion(clinica, request.user, figura), content_type='application/pdf')
+    respuesta['Content-Disposition'] = f'inline; filename="plantilla-atencion-estetica-{figura}.pdf"'
+    respuesta['X-Content-Type-Options'] = 'nosniff'
+    return respuesta
 

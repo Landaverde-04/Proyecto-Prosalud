@@ -12,6 +12,8 @@ urlpatterns = [
     path('atencion/<int:atencion_id>/', views.atencion, name='atencion'),
     path('atencion/<int:atencion_id>/guardar/', views.guardar_atencion, name='guardar_atencion'),
     path('atencion/<int:atencion_id>/finalizar/', views.finalizar_atencion, name='finalizar_atencion'),
+    path('atencion/<int:atencion_id>/pdf/', views.pdf_atencion, name='pdf_atencion'),
+    path('plantillas/atencion/<str:figura>/', views.plantilla_atencion, name='plantilla_atencion'),
     path('atencion/<int:atencion_id>/procedimientos/', views.agregar_procedimiento, name='agregar_procedimiento'),
     path('atencion/<int:atencion_id>/procedimientos/<int:procedimiento_id>/sesion/',
          views.marcar_sesion, name='marcar_sesion'),
