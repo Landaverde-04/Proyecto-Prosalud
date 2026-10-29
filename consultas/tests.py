@@ -63,7 +63,7 @@ class DocumentosMedicosTests(PruebaCore):
         self.persona.nombres='Nombre cambiado';self.persona.save()
         self.doctor.first_name='Otra';self.doctor.save()
         doc=Incapacidad.objects.get(pk=doc.pk)
-        self.assertEqual(str(doc.consulta.expediente.persona),'Nombre cambiado Ficticio')
+        self.assertEqual(str(doc.consulta.expediente.persona),'Nombre Cambiado Ficticio')
         # El documento congela al medico: corregir el perfil no lo reescribe.
         self.assertEqual(doc.doctor_nombre,'Ana Médica')
         self.assertEqual(doc.nombre_profesional,'Ana Médica')
@@ -143,7 +143,7 @@ class DocumentosMedicosTests(PruebaCore):
         texto = ' '.join(call.args[0] for call in parrafo.call_args_list)
         self.assertTrue(pdf.startswith(b'%PDF'))
         # El paciente se lee de su expediente: no se guarda una copia del nombre.
-        self.assertIn('Paciente actualizado Ficticio', texto)
+        self.assertIn('Paciente Actualizado Ficticio', texto)
         # El nombre del medico queda como firmo: puede cambiar, asi que se congela.
         self.assertIn('Ana Médica', texto)
         self.assertNotIn('Doctora actualizada', texto)
