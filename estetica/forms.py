@@ -16,6 +16,13 @@ NUMEROS = ('embarazos', 'abortos', 'partos', 'cesareas')
 
 
 class FichaEsteticaForm(forms.ModelForm):
+    # Lista de casillas (se puede marcar mas de una), como en el papel. Se
+    # declara aqui porque el modelo la guarda como JSON.
+    como_conocio = forms.MultipleChoiceField(
+        label='¿Cómo conoció la clínica?', required=False,
+        choices=FichaEstetica.ComoConocio.choices,
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'form-check-input'}))
+
     """
     Ficha de ingreso de la paciente (HU-EST-01) y sus antecedentes
     esteticos (HU-EST-02).
@@ -123,21 +130,21 @@ class FichaEsteticaForm(forms.ModelForm):
                 # sin la clave en el POST y el campo lo guarda como null.
                 campo.widget = forms.RadioSelect(
                     choices=[(True, 'Sí'), (False, 'No')], attrs={'class': 'form-check-input'})
-            elif nombre == 'depilacion_resultado':
-                campo.widget = forms.RadioSelect(
-                    choices=FichaEstetica.ResultadoDepilacion.choices, attrs={'class': 'form-check-input'})
+            elif nombre in ('depilacion_resultado', 'estado_civil', 'religion'):
+                # Una sola opcion, para marcar en vez de escribir; se puede
+                # dejar sin marcar y se desmarca tocandola otra vez.
+                opciones = [c for c in self.Meta.model._meta.get_field(nombre).choices if c[0]]
+                campo.widget = forms.RadioSelect(choices=opciones, attrs={'class': 'form-check-input'})
             elif nombre in CASILLAS:
                 campo.widget.attrs['class'] = 'form-check-input'
             elif nombre in NUMEROS:
                 campo.widget.attrs.update({'class': 'form-control', 'min': 0})
             elif nombre == 'como_conocio':
-                campo.widget.attrs['class'] = 'form-select'
+                pass
             else:
                 campo.widget.attrs['class'] = 'form-control'
             if nombre in self.AYUDAS:
                 campo.widget.attrs['placeholder'] = self.AYUDAS[nombre]
-        # La opcion vacia con un texto que se entienda, no el "---------" de Django.
-        self.fields['como_conocio'].choices = [('', 'Sin indicar')] + list(FichaEstetica.ComoConocio.choices)
 
 
 class AtencionEsteticaForm(forms.ModelForm):
@@ -209,28 +216,43 @@ class AtencionEsteticaForm(forms.ModelForm):
         return valor
 
     MAXIMO_MARCAS = 60
+    MAXIMO_VECTORES = 12
     LARGO_NOTA = 150
+
+    @staticmethod
+    def _punto(dato):
+        """Un punto de la figura: x e y en porcentaje, dentro de la imagen."""
+        try:
+            x, y = round(float(dato['x']), 2), round(float(dato['y']), 2)
+        except (TypeError, KeyError, ValueError):
+            raise forms.ValidationError('Las marcas no se pudieron leer.')
+        if not (0 <= x <= 100 and 0 <= y <= 100):
+            raise forms.ValidationError('Una marca quedó fuera de la figura.')
+        return x, y
 
     def clean_marcas(self):
         """
-        Lista de marcas sobre la figura. Se valida en el servidor aunque la
-        arme el navegador: x e y entre 0 y 100, nota corta.
+        Puntos sobre la figura, cada uno con su nota y las flechas (vectores)
+        que salen de el: [{"x", "y", "nota", "vectores": [{"x", "y"}]}].
+        Se valida en el servidor aunque lo arme el navegador.
         """
         marcas = self.cleaned_data.get('marcas') or []
         if not isinstance(marcas, list) or len(marcas) > self.MAXIMO_MARCAS:
             raise forms.ValidationError('Las marcas no se pudieron leer.')
         limpias = []
         for marca in marcas:
-            try:
-                x, y = round(float(marca['x']), 2), round(float(marca['y']), 2)
-            except (TypeError, KeyError, ValueError):
+            if not isinstance(marca, dict):
                 raise forms.ValidationError('Las marcas no se pudieron leer.')
+            x, y = self._punto(marca)
             nota = str(marca.get('nota', '')).strip()
-            if not (0 <= x <= 100 and 0 <= y <= 100):
-                raise forms.ValidationError('Una marca quedó fuera de la figura.')
             if len(nota) > self.LARGO_NOTA:
                 raise forms.ValidationError(f'Cada nota puede tener hasta {self.LARGO_NOTA} letras.')
-            limpias.append({'x': x, 'y': y, 'nota': nota})
+            # Las marcas anteriores a las flechas no traen la clave: sin flechas.
+            vectores = marca.get('vectores') or []
+            if not isinstance(vectores, list) or len(vectores) > self.MAXIMO_VECTORES:
+                raise forms.ValidationError(f'Cada punto puede tener hasta {self.MAXIMO_VECTORES} flechas.')
+            limpias.append({'x': x, 'y': y, 'nota': nota,
+                            'vectores': [dict(zip(('x', 'y'), self._punto(v))) for v in vectores]})
         return limpias
 
     def _en_rango(self, nombre, minimo, maximo):
