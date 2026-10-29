@@ -90,6 +90,11 @@ class FichaEsteticaTests(PruebaDeFicha):
         self.assertContains(respuesta, 'value="Ana Pérez"')
         self.assertContains(respuesta, 'Guardada el')
 
+    def test_medico_y_quien_la_refirio_con_mayuscula_inicial(self):
+        self.guardar(medico='dr. juan pérez', referido_por='ANA LÓPEZ DE RIVAS')
+        ficha = FichaEstetica.objects.get()
+        self.assertEqual((ficha.medico, ficha.referido_por), ('Dr. Juan Pérez', 'Ana López de Rivas'))
+
     def test_estado_civil_y_religion_son_opciones(self):
         """Se marcan, no se escriben: un texto libre se rechaza."""
         self.assertEqual(self.guardar(estado_civil='Casada por la iglesia').status_code, 400)

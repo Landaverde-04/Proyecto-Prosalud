@@ -2866,3 +2866,21 @@ class RolSecretariaTests(DosClinicasBase):
         # Su clinica atiende por cita: ni cola ni preconsulta en los accesos.
         titulos = {acceso['titulo'] for seccion in respuesta.context['accesos'] for acceso in seccion['accesos']}
         self.assertEqual(titulos, {'Nuevo paciente', 'Buscar paciente', 'Mi perfil'})
+
+
+class NombresConMayusculaTests(PruebaCore):
+    """Nombres y apellidos con mayúscula inicial; las uniones ("de") en minúscula (29/10/2026)."""
+
+    def test_se_guardan_con_mayuscula_inicial(self):
+        persona = Persona.objects.create(nombres='rosa MARÍA', apellidos='lópez de garcía')
+        persona.refresh_from_db()
+        self.assertEqual(persona.nombres, 'Rosa María')
+        self.assertEqual(persona.apellidos, 'López de García')
+
+    def test_de_la_y_compuestos(self):
+        persona = Persona.objects.create(nombres='ana  del  carmen', apellidos='pérez-gómez DE LA CRUZ')
+        self.assertEqual((persona.nombres, persona.apellidos), ('Ana del Carmen', 'Pérez-Gómez de la Cruz'))
+
+    def test_respeta_un_apellido_escrito_con_mayusculas_a_proposito(self):
+        persona = Persona.objects.create(nombres='JOHN', apellidos='mcDonald')
+        self.assertEqual((persona.nombres, persona.apellidos), ('John', 'McDonald'))

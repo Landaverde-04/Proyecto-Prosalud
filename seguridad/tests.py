@@ -398,3 +398,13 @@ class PermisosEliminablesTests(PruebaSeguridad):
         # Los demas datos clinicos siguen sin permiso de eliminar.
         for codename in ('delete_persona', 'delete_consulta', 'delete_receta', 'delete_antecedente'):
             self.assertNotIn(codename, codenames)
+
+
+class NombreDeUsuarioConMayusculaTests(TestCase):
+    """El nombre del usuario sale impreso en los documentos: mayúscula inicial (29/10/2026)."""
+
+    def test_se_guarda_con_mayuscula_inicial(self):
+        usuario = Usuario.objects.create_user(username='nueva', password='x',
+                                              first_name='elsa cecilia', last_name='MIRANDA de lópez')
+        usuario.refresh_from_db()
+        self.assertEqual((usuario.first_name, usuario.last_name), ('Elsa Cecilia', 'Miranda de López'))
