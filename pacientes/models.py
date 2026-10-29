@@ -3,6 +3,7 @@ from datetime import date
 from django.db import models
 
 from core.models import Clinica, ModeloBase
+from core.nombres import formatear_nombre
 
 
 def calcular_edad(fecha_nacimiento):
@@ -61,6 +62,13 @@ class Persona(ModeloBase):
 
     def __str__(self):
         return f'{self.nombres} {self.apellidos}'
+
+    def save(self, *args, **kwargs):
+        # Aqui y no en cada formulario: el paciente, sus contactos y quien se
+        # edite despues pasan todos por aqui.
+        self.nombres = formatear_nombre(self.nombres)
+        self.apellidos = formatear_nombre(self.apellidos)
+        super().save(*args, **kwargs)
 
     @property
     def edad(self):

@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from core.models import ModeloBase
+from core.nombres import formatear_nombre
 from pacientes.models import Expediente
 
 
@@ -133,6 +134,12 @@ class FichaEstetica(ModeloBase):
 
     def __str__(self):
         return f'Ficha estética de {self.expediente.persona}'
+
+    def save(self, *args, **kwargs):
+        # Son nombres de personas: mayuscula inicial, como en todo el sistema.
+        self.medico = formatear_nombre(self.medico)
+        self.referido_por = formatear_nombre(self.referido_por)
+        super().save(*args, **kwargs)
 
 
 class AtencionEstetica(ModeloBase):

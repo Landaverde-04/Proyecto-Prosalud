@@ -1,6 +1,8 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+from core.nombres import formatear_nombre
+
 
 class Usuario(AbstractUser):
     """
@@ -36,3 +38,10 @@ class Usuario(AbstractUser):
         db_table = 'Usuario'
         verbose_name = 'usuario'
         verbose_name_plural = 'usuarios'
+
+    def save(self, *args, **kwargs):
+        # El nombre sale impreso en recetas y constancias: con mayuscula
+        # inicial, como el de los pacientes (core/nombres.py).
+        self.first_name = formatear_nombre(self.first_name)
+        self.last_name = formatear_nombre(self.last_name)
+        super().save(*args, **kwargs)
