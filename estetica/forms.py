@@ -16,6 +16,13 @@ NUMEROS = ('embarazos', 'abortos', 'partos', 'cesareas')
 
 
 class FichaEsteticaForm(forms.ModelForm):
+    # Lista de casillas (se puede marcar mas de una), como en el papel. Se
+    # declara aqui porque el modelo la guarda como JSON.
+    como_conocio = forms.MultipleChoiceField(
+        label='¿Cómo conoció la clínica?', required=False,
+        choices=FichaEstetica.ComoConocio.choices,
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'form-check-input'}))
+
     """
     Ficha de ingreso de la paciente (HU-EST-01) y sus antecedentes
     esteticos (HU-EST-02).
@@ -123,21 +130,21 @@ class FichaEsteticaForm(forms.ModelForm):
                 # sin la clave en el POST y el campo lo guarda como null.
                 campo.widget = forms.RadioSelect(
                     choices=[(True, 'Sí'), (False, 'No')], attrs={'class': 'form-check-input'})
-            elif nombre == 'depilacion_resultado':
-                campo.widget = forms.RadioSelect(
-                    choices=FichaEstetica.ResultadoDepilacion.choices, attrs={'class': 'form-check-input'})
+            elif nombre in ('depilacion_resultado', 'estado_civil', 'religion'):
+                # Una sola opcion, para marcar en vez de escribir; se puede
+                # dejar sin marcar y se desmarca tocandola otra vez.
+                opciones = [c for c in self.Meta.model._meta.get_field(nombre).choices if c[0]]
+                campo.widget = forms.RadioSelect(choices=opciones, attrs={'class': 'form-check-input'})
             elif nombre in CASILLAS:
                 campo.widget.attrs['class'] = 'form-check-input'
             elif nombre in NUMEROS:
                 campo.widget.attrs.update({'class': 'form-control', 'min': 0})
             elif nombre == 'como_conocio':
-                campo.widget.attrs['class'] = 'form-select'
+                pass
             else:
                 campo.widget.attrs['class'] = 'form-control'
             if nombre in self.AYUDAS:
                 campo.widget.attrs['placeholder'] = self.AYUDAS[nombre]
-        # La opcion vacia con un texto que se entienda, no el "---------" de Django.
-        self.fields['como_conocio'].choices = [('', 'Sin indicar')] + list(FichaEstetica.ComoConocio.choices)
 
 
 class AtencionEsteticaForm(forms.ModelForm):

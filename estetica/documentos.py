@@ -218,28 +218,38 @@ def _signos(atencion, estilos):
 
 
 def _procedimientos(atencion, estilos):
-    """La tabla Procedimiento | 1 ... 10 de la paciente, con la fecha de cada sesion."""
-    procedimientos = (ProcedimientoEstetico.objects.filter(expediente=atencion.expediente_id, activo=True)
-                      .prefetch_related('sesiones__atencion'))
+    """
+    La tabla Procedimiento | 1 ... 10 de la paciente, con la fecha de cada
+    sesion. Si alguno pasa de 10 sesiones, las siguientes van en otro bloque
+    debajo (11 a 20, y asi): diez columnas es lo que cabe en la hoja.
+    """
+    procedimientos = list(ProcedimientoEstetico.objects.filter(expediente=atencion.expediente_id, activo=True)
+                          .prefetch_related('sesiones__atencion'))
     if not procedimientos:
         return []
-    numeros = range(1, ProcedimientoEstetico.MAXIMO_SESIONES + 1)
+    sesiones = {p.pk: {s.numero: s for s in p.sesiones.all() if s.activo} for p in procedimientos}
+    mas_alta = max((max(fechas, default=0) for fechas in sesiones.values()), default=0)
+    por_bloque = ProcedimientoEstetico.COLUMNAS_MINIMAS
+    bloques = max(1, math.ceil(mas_alta / por_bloque))
     pequeno = ParagraphStyle('Celda', parent=estilos['cuerpo'], fontSize=7, leading=9, alignment=1)
-    filas = [[Paragraph('<b>Procedimiento</b>', estilos['dato'])]
-             + [Paragraph(f'<b>{n}</b>', pequeno) for n in numeros]]
-    for procedimiento in procedimientos:
-        sesiones = {s.numero: s for s in procedimiento.sesiones.all() if s.activo}
-        filas.append([Paragraph(seguro(procedimiento.nombre), estilos['dato'])] + [
-            Paragraph(timezone.localtime(sesiones[n].atencion.inicio).strftime('%d/%m') if n in sesiones else '',
-                      pequeno) for n in numeros])
     ancho_nombre = 150
-    tabla = Table(filas, colWidths=[ancho_nombre] + [(ANCHO_UTIL - ancho_nombre) / 10] * 10, repeatRows=1,
-                  style=TableStyle([
-                      ('GRID', (0, 0), (-1, -1), 0.5, GRIS),
-                      ('BACKGROUND', (0, 0), (-1, 0), FONDO_TITULO),
-                      ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                  ]))
-    return [_seccion('Procedimientos', estilos), Spacer(1, 4), tabla, Spacer(1, 10)]
+    partes = [_seccion('Procedimientos', estilos), Spacer(1, 4)]
+    for bloque in range(bloques):
+        numeros = range(bloque * por_bloque + 1, (bloque + 1) * por_bloque + 1)
+        filas = [[Paragraph('<b>Procedimiento</b>', estilos['dato'])]
+                 + [Paragraph(f'<b>{n}</b>', pequeno) for n in numeros]]
+        for procedimiento in procedimientos:
+            propias = sesiones[procedimiento.pk]
+            filas.append([Paragraph(seguro(procedimiento.nombre), estilos['dato'])] + [
+                Paragraph(timezone.localtime(propias[n].atencion.inicio).strftime('%d/%m') if n in propias else '',
+                          pequeno) for n in numeros])
+        partes += [Table(filas, colWidths=[ancho_nombre] + [(ANCHO_UTIL - ancho_nombre) / por_bloque] * por_bloque,
+                         repeatRows=1, style=TableStyle([
+                             ('GRID', (0, 0), (-1, -1), 0.5, GRIS),
+                             ('BACKGROUND', (0, 0), (-1, 0), FONDO_TITULO),
+                             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                         ])), Spacer(1, 6)]
+    return partes + [Spacer(1, 4)]
 
 
 def generar_pdf_atencion(atencion):
@@ -317,7 +327,7 @@ def generar_plantilla_atencion(clinica, profesional, figura):
                    colWidths=[ANCHO_UTIL / 6] * 6,
                    style=TableStyle([('LEFTPADDING', (0, 0), (-1, -1), 0), ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
 
-    numeros = range(1, ProcedimientoEstetico.MAXIMO_SESIONES + 1)
+    numeros = range(1, ProcedimientoEstetico.COLUMNAS_MINIMAS + 1)
     pequeno = ParagraphStyle('Celda', parent=estilos['cuerpo'], fontSize=7, leading=9, alignment=1)
     filas = [[Paragraph('<b>Procedimiento</b>', estilos['dato'])] + [Paragraph(f'<b>{n}</b>', pequeno) for n in numeros]]
     filas += [[''] * 11 for _ in range(5)]

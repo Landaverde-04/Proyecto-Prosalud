@@ -19,7 +19,9 @@
         </div>
     </div>
     <div class="d-flex align-items-center gap-2 align-self-center">
-        {% if atencion.cerrada %}
+        {% if corrigiendo %}
+        <span class="badge rounded-pill text-bg-info">Finalizada · editando</span>
+        {% elif atencion.cerrada %}
         <span class="badge rounded-pill text-bg-secondary">Finalizada</span>
         {% else %}
         <span class="badge rounded-pill text-bg-warning">En atención</span>
@@ -27,6 +29,11 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" data-ver-pdf="{% url 'estetica:pdf_atencion' atencion.pk %}">
             <i class="bi bi-file-earmark-pdf me-1"></i>Ver PDF
         </button>
+        {% if puede_corregir %}
+        <a href="?editar=1" class="btn btn-sm btn-primary"><i class="bi bi-pencil me-1"></i>Editar</a>
+        {% elif corrigiendo %}
+        <a href="{% url 'estetica:atencion' atencion.pk %}" data-salir class="btn btn-sm btn-primary">Terminar edición</a>
+        {% endif %}
     </div>
 </div>
 
@@ -39,6 +46,7 @@ formulario por su atributo form.
 <form id="form-atencion" method="post" action="{% url 'estetica:guardar_atencion' atencion.pk %}"
       {% if editable %}data-preguardado{% endif %}>
     {% csrf_token %}
+    {% if corrigiendo %}<input type="hidden" name="editar" value="1">{% endif %}
     <div class="card shadow-sm border-0 mb-3">
         <div class="card-body p-4">
             <label for="{{ form.motivo.id_for_label }}" class="form-label small fw-semibold">{{ form.motivo.label }}</label>
@@ -148,7 +156,9 @@ formulario por su atributo form.
 {% if editable %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span id="estado-guardado" class="small text-muted">Guardada el {{ atencion.fecha_modificacion|date:'d/m/Y' }} a las {{ atencion.fecha_modificacion|date:'H:i' }}</span>
+    {% if not atencion.cerrada %}
     <button type="button" class="btn btn-primary" data-abrir-finalizar>Finalizar atención</button>
+    {% endif %}
 </div>
 
 <div class="modal fade" id="modalFinalizar" tabindex="-1" aria-hidden="true">
