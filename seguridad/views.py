@@ -32,6 +32,7 @@ _APPS_ES = {
     'seguridad': 'Usuarios',
     'pacientes': 'Pacientes',
     'consultas': 'Consultas',
+    'inventario': 'Inventario',
 }
 
 _MODELOS_ES = {

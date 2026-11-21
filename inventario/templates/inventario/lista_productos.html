@@ -1,0 +1,55 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block titulo %}Productos - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0 fw-semibold">Productos</h4>
+        <p class="text-muted small mb-0">Insumos de la clínica y productos de venta.</p>
+    </div>
+    {% if perms.inventario.add_producto %}
+    <a href="{% url 'inventario:crear_producto' %}" class="btn btn-primary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-plus-lg"></i> Nuevo producto
+    </a>
+    {% endif %}
+</div>
+
+<div data-listado>
+
+{# Buscar o cambiar un filtro actualiza el bloque de abajo sin recargar la página #}
+<form method="get" class="d-flex flex-wrap gap-2 mb-3">
+    <div class="input-group flex-grow-1" style="max-width: 360px;">
+        <span class="input-group-text bg-white border-end-0">
+            <i class="bi bi-search text-muted small"></i>
+        </span>
+        <input type="text" name="q" value="{{ consulta }}"
+               class="form-control border-start-0 ps-1"
+               placeholder="Buscar por nombre o presentación...">
+        <button type="submit" class="btn btn-outline-secondary">Buscar</button>
+    </div>
+    <select name="uso" class="form-select" style="width: auto;" aria-label="Uso">
+        <option value="" {% if not uso %}selected{% endif %}>Todos los usos</option>
+        <option value="insumo" {% if uso == 'insumo' %}selected{% endif %}>Insumos</option>
+        <option value="venta" {% if uso == 'venta' %}selected{% endif %}>De venta</option>
+    </select>
+    <select name="estado" class="form-select" style="width: auto;" aria-label="Estado">
+        <option value="activos" {% if estado == 'activos' %}selected{% endif %}>Activos</option>
+        <option value="inactivos" {% if estado == 'inactivos' %}selected{% endif %}>Inactivos</option>
+        <option value="todos" {% if estado == 'todos' %}selected{% endif %}>Todos</option>
+    </select>
+</form>
+
+<div data-listado-resultados>
+    {% include "inventario/resultados_productos.html" %}
+</div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{% static 'core/js/listado-vivo.js' %}"></script>
+{% endblock %}

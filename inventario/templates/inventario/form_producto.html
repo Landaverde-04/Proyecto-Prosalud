@@ -1,0 +1,101 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}{{ accion }} producto - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0 fw-semibold">{% if producto %}Editar producto{% else %}Nuevo producto{% endif %}</h4>
+    <a href="{% url 'inventario:lista_productos' %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-left"></i> Volver
+    </a>
+</div>
+
+<div class="card shadow-sm mx-auto" style="max-width: 680px;">
+    <div class="card-body p-4">
+
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            {% include "core/campo_clinica.html" %}
+
+            <div class="mb-3">
+                <label for="{{ form.nombre.id_for_label }}" class="form-label">{{ form.nombre.label }} <span class="text-danger">*</span></label>
+                <input type="text" name="{{ form.nombre.html_name }}" id="{{ form.nombre.id_for_label }}"
+                       maxlength="150" autocomplete="off" autofocus
+                       class="form-control {% if form.nombre.errors %}is-invalid{% endif %}"
+                       value="{{ form.nombre.value|default:'' }}">
+                {% for error in form.nombre.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+            </div>
+
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <label for="{{ form.presentacion.id_for_label }}" class="form-label">{{ form.presentacion.label }}</label>
+                    <input type="text" name="{{ form.presentacion.html_name }}" id="{{ form.presentacion.id_for_label }}"
+                           maxlength="100" autocomplete="off"
+                           class="form-control {% if form.presentacion.errors %}is-invalid{% endif %}"
+                           value="{{ form.presentacion.value|default:'' }}">
+                    <div class="form-text">{{ form.presentacion.help_text }}</div>
+                    {% for error in form.presentacion.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label for="{{ form.unidad.id_for_label }}" class="form-label">{{ form.unidad.label }}</label>
+                    <select name="{{ form.unidad.html_name }}" id="{{ form.unidad.id_for_label }}"
+                            class="form-select {% if form.unidad.errors %}is-invalid{% endif %}">
+                        {% for valor, etiqueta in form.unidad.field.choices %}
+                        <option value="{{ valor }}" {% if form.unidad.value == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
+                    {% for error in form.unidad.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <fieldset class="mb-3">
+                <legend class="form-label fs-6 mb-1">Uso <span class="text-danger">*</span></legend>
+                <div class="form-text mt-0 mb-2">Puede ser las dos cosas, por ejemplo una crema que se vende y también se usa en la clínica.</div>
+                <div class="d-flex flex-wrap gap-4">
+                    <div class="form-check">
+                        <input type="checkbox" name="{{ form.se_usa_en_clinica.html_name }}" id="{{ form.se_usa_en_clinica.id_for_label }}"
+                               class="form-check-input" {% if form.se_usa_en_clinica.value %}checked{% endif %}>
+                        <label for="{{ form.se_usa_en_clinica.id_for_label }}" class="form-check-label">{{ form.se_usa_en_clinica.label }} (insumo)</label>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" name="{{ form.se_vende.html_name }}" id="{{ form.se_vende.id_for_label }}"
+                               class="form-check-input" {% if form.se_vende.value %}checked{% endif %}>
+                        <label for="{{ form.se_vende.id_for_label }}" class="form-check-label">{{ form.se_vende.label }}</label>
+                    </div>
+                </div>
+            </fieldset>
+
+            <div class="mb-3" style="max-width: 260px;">
+                <label for="{{ form.stock_minimo.id_for_label }}" class="form-label">{{ form.stock_minimo.label }}</label>
+                <input type="number" min="0" name="{{ form.stock_minimo.html_name }}" id="{{ form.stock_minimo.id_for_label }}"
+                       class="form-control {% if form.stock_minimo.errors %}is-invalid{% endif %}"
+                       value="{{ form.stock_minimo.value|default_if_none:'' }}">
+                {% for error in form.stock_minimo.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+            </div>
+            <div class="form-text mb-3" style="margin-top: -0.5rem;">{{ form.stock_minimo.help_text }}</div>
+
+            <div class="mb-4">
+                <label for="{{ form.descripcion.id_for_label }}" class="form-label">{{ form.descripcion.label }}</label>
+                <textarea name="{{ form.descripcion.html_name }}" id="{{ form.descripcion.id_for_label }}" rows="3"
+                          class="form-control {% if form.descripcion.errors %}is-invalid{% endif %}">{{ form.descripcion.value|default:'' }}</textarea>
+                {% for error in form.descripcion.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <a href="{% url 'inventario:lista_productos' %}" class="btn btn-outline-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check-lg"></i> {% if producto %}Guardar cambios{% else %}Registrar producto{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

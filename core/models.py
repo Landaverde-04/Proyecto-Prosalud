@@ -96,6 +96,11 @@ class Clinica(ModeloBase):
         """Solo la clinica medica trabaja con preconsulta y cola; la estetica atiende por cita."""
         return self.tipo == self.Tipo.MEDICA
 
+    @property
+    def usa_inventario(self):
+        """El inventario (insumos y productos de venta) es solo de la clinica medica."""
+        return self.tipo == self.Tipo.MEDICA
+
 
 class RegistroAuditoria(models.Model):
     """

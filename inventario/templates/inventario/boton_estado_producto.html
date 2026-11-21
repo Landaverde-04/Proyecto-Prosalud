@@ -1,0 +1,28 @@
+{% comment %}
+Botón Activar / Desactivar producto. Los productos no se eliminan: se
+desactivan, para conservar su historial. Contexto requerido: producto.
+{% endcomment %}
+<button type="button"
+        class="btn btn-sm {% if producto.activo %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+        data-confirmar
+        data-url="{% url 'inventario:cambiar_estado_producto' producto.pk %}"
+        data-nombre="{{ producto }}"
+        {% if producto.activo %}
+        title="Desactivar"
+        data-titulo="Desactivar producto"
+        data-mensaje="¿Desactivar el producto "
+        data-boton="Sí, desactivar"
+        data-color="warning"
+        data-icono="bi-box-arrow-down"
+        data-nota="Deja de aparecer en el inventario, pero su historial se conserva. Puedes reactivarlo cuando quieras."
+        {% else %}
+        title="Activar"
+        data-titulo="Activar producto"
+        data-mensaje="¿Activar el producto "
+        data-boton="Sí, activar"
+        data-color="success"
+        data-icono="bi-box-arrow-up"
+        data-nota="Vuelve a aparecer en el inventario."
+        {% endif %}>
+    <i class="bi {% if producto.activo %}bi-box-arrow-down{% else %}bi-box-arrow-up{% endif %}"></i>
+</button>

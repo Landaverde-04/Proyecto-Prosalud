@@ -11,7 +11,7 @@ from .models import Usuario
 # Apps del negocio: TODOS sus modelos aportan permisos automaticamente.
 # Al crear una app nueva del negocio hay que agregarla aqui, o sus permisos
 # nunca apareceran en el formulario de roles.
-APPS_NEGOCIO = ['core', 'seguridad', 'pacientes', 'consultas']
+APPS_NEGOCIO = ['core', 'seguridad', 'pacientes', 'consultas', 'inventario']
 
 # Excepcion puntual: "Roles" en la interfaz es el modelo Group de Django, que
 # vive en la app 'auth'. Se incluye solo ese modelo y NO la app completa,

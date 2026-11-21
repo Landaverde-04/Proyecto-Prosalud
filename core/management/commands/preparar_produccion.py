@@ -45,11 +45,13 @@ ROLES = {
         'consultas.view_ordenexamen', 'consultas.add_ordenexamen',
         # Adjuntos: ver y agregar. Retirar es de la administradora.
         'consultas.view_adjunto', 'consultas.add_adjunto',
+        'inventario.view_producto',
     ],
     'Enfermera': [
         'pacientes.view_persona', 'pacientes.add_persona', 'pacientes.change_persona',
         'consultas.view_consulta', 'consultas.add_consulta',
         'consultas.add_signosvitales', 'consultas.change_signosvitales',
+        'inventario.view_producto',
     ],
     'Secretaria': [
         'pacientes.view_persona', 'pacientes.add_persona',

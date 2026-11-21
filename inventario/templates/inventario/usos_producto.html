@@ -1,0 +1,1 @@
+{% for etiqueta in producto.usos %}<span class="badge {% if etiqueta == 'Insumo' %}bg-info-subtle text-info-emphasis border border-info-subtle{% else %}bg-primary-subtle text-primary-emphasis border border-primary-subtle{% endif %} me-1">{{ etiqueta }}</span>{% endfor %}
