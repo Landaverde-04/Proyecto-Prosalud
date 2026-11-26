@@ -1,0 +1,6 @@
+{% with estado=lote.estado %}
+{% if estado == 'vencido' %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Vencido</span>
+{% elif estado == 'por_vencer' %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Vence en {{ lote.dias_para_vencer }} día{{ lote.dias_para_vencer|pluralize }}</span>
+{% elif estado == 'agotado' %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Agotado</span>
+{% else %}<span class="badge bg-success-subtle text-success border border-success-subtle">Vigente</span>{% endif %}
+{% endwith %}

@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+
+{% block titulo %}Registrar entrada - Sistema ProSalud{% endblock %}
+
+{% block contenido %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="overflow-hidden">
+        <h4 class="mb-0 fw-semibold">Registrar entrada</h4>
+        <p class="text-muted small mb-0 text-truncate">{{ producto }} · existencia actual: {{ existencia }}</p>
+    </div>
+    <a href="{% url 'inventario:detalle_producto' producto.pk %}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-left"></i> Volver
+    </a>
+</div>
+
+<div class="card shadow-sm mx-auto" style="max-width: 620px;">
+    <div class="card-body p-4">
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>
+        {% endif %}
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            {% include "core/campo_clinica.html" %}
+
+            <div class="row">
+                <div class="col-sm-6 mb-3">
+                    <label for="{{ form.cantidad_inicial.id_for_label }}" class="form-label">{{ form.cantidad_inicial.label }} <span class="text-danger">*</span></label>
+                    <div class="input-group has-validation">
+                        <input type="number" min="1" name="{{ form.cantidad_inicial.html_name }}" id="{{ form.cantidad_inicial.id_for_label }}" autofocus
+                               class="form-control {% if form.cantidad_inicial.errors %}is-invalid{% endif %}"
+                               value="{{ form.cantidad_inicial.value|default_if_none:'' }}">
+                        <span class="input-group-text">{{ producto.get_unidad_display|lower }}</span>
+                        {% for error in form.cantidad_inicial.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+                    </div>
+                </div>
+                <div class="col-sm-6 mb-3">
+                    <label for="{{ form.fecha_entrada.id_for_label }}" class="form-label">{{ form.fecha_entrada.label }} <span class="text-danger">*</span></label>
+                    {{ form.fecha_entrada }}
+                    {% for error in form.fecha_entrada.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-sm-6 mb-3">
+                    <label for="{{ form.numero_lote.id_for_label }}" class="form-label">{{ form.numero_lote.label }}</label>
+                    {{ form.numero_lote }}
+                    <div class="form-text">{{ form.numero_lote.help_text }}</div>
+                    {% for error in form.numero_lote.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="col-sm-6 mb-3">
+                    <label for="{{ form.fecha_vencimiento.id_for_label }}" class="form-label">{{ form.fecha_vencimiento.label }}</label>
+                    {{ form.fecha_vencimiento }}
+                    <div class="form-text">{{ form.fecha_vencimiento.help_text }}</div>
+                    {% for error in form.fecha_vencimiento.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label for="{{ form.referencia.id_for_label }}" class="form-label">{{ form.referencia.label }}</label>
+                {{ form.referencia }}
+                <div class="form-text">{{ form.referencia.help_text }}</div>
+                {% for error in form.referencia.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+                <a href="{% url 'inventario:detalle_producto' producto.pk %}" class="btn btn-outline-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Registrar entrada</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

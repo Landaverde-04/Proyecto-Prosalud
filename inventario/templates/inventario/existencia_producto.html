@@ -1,0 +1,5 @@
+{% comment %}
+Existencia de un producto con su alerta. Contexto: producto (con la
+anotación existencia de con_existencia()).
+{% endcomment %}
+{% if producto.existencia == 0 %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle" title="Sin existencia"><i class="bi bi-x-circle"></i> 0</span>{% elif producto.existencia <= producto.stock_minimo %}<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" title="Existencia baja (mínima: {{ producto.stock_minimo }})"><i class="bi bi-exclamation-triangle"></i> {{ producto.existencia }}</span>{% else %}<span class="fw-medium">{{ producto.existencia }}</span>{% endif %}

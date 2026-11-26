@@ -17,6 +17,18 @@
     {% endif %}
 </div>
 
+{% if cuantos_bajos %}
+<div class="alert alert-warning d-flex align-items-center gap-2 py-2">
+    <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+    <div class="flex-grow-1">
+        {{ cuantos_bajos }} producto{{ cuantos_bajos|pluralize }} con existencia baja o sin existencia.
+    </div>
+    {% if existencia != 'baja' %}
+    <a href="?existencia=baja" class="alert-link small text-nowrap">Ver cuáles</a>
+    {% endif %}
+</div>
+{% endif %}
+
 <div data-listado>
 
 {# Buscar o cambiar un filtro actualiza el bloque de abajo sin recargar la página #}
@@ -34,6 +46,10 @@
         <option value="" {% if not uso %}selected{% endif %}>Todos los usos</option>
         <option value="insumo" {% if uso == 'insumo' %}selected{% endif %}>Insumos</option>
         <option value="venta" {% if uso == 'venta' %}selected{% endif %}>De venta</option>
+    </select>
+    <select name="existencia" class="form-select" style="width: auto;" aria-label="Existencia">
+        <option value="" {% if not existencia %}selected{% endif %}>Toda existencia</option>
+        <option value="baja" {% if existencia == 'baja' %}selected{% endif %}>Existencia baja</option>
     </select>
     <select name="estado" class="form-select" style="width: auto;" aria-label="Estado">
         <option value="activos" {% if estado == 'activos' %}selected{% endif %}>Activos</option>

@@ -26,6 +26,15 @@ def _accesos_rapidos(usuario, clinica):
         'consultas.view_incapacidad', 'consultas.view_receta',
         'consultas.view_referenciamedica', 'consultas.view_ordenexamen',
     ) if usuario.has_perm(permiso)), False)
+    # El inventario solo existe en la clinica medica (INV-01). La descripcion
+    # avisa si hay productos con existencia baja (INV-02).
+    permiso_inventario = 'inventario.view_producto' if clinica and clinica.usa_inventario else False
+    descripcion_inventario = 'Insumos y productos de venta'
+    if permiso_inventario and usuario.has_perm(permiso_inventario):
+        from inventario.models import Producto
+        bajos = Producto.objects.filter(clinica=clinica, activo=True).con_existencia_baja().count()
+        if bajos:
+            descripcion_inventario = f'{bajos} con existencia baja'
     secciones = [
         ('Atención', [
             ('pacientes.add_persona', 'Nuevo paciente', 'Adulto o menor, con su contacto',
@@ -37,6 +46,10 @@ def _accesos_rapidos(usuario, clinica):
              'bi-list-ol', reverse('pacientes:cola_consultas')),
             (permiso_plantillas, 'Plantillas', 'Documentos en blanco, por si no hay sistema',
              'bi-printer', reverse('consultas:plantillas')),
+        ]),
+        ('Inventario', [
+            (permiso_inventario, 'Productos', descripcion_inventario,
+             'bi-box-seam', reverse('inventario:lista_productos')),
         ]),
         ('Administración', [
             ('seguridad.view_usuario', 'Usuarios', 'Cuentas y contraseñas',

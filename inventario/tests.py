@@ -1,11 +1,14 @@
+from datetime import timedelta
+
 from django.contrib.auth.models import Permission
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import Clinica
 from core.tests import PruebaCore
 from seguridad.forms import permisos_asignables
 from seguridad.models import Usuario
-from .models import Producto
+from .models import Lote, MovimientoInventario, Producto
 
 
 class PruebaDeInventario(PruebaCore):
@@ -16,7 +19,8 @@ class PruebaDeInventario(PruebaCore):
     def setUp(self):
         self.prosalud = Clinica.objects.create(nombre='ProSalud')
         self.estetica = Clinica.objects.create(nombre='Estética', tipo=Clinica.Tipo.ESTETICA)
-        self.admin = self.usuario('admin', 'view_producto', 'add_producto', 'change_producto')
+        self.admin = self.usuario('admin', 'view_producto', 'add_producto', 'change_producto',
+                                  'add_lote', 'view_movimientoinventario')
         self.client.force_login(self.admin)
         self.trabajar_en(self.prosalud)
 
@@ -235,4 +239,183 @@ class PermisosInventarioTests(PruebaCore):
     def test_aparecen_en_los_permisos_asignables(self):
         codigos = set(permisos_asignables().filter(
             content_type__app_label='inventario').values_list('codename', flat=True))
-        self.assertEqual(codigos, {'view_producto', 'add_producto', 'change_producto'})
+        self.assertTrue({'view_producto', 'add_producto', 'change_producto', 'add_lote',
+                         'view_movimientoinventario'} <= codigos)
+        self.assertFalse(any(codigo.startswith('delete_') for codigo in codigos))
+
+
+HOY = timezone.localdate()
+
+
+class PruebaDeLotes(PruebaDeInventario):
+    def lote(self, producto, cantidad, vence=None, actual=None, **datos):
+        return Lote.objects.create(producto=producto, cantidad_inicial=cantidad,
+                                   cantidad_actual=cantidad if actual is None else actual,
+                                   fecha_vencimiento=vence, **datos)
+
+
+class ExistenciaTests(PruebaDeLotes):
+    """INV-02: la existencia suma los lotes que se pueden usar."""
+
+    def test_suma_los_lotes_vigentes_y_los_que_no_vencen(self):
+        suero = self.producto('Suero fisiológico')
+        self.lote(suero, 10, vence=HOY + timedelta(days=200))
+        self.lote(suero, 4)
+        self.assertEqual(suero.calcular_existencia(), 14)
+        self.assertEqual(Producto.objects.con_existencia().get().existencia, 14)
+
+    def test_no_cuenta_lo_vencido_ni_lo_desactivado(self):
+        suero = self.producto('Suero fisiológico')
+        self.lote(suero, 10, vence=HOY - timedelta(days=1))
+        self.lote(suero, 5, activo=False)
+        self.lote(suero, 3, vence=HOY)
+        self.assertEqual(suero.calcular_existencia(), 3)
+        self.assertEqual(Producto.objects.con_existencia().get().existencia, 3)
+
+    def test_sin_lotes_la_existencia_es_cero(self):
+        self.producto('Gasa estéril')
+        self.assertEqual(Producto.objects.con_existencia().get().existencia, 0)
+
+    def test_existencia_baja_incluye_la_minima_y_la_vacia(self):
+        normal = self.producto('Jeringa', stock_minimo=5)
+        self.lote(normal, 6)
+        en_el_minimo = self.producto('Gasa', stock_minimo=5)
+        self.lote(en_el_minimo, 5)
+        self.producto('Algodón', stock_minimo=0)
+        bajos = set(Producto.objects.con_existencia_baja().values_list('nombre', flat=True))
+        self.assertEqual(bajos, {'Gasa', 'Algodón'})
+
+    def test_estado_del_lote(self):
+        suero = self.producto('Suero')
+        self.assertEqual(self.lote(suero, 1, vence=HOY + timedelta(days=90)).estado, 'vigente')
+        self.assertEqual(self.lote(suero, 1, vence=HOY + timedelta(days=30)).estado, 'por_vencer')
+        self.assertEqual(self.lote(suero, 1, vence=HOY - timedelta(days=1)).estado, 'vencido')
+        self.assertEqual(self.lote(suero, 1, actual=0).estado, 'agotado')
+        self.assertEqual(self.lote(suero, 1).estado, 'vigente')
+
+
+class ExistenciaEnLaListaTests(PruebaDeLotes):
+    url = reverse('inventario:lista_productos')
+
+    def test_muestra_la_existencia_y_avisa_la_baja(self):
+        suero = self.producto('Suero fisiológico', stock_minimo=5)
+        self.lote(suero, 3)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'title="Existencia baja (mínima: 5)"')
+        self.assertContains(respuesta, '1 producto con existencia baja')
+
+    def test_sin_existencia(self):
+        self.producto('Gasa estéril')
+        self.assertContains(self.client.get(self.url), 'title="Sin existencia"')
+
+    def test_filtra_la_existencia_baja(self):
+        suero = self.producto('Suero fisiológico', stock_minimo=5)
+        self.lote(suero, 50)
+        self.producto('Gasa estéril', stock_minimo=5)
+        respuesta = self.client.get(self.url, {'existencia': 'baja'}, **self.AJAX)
+        self.assertContains(respuesta, 'Gasa estéril')
+        self.assertNotContains(respuesta, 'Suero fisiológico')
+
+    def test_el_aviso_no_cuenta_los_inactivos(self):
+        self.producto('Algodón', activo=False)
+        self.assertNotContains(self.client.get(self.url), 'con existencia baja o sin existencia')
+
+    def test_el_inicio_avisa_la_existencia_baja(self):
+        self.producto('Gasa estéril', stock_minimo=5)
+        self.assertContains(self.client.get(reverse('core:home')), '1 con existencia baja')
+
+
+class DetalleProductoTests(PruebaDeLotes):
+    def test_muestra_existencia_lotes_y_movimientos(self):
+        suero = self.producto('Suero fisiológico', stock_minimo=2)
+        lote = self.lote(suero, 10, vence=HOY + timedelta(days=10), numero_lote='L-77')
+        MovimientoInventario.objects.create(lote=lote, tipo='entrada', cantidad=10, creado_por=self.admin)
+        respuesta = self.client.get(reverse('inventario:detalle_producto', args=[suero.pk]))
+        self.assertContains(respuesta, 'L-77')
+        self.assertContains(respuesta, 'Vence en 10 días')
+        self.assertContains(respuesta, '+10')
+        self.assertEqual(respuesta.context['existencia'], 10)
+
+    def test_quien_no_ve_movimientos_no_los_ve(self):
+        suero = self.producto('Suero fisiológico')
+        self.client.force_login(self.usuario('enfermera', 'view_producto'))
+        self.trabajar_en(self.prosalud)
+        respuesta = self.client.get(reverse('inventario:detalle_producto', args=[suero.pk]))
+        self.assertIsNone(respuesta.context['movimientos'])
+        self.assertNotContains(respuesta, 'Registrar entrada')
+
+    def test_no_muestra_productos_de_otra_clinica(self):
+        ajeno = self.producto('Crema', clinica=self.estetica)
+        self.assertEqual(self.client.get(reverse('inventario:detalle_producto', args=[ajeno.pk])).status_code, 404)
+
+
+class RegistrarEntradaTests(PruebaDeLotes):
+    """INV-02: cada entrada crea un lote y deja su movimiento."""
+
+    def setUp(self):
+        super().setUp()
+        self.suero = self.producto('Suero fisiológico', unidad='bolsa')
+        self.url = reverse('inventario:registrar_entrada', args=[self.suero.pk])
+
+    def datos(self, **cambios):
+        base = {'cantidad_inicial': '20', 'numero_lote': ' L-2026  01 ',
+                'fecha_vencimiento': (HOY + timedelta(days=365)).isoformat(),
+                'fecha_entrada': HOY.isoformat(), 'referencia': 'Factura 123'}
+        base.update(cambios)
+        return {clave: valor for clave, valor in base.items() if valor is not None}
+
+    def test_crea_el_lote_y_el_movimiento(self):
+        respuesta = self.client.post(self.url, self.datos())
+        self.assertRedirects(respuesta, reverse('inventario:detalle_producto', args=[self.suero.pk]))
+        lote = Lote.objects.get()
+        self.assertEqual((lote.cantidad_inicial, lote.cantidad_actual), (20, 20))
+        self.assertEqual(lote.numero_lote, 'L-2026 01')
+        self.assertEqual(lote.creado_por, self.admin)
+        movimiento = MovimientoInventario.objects.get()
+        self.assertEqual((movimiento.tipo, movimiento.cantidad), ('entrada', 20))
+        self.assertEqual(movimiento.referencia, 'Factura 123')
+        self.assertEqual(movimiento.creado_por, self.admin)
+        self.assertEqual(self.suero.calcular_existencia(), 20)
+
+    def test_sin_vencimiento_ni_numero_de_lote(self):
+        self.client.post(self.url, self.datos(fecha_vencimiento='', numero_lote=''))
+        lote = Lote.objects.get()
+        self.assertIsNone(lote.fecha_vencimiento)
+        self.assertEqual(lote.numero_lote, '')
+
+    def test_la_fecha_de_entrada_viene_con_hoy(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, f'value="{HOY.isoformat()}"')
+
+    def test_pide_una_cantidad_de_al_menos_uno(self):
+        for cantidad in ('0', '-5', ''):
+            self.client.post(self.url, self.datos(cantidad_inicial=cantidad))
+        self.assertFalse(Lote.objects.exists())
+        self.assertFalse(MovimientoInventario.objects.exists())
+
+    def test_no_acepta_un_lote_vencido(self):
+        respuesta = self.client.post(self.url, self.datos(fecha_vencimiento=(HOY - timedelta(days=1)).isoformat()))
+        self.assertContains(respuesta, 'Este lote ya está vencido')
+        self.assertFalse(Lote.objects.exists())
+
+    def test_no_acepta_una_fecha_de_entrada_futura(self):
+        respuesta = self.client.post(self.url, self.datos(fecha_entrada=(HOY + timedelta(days=1)).isoformat()))
+        self.assertContains(respuesta, 'La fecha de entrada no puede ser futura.')
+        self.assertFalse(Lote.objects.exists())
+
+    def test_no_da_entrada_a_un_producto_desactivado(self):
+        self.suero.activo = False
+        self.suero.save()
+        self.client.post(self.url, self.datos())
+        self.assertFalse(Lote.objects.exists())
+
+    def test_sin_permiso_no_registra(self):
+        self.client.force_login(self.usuario('enfermera', 'view_producto'))
+        self.trabajar_en(self.prosalud)
+        self.assertEqual(self.client.post(self.url, self.datos()).status_code, 403)
+        self.assertFalse(Lote.objects.exists())
+
+    def test_no_registra_en_productos_de_otra_clinica(self):
+        ajeno = self.producto('Crema', clinica=self.estetica)
+        url = reverse('inventario:registrar_entrada', args=[ajeno.pk])
+        self.assertEqual(self.client.post(url, self.datos()).status_code, 404)

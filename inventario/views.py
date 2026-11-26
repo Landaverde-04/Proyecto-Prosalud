@@ -1,14 +1,15 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from core.clinica_activa import clinica_activa, formulario_de_otra_clinica
 from core.paginacion import es_ajax, paginar
 
-from .forms import ProductoForm
-from .models import Producto
+from .forms import EntradaForm, ProductoForm
+from .models import MovimientoInventario, Producto
 
 MENSAJE_OTRA_CLINICA = 'El inventario solo está disponible en la clínica médica.'
 
@@ -31,7 +32,7 @@ def lista_productos(request):
         messages.info(request, MENSAJE_OTRA_CLINICA)
         return redirect('core:home')
 
-    productos = Producto.objects.filter(clinica=clinica)
+    productos = Producto.objects.filter(clinica=clinica).con_existencia()
 
     consulta = request.GET.get('q', '').strip()
     if consulta:
@@ -54,6 +55,11 @@ def lista_productos(request):
     elif estado == 'inactivos':
         productos = productos.filter(activo=False)
 
+    # Existencia baja: la minima o menos, incluidos los que no tienen nada.
+    existencia = request.GET.get('existencia', '')
+    if existencia == 'baja':
+        productos = productos.filter(existencia__lte=F('stock_minimo'))
+
     total = productos.count()
     contexto = {
         'pagina': paginar(productos, request),
@@ -61,7 +67,10 @@ def lista_productos(request):
         'consulta': consulta,
         'uso': uso,
         'estado': estado,
-        'hay_filtros': bool(consulta or uso or estado != 'activos'),
+        'existencia': existencia,
+        'hay_filtros': bool(consulta or uso or existencia or estado != 'activos'),
+        # Aviso arriba de la lista: no cambia con la busqueda.
+        'cuantos_bajos': Producto.objects.filter(clinica=clinica, activo=True).con_existencia_baja().count(),
     }
     plantilla = 'inventario/resultados_productos.html' if es_ajax(request) else 'inventario/lista_productos.html'
     return render(request, plantilla, contexto)
@@ -131,3 +140,74 @@ def cambiar_estado_producto(request, producto_id):
     messages.success(
         request, f'Producto {"activado" if producto.activo else "desactivado"}: {producto}.')
     return redirect('inventario:lista_productos')
+
+
+@login_required
+@permission_required('inventario.view_producto', raise_exception=True)
+def detalle_producto(request, producto_id):
+    """Datos del producto, su existencia y sus lotes, del que vence primero al ultimo (INV-02)."""
+    clinica = clinica_con_inventario(request)
+    if clinica is None:
+        messages.info(request, MENSAJE_OTRA_CLINICA)
+        return redirect('core:home')
+    producto = producto_de_la_clinica(clinica, producto_id)
+    existencia = producto.calcular_existencia()
+    lotes = producto.lotes.filter(activo=True)
+    movimientos = None
+    if request.user.has_perm('inventario.view_movimientoinventario'):
+        movimientos = (MovimientoInventario.objects.filter(lote__producto=producto)
+                       .select_related('lote', 'creado_por')[:10])
+    return render(request, 'inventario/detalle_producto.html', {
+        'producto': producto,
+        'existencia': existencia,
+        'existencia_baja': existencia <= producto.stock_minimo,
+        'lotes': lotes,
+        'lotes_con_existencia': [lote for lote in lotes if lote.cantidad_actual > 0],
+        'lotes_agotados': [lote for lote in lotes if lote.cantidad_actual == 0],
+        'movimientos': movimientos,
+    })
+
+
+@login_required
+@permission_required('inventario.add_lote', raise_exception=True)
+def registrar_entrada(request, producto_id):
+    """
+    Entrada de un producto: crea el lote y deja el movimiento en el
+    historial, las dos cosas juntas o ninguna.
+    """
+    clinica = clinica_con_inventario(request)
+    if clinica is None:
+        messages.info(request, MENSAJE_OTRA_CLINICA)
+        return redirect('core:home')
+    producto = producto_de_la_clinica(clinica, producto_id)
+    if not producto.activo:
+        messages.error(request, f'{producto} está desactivado: actívalo antes de darle entrada.')
+        return redirect('inventario:detalle_producto', producto_id=producto.pk)
+
+    form = EntradaForm(request.POST or None)
+    if request.method == 'POST':
+        if formulario_de_otra_clinica(request, clinica):
+            messages.warning(
+                request,
+                f'Cambiaste de clínica en otra pestaña. Ahora trabajas en {clinica.nombre}: '
+                'revisa los datos y vuelve a guardar.',
+            )
+        elif form.is_valid():
+            with transaction.atomic():
+                lote = form.save(commit=False)
+                lote.producto = producto
+                lote.cantidad_actual = lote.cantidad_inicial
+                lote.creado_por = lote.modificado_por = request.user
+                lote.save()
+                MovimientoInventario.objects.create(
+                    lote=lote, tipo=MovimientoInventario.Tipo.ENTRADA, cantidad=lote.cantidad_inicial,
+                    referencia=lote.referencia, creado_por=request.user, modificado_por=request.user,
+                )
+            messages.success(request, f'Entrada registrada: {lote.cantidad_inicial} de {producto}.')
+            return redirect('inventario:detalle_producto', producto_id=producto.pk)
+
+    return render(request, 'inventario/form_entrada.html', {
+        'form': form,
+        'producto': producto,
+        'existencia': producto.calcular_existencia(),
+    })
